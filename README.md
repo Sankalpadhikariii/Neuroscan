@@ -466,8 +466,8 @@ This project is developed as part of an academic requirement for Pokhara Univers
 
 For questions or collaboration:
 - **Email**: neuroscan@university.edu
-- **GitHub**: [github.com/yourusername/neuroscan](https://github.com/yourusername/neuroscan)
-- **Issues**: [Report bugs](https://github.com/yourusername/neuroscan/issues)
+- **GitHub**: [github.com/yourusername/neuroscan](https://github.com/Sankalpadhikariii/neuroscan)
+- **Issues**: [Report bugs](https://github.com/Sankalpadhikariii/neuroscan/issues)
 
 ---
 
@@ -487,7 +487,7 @@ If you found this project helpful, please give it a star ⭐ on GitHub!
 
 ```bash
 # Quick start command
-git clone https://github.com/Sankalpaadhikariii/neuroscan.git
+git clone https://github.com/Sankalpadhikariii/neuroscan.git
 cd neuroscan
 docker-compose up --build
 ```
