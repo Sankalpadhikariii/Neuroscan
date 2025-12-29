@@ -4,10 +4,12 @@ import base64
 import sqlite3
 import secrets
 import logging
+import random
+import string
 from pathlib import Path
 from functools import wraps
-import requests
-from gradcam_utilis import generate_gradcam_visualization
+from datetime import datetime, timedelta
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,6 +24,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 from pdf_report import generate_pdf_report
+from email_utilis import send_verification_email, send_welcome_email
 
 # -----------------------------
 # Environment
@@ -52,7 +55,7 @@ CORS(
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["20 per minute"]
+    default_limits=["50 per minute"]
 )
 
 
@@ -74,47 +77,13 @@ logger.info(f"Using device: {device}")
 # -----------------------------
 # Database
 # -----------------------------
-DB_FILE = "brain_tumor.db"
+DB_FILE = "neuroscan_platform.db"
 
 
-def init_db():
+def get_db():
     conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            email TEXT UNIQUE,
-            password TEXT,
-            role TEXT DEFAULT 'user',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            prediction TEXT,
-            confidence REAL,
-            is_tumor BOOLEAN,
-            image_data TEXT,
-            patient_name TEXT,
-            patient_age INTEGER,
-            patient_gender TEXT,
-            patient_id TEXT,
-            scan_date TEXT,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # -----------------------------
@@ -123,142 +92,515 @@ init_db()
 def login_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if "user_id" not in session:
+        if "user_id" not in session or "user_type" not in session:
             return jsonify({"error": "Not authenticated"}), 401
         return f(*args, **kwargs)
 
     return wrapper
 
 
+def admin_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session or session.get("user_type") != "admin":
+            return jsonify({"error": "Admin access required"}), 403
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def hospital_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session or session.get("user_type") != "hospital":
+            return jsonify({"error": "Hospital access required"}), 403
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def patient_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "patient_id" not in session:
+            return jsonify({"error": "Patient authentication required"}), 403
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
 # -----------------------------
-# Auth Routes
+# Utility Functions
 # -----------------------------
-@app.route("/register", methods=["POST"])
-def register():
+def generate_code(length=8):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+
+def log_activity(user_type, user_id, action, details=None, hospital_id=None):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO activity_logs (user_type, user_id, hospital_id, action, details)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_type, user_id, hospital_id, action, details))
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+
+# ==============================================
+# ADMIN ROUTES
+# ==============================================
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
     data = request.json
     username = data.get("username")
-    email = data.get("email")
     password = data.get("password")
 
-    if not all([username, email, password]):
-        return jsonify({"error": "Missing fields"}), 400
-
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
-
-    c.execute("SELECT id FROM users WHERE username=? OR email=?", (username, email))
-    if c.fetchone():
-        conn.close()
-        return jsonify({"error": "User exists"}), 400
-
-    hashed = generate_password_hash(password)
-    c.execute(
-        "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-        (username, email, hashed)
-    )
-    conn.commit()
-
-    user_id = c.lastrowid
+    c.execute("SELECT * FROM admins WHERE username=?", (username,))
+    admin = c.fetchone()
     conn.close()
 
-    session["user_id"] = user_id
-    session["username"] = username
-    session["role"] = "user"
+    if not admin or not check_password_hash(admin["password"], password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    session["user_id"] = admin["id"]
+    session["user_type"] = "admin"
+    session["username"] = admin["username"]
+
+    log_activity("admin", admin["id"], "login")
 
     return jsonify({
         "user": {
-            "id": user_id,
-            "username": username,
-            "role": "user"
+            "id": admin["id"],
+            "username": admin["username"],
+            "email": admin["email"],
+            "full_name": admin["full_name"],
+            "type": "admin"
         }
     })
 
 
-@app.route("/login", methods=["POST"])
-def login():
+@app.route("/admin/dashboard", methods=["GET"])
+@admin_required
+def admin_dashboard():
+    conn = get_db()
+    c = conn.cursor()
+
+    # Total statistics
+    c.execute("SELECT COUNT(*) as count FROM hospitals WHERE status='active'")
+    total_hospitals = c.fetchone()["count"]
+
+    c.execute("SELECT COUNT(*) as count FROM hospital_users WHERE status='active'")
+    total_doctors = c.fetchone()["count"]
+
+    c.execute("SELECT COUNT(*) as count FROM patients")
+    total_patients = c.fetchone()["count"]
+
+    c.execute("SELECT COUNT(*) as count FROM mri_scans")
+    total_scans = c.fetchone()["count"]
+
+    c.execute("SELECT COUNT(*) as count FROM bug_reports WHERE status!='resolved'")
+    open_bugs = c.fetchone()["count"]
+
+    # Recent hospitals
+    c.execute("""
+        SELECT id, hospital_name, hospital_code, email, city, created_at
+        FROM hospitals
+        ORDER BY created_at DESC
+        LIMIT 5
+    """)
+    recent_hospitals = [dict(row) for row in c.fetchall()]
+
+    # Usage by hospital (top 5)
+    c.execute("""
+        SELECT h.hospital_name, COUNT(s.id) as scan_count
+        FROM hospitals h
+        LEFT JOIN mri_scans s ON h.id = s.hospital_id
+        GROUP BY h.id
+        ORDER BY scan_count DESC
+        LIMIT 5
+    """)
+    top_hospitals = [dict(row) for row in c.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        "stats": {
+            "total_hospitals": total_hospitals,
+            "total_doctors": total_doctors,
+            "total_patients": total_patients,
+            "total_scans": total_scans,
+            "open_bugs": open_bugs
+        },
+        "recent_hospitals": recent_hospitals,
+        "top_hospitals": top_hospitals
+    })
+
+
+@app.route("/admin/hospitals", methods=["GET", "POST"])
+@admin_required
+def admin_hospitals():
+    conn = get_db()
+    c = conn.cursor()
+
+    if request.method == "GET":
+        c.execute("""
+            SELECT h.*, 
+                   COUNT(DISTINCT hu.id) as user_count,
+                   COUNT(DISTINCT s.id) as scan_count
+            FROM hospitals h
+            LEFT JOIN hospital_users hu ON h.id = hu.hospital_id
+            LEFT JOIN mri_scans s ON h.id = s.hospital_id
+            GROUP BY h.id
+            ORDER BY h.created_at DESC
+        """)
+        hospitals = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify({"hospitals": hospitals})
+
+    # POST - Create new hospital
+    data = request.json
+    hospital_code = generate_code()
+
+    c.execute("""
+        INSERT INTO hospitals (
+            hospital_name, hospital_code, contact_person, email,
+            phone, address, city, country, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data.get("hospital_name"),
+        hospital_code,
+        data.get("contact_person"),
+        data.get("email"),
+        data.get("phone"),
+        data.get("address"),
+        data.get("city"),
+        data.get("country"),
+        session["user_id"]
+    ))
+
+    hospital_id = c.lastrowid
+    conn.commit()
+    conn.close()
+
+    log_activity("admin", session["user_id"], "create_hospital", f"Created {data.get('hospital_name')}")
+
+    return jsonify({
+        "message": "Hospital created",
+        "hospital_id": hospital_id,
+        "hospital_code": hospital_code
+    }), 201
+
+
+@app.route("/admin/hospitals/<int:hospital_id>", methods=["GET", "PUT", "DELETE"])
+@admin_required
+def admin_hospital_detail(hospital_id):
+    conn = get_db()
+    c = conn.cursor()
+
+    if request.method == "GET":
+        c.execute("SELECT * FROM hospitals WHERE id=?", (hospital_id,))
+        hospital = c.fetchone()
+
+        if not hospital:
+            conn.close()
+            return jsonify({"error": "Hospital not found"}), 404
+
+        c.execute("SELECT * FROM hospital_users WHERE hospital_id=?", (hospital_id,))
+        users = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+        return jsonify({
+            "hospital": dict(hospital),
+            "users": users
+        })
+
+    elif request.method == "PUT":
+        data = request.json
+        c.execute("""
+            UPDATE hospitals 
+            SET hospital_name=?, contact_person=?, email=?, phone=?, 
+                address=?, city=?, country=?, status=?
+            WHERE id=?
+        """, (
+            data.get("hospital_name"),
+            data.get("contact_person"),
+            data.get("email"),
+            data.get("phone"),
+            data.get("address"),
+            data.get("city"),
+            data.get("country"),
+            data.get("status", "active"),
+            hospital_id
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({"message": "Hospital updated"})
+
+    else:  # DELETE
+        c.execute("DELETE FROM hospitals WHERE id=?", (hospital_id,))
+        conn.commit()
+        conn.close()
+        log_activity("admin", session["user_id"], "delete_hospital", f"Deleted hospital {hospital_id}")
+        return jsonify({"message": "Hospital deleted"})
+
+
+# ==============================================
+# HOSPITAL USER ROUTES
+# ==============================================
+
+@app.route("/hospital/login", methods=["POST"])
+def hospital_login():
     data = request.json
     username = data.get("username")
     password = data.get("password")
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "SELECT id, password, role FROM users WHERE username=?",
-        (username,)
-    )
+    c.execute("""
+        SELECT hu.*, h.hospital_name, h.hospital_code
+        FROM hospital_users hu
+        JOIN hospitals h ON hu.hospital_id = h.id
+        WHERE hu.username=? AND hu.status='active' AND h.status='active'
+    """, (username,))
     user = c.fetchone()
     conn.close()
 
-    if not user or not check_password_hash(user[1], password):
+    if not user or not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    session["user_id"] = user[0]
-    session["username"] = username
-    session["role"] = user[2]
+    session["user_id"] = user["id"]
+    session["user_type"] = "hospital"
+    session["hospital_id"] = user["hospital_id"]
+    session["username"] = user["username"]
+
+    log_activity("hospital", user["id"], "login", hospital_id=user["hospital_id"])
 
     return jsonify({
         "user": {
-            "id": user[0],
-            "username": username,
-            "role": user[2]
+            "id": user["id"],
+            "username": user["username"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "hospital_id": user["hospital_id"],
+            "hospital_name": user["hospital_name"],
+            "hospital_code": user["hospital_code"],
+            "role": user["role"],
+            "type": "hospital"
         }
     })
 
 
-@app.route("/me", methods=["GET"])
-def me():
-    if "user_id" not in session:
-        return jsonify({"error": "Not authenticated"}), 401
-
-    return jsonify({
-        "user": {
-            "id": session["user_id"],
-            "username": session["username"],
-            "role": session["role"]
-        }
-    })
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.clear()
-    return jsonify({"message": "Logged out"})
-
-
-@app.route("/history", methods=["GET"])
-@login_required
-def history():
-    conn = sqlite3.connect(DB_FILE)
+@app.route("/hospital/dashboard", methods=["GET"])
+@hospital_required
+def hospital_dashboard():
+    conn = get_db()
     c = conn.cursor()
+    hospital_id = session["hospital_id"]
+
+    # Statistics
+    c.execute("SELECT COUNT(*) as count FROM patients WHERE hospital_id=?", (hospital_id,))
+    total_patients = c.fetchone()["count"]
+
+    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=?", (hospital_id,))
+    total_scans = c.fetchone()["count"]
 
     c.execute("""
-        SELECT prediction, confidence, created_at
-        FROM predictions
-        WHERE user_id=?
-        ORDER BY created_at DESC
-    """, (session["user_id"],))
+        SELECT COUNT(*) as count FROM mri_scans 
+        WHERE hospital_id=? AND is_tumor=1
+    """, (hospital_id,))
+    tumor_detections = c.fetchone()["count"]
 
-    rows = c.fetchall()
+    c.execute("""
+        SELECT COUNT(*) as count FROM chat_conversations 
+        WHERE hospital_id=? AND status='active'
+    """, (hospital_id,))
+    active_chats = c.fetchone()["count"]
+
+    # Scans this month
+    c.execute("""
+        SELECT COUNT(*) as count FROM mri_scans 
+        WHERE hospital_id=? 
+        AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+    """, (hospital_id,))
+    scans_this_month = c.fetchone()["count"]
+
+    # Recent scans
+    c.execute("""
+        SELECT s.*, p.full_name as patient_name, p.patient_code
+        FROM mri_scans s
+        JOIN patients p ON s.patient_id = p.id
+        WHERE s.hospital_id=?
+        ORDER BY s.created_at DESC
+        LIMIT 10
+    """, (hospital_id,))
+    recent_scans = [dict(row) for row in c.fetchall()]
+
     conn.close()
 
     return jsonify({
-        "predictions": [
-            {
-                "prediction": r[0],
-                "confidence": round(r[1] * 100, 2),
-                "created_at": r[2]
-            } for r in rows
-        ]
+        "stats": {
+            "total_patients": total_patients,
+            "total_scans": total_scans,
+            "tumor_detected": tumor_detections,
+            "scans_this_month": scans_this_month,
+            "active_chats": active_chats
+        },
+        "recent_scans": recent_scans
     })
 
 
-# -----------------------------
-# CNN Model Definition
-# -----------------------------
+@app.route("/hospital/patients", methods=["GET", "POST"])
+@hospital_required
+def hospital_patients():
+    conn = get_db()
+    c = conn.cursor()
+    hospital_id = session["hospital_id"]
+
+    if request.method == "GET":
+        c.execute("""
+            SELECT p.*, 
+                   hu.full_name as doctor_name,
+                   COUNT(s.id) as scan_count
+            FROM patients p
+            LEFT JOIN hospital_users hu ON p.assigned_doctor_id = hu.id
+            LEFT JOIN mri_scans s ON p.id = s.patient_id
+            WHERE p.hospital_id=?
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+        """, (hospital_id,))
+        patients = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify({"patients": patients})
+
+    # POST - Create patient
+    data = request.json
+    patient_code = generate_code(6)
+    access_code = generate_code(8)
+
+    c.execute("""
+        INSERT INTO patients (
+            hospital_id, patient_code, full_name, email, phone,
+            date_of_birth, gender, address, emergency_contact, 
+            emergency_phone, assigned_doctor_id, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        hospital_id,
+        patient_code,
+        data.get("full_name"),
+        data.get("email"),
+        data.get("phone"),
+        data.get("date_of_birth"),
+        data.get("gender"),
+        data.get("address"),
+        data.get("emergency_contact"),
+        data.get("emergency_phone"),
+        session["user_id"],
+        session["user_id"]
+    ))
+    patient_id = c.lastrowid
+
+    # Create access code for chat
+    expires_at = datetime.now() + timedelta(days=30)
+    c.execute("""
+        INSERT INTO patient_access_codes (patient_id, access_code, expires_at)
+        VALUES (?, ?, ?)
+    """, (patient_id, access_code, expires_at))
+
+    # Get hospital details for email
+    c.execute("""
+        SELECT hospital_name, hospital_code 
+        FROM hospitals 
+        WHERE id=?
+    """, (hospital_id,))
+    hospital = c.fetchone()
+
+    # Get the created patient with scan_count
+    c.execute("""
+        SELECT p.*, 0 as scan_count
+        FROM patients p
+        WHERE p.id=?
+    """, (patient_id,))
+    patient = dict(c.fetchone())
+
+    conn.commit()
+    conn.close()
+
+    # Send welcome email with credentials
+    email_sent = False
+    try:
+        email_sent = send_welcome_email(
+            to_email=data.get("email"),
+            patient_name=data.get("full_name"),
+            patient_code=patient_code,
+            access_code=access_code,
+            hospital_name=hospital["hospital_name"],
+            hospital_code=hospital["hospital_code"]
+        )
+
+        if email_sent:
+            logger.info(f"✅ Welcome email sent to {data.get('email')}")
+        else:
+            logger.warning(f"⚠️ Email not sent (not configured). Credentials shown in UI.")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to send welcome email: {e}")
+        email_sent = False
+
+    log_activity("hospital", session["user_id"], "create_patient", hospital_id=hospital_id)
+
+    return jsonify({
+        "message": "Patient created successfully",
+        "patient": patient,
+        "patient_id": patient_id,
+        "patient_code": patient_code,
+        "access_code": access_code,
+        "email_sent": email_sent
+    }), 201
+
+
+@app.route("/hospital/history", methods=["GET"])
+@hospital_required
+def hospital_history():
+    """Get scan history for the hospital"""
+    conn = get_db()
+    c = conn.cursor()
+    hospital_id = session["hospital_id"]
+
+    c.execute("""
+        SELECT 
+            s.*,
+            p.full_name as patient_name,
+            p.patient_code,
+            hu.full_name as uploaded_by_name
+        FROM mri_scans s
+        JOIN patients p ON s.patient_id = p.id
+        LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+        WHERE s.hospital_id=?
+        ORDER BY s.created_at DESC
+    """, (hospital_id,))
+
+    scans = [dict(row) for row in c.fetchall()]
+    conn.close()
+
+    return jsonify({"scans": scans})
+
+
+# ==============================================
+# MRI SCAN / PREDICTION ROUTES (CNN Model)
+# ==============================================
+
 class CNN_TUMOR(nn.Module):
     def __init__(self, params=None):
         super(CNN_TUMOR, self).__init__()
-
         if params is None:
             params = {
                 "shape_in": (3, 224, 224),
@@ -267,7 +609,6 @@ class CNN_TUMOR(nn.Module):
                 "num_classes": 4,
                 "dropout_rate": 0.25
             }
-
         Cin, Hin, Win = params["shape_in"]
         init_f = params["initial_filters"]
         num_fc1 = params["num_fc1"]
@@ -278,39 +619,28 @@ class CNN_TUMOR(nn.Module):
         self.conv2 = nn.Conv2d(init_f, 2 * init_f, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(2 * init_f, 4 * init_f, kernel_size=3, padding=1)
         self.conv4 = nn.Conv2d(4 * init_f, 8 * init_f, kernel_size=3, padding=1)
-
         self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
         self.num_flatten = 7 * 7 * 8 * init_f
-
         self.fc1 = nn.Linear(self.num_flatten, num_fc1)
         self.fc2 = nn.Linear(num_fc1, num_classes)
 
     def forward(self, X):
         X = F.relu(self.conv1(X))
         X = F.max_pool2d(X, kernel_size=2, stride=2)
-
         X = F.relu(self.conv2(X))
         X = F.max_pool2d(X, kernel_size=2, stride=2)
-
         X = F.relu(self.conv3(X))
         X = F.max_pool2d(X, kernel_size=2, stride=2)
-
         X = F.relu(self.conv4(X))
         X = F.max_pool2d(X, kernel_size=2, stride=2)
-
         X = self.adaptive_pool(X)
         X = X.view(-1, self.num_flatten)
-
         X = F.relu(self.fc1(X))
         X = F.dropout(X, p=self.dropout_rate, training=self.training)
         X = self.fc2(X)
-
         return F.log_softmax(X, dim=1)
 
 
-# -----------------------------
-# Model Loading
-# -----------------------------
 MODEL_PATH = "Brain_Tumor_model.pt"
 class_names = ["glioma", "meningioma", "notumor", "pituitary"]
 
@@ -321,44 +651,29 @@ transform = transforms.Compose([
 ])
 
 try:
-    logger.info("Loading model from file...")
+    logger.info("Loading model...")
     model = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-    logger.info(f"Model loaded successfully: {type(model)}")
-
-    logger.info("Model structure:")
-    for name, child in model.named_children():
-        logger.info(f"  - {name}: {child.__class__.__name__}")
-
+    model.to(device)
+    model.eval()
+    logger.info("Model loaded successfully")
 except Exception as e:
     logger.error(f"Error loading model: {e}")
-    import traceback
-
-    logger.error(traceback.format_exc())
     raise
 
-model.to(device)
-model.eval()
 
-
-# -----------------------------
-# Prediction Route
-# -----------------------------
-@app.route("/predict", methods=["POST"])
-@login_required
+@app.route("/hospital/predict", methods=["POST"])
+@hospital_required
 def predict():
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image"}), 400
 
+        patient_id = request.form.get("patient_id")
+        if not patient_id:
+            return jsonify({"error": "Patient ID required"}), 400
+
         image_bytes = request.files["image"].read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-        patient_name = request.form.get('patient_name', '')
-        patient_age = request.form.get('patient_age', '')
-        patient_gender = request.form.get('patient_gender', '')
-        patient_id = request.form.get('patient_id', '')
-        scan_date = request.form.get('scan_date', '')
-        notes = request.form.get('notes', '')
 
         tensor = transform(image).unsqueeze(0).to(device)
 
@@ -372,466 +687,323 @@ def predict():
         prediction_label = class_names[pred_idx]
         is_tumor = prediction_label != "notumor"
 
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO predictions (
-                user_id, prediction, confidence, is_tumor, image_data,
-                patient_name, patient_age, patient_gender, patient_id, scan_date, notes
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            session["user_id"],
-            prediction_label,
-            conf_val,
-            is_tumor,
-            base64.b64encode(image_bytes).decode(),
-            patient_name,
-            int(patient_age) if patient_age else None,
-            patient_gender,
-            patient_id,
-            scan_date,
-            notes
-        ))
-        conn.commit()
-        prediction_id = c.lastrowid
-        conn.close()
-
-        return jsonify({
-            "prediction_id": prediction_id,
-            "prediction": prediction_label,
-            "confidence": round(conf_val * 100, 2),
-            "is_tumor": is_tumor,
-            "probabilities": {
-                class_names[i]: round(float(probs[i].item()) * 100, 2)
-                for i in range(len(class_names))
-            }
-        })
-    except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-
-
-# -----------------------------
-# PDF Generation Route
-# -----------------------------
-@app.route("/generate-report/<int:prediction_id>", methods=["GET"])
-@login_required
-def generate_report(prediction_id):
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT 
-                p.prediction, p.confidence, p.image_data,
-                p.patient_name, p.patient_age, p.patient_gender,
-                p.patient_id, p.scan_date, p.notes,
-                p.created_at
-            FROM predictions p
-            WHERE p.id = ? AND p.user_id = ?
-        """, (prediction_id, session["user_id"]))
-
-        row = c.fetchone()
-
-        if not row:
-            conn.close()
-            return jsonify({"error": "Prediction not found"}), 404
-
-        image_data = row[2]
-        image_bytes = base64.b64decode(image_data)
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-        tensor = transform(image).unsqueeze(0).to(device)
-        with torch.no_grad():
-            output = model(tensor)
-            probs = torch.exp(output)[0]
-
         probabilities = {
             class_names[i]: round(float(probs[i].item()) * 100, 2)
             for i in range(len(class_names))
         }
 
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO mri_scans (
+                hospital_id, patient_id, uploaded_by, scan_image,
+                prediction, confidence, is_tumor, probabilities,
+                notes, scan_date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            session["hospital_id"],
+            patient_id,
+            session["user_id"],
+            base64.b64encode(image_bytes).decode(),
+            prediction_label,
+            conf_val,
+            is_tumor,
+            str(probabilities),
+            request.form.get("notes", ""),
+            request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
+        ))
+        scan_id = c.lastrowid
+        conn.commit()
         conn.close()
 
-        prediction_data = {
-            'prediction': row[0],
-            'confidence': round(row[1] * 100, 2),
-            'probabilities': probabilities
-        }
+        log_activity("hospital", session["user_id"], "prediction", hospital_id=session["hospital_id"])
 
-        patient_info = {
-            'name': row[3] or 'N/A',
-            'age': row[4] or 'N/A',
-            'gender': row[5] or 'N/A',
-            'patient_id': row[6] or f'AUTO-{prediction_id}',
-            'scan_date': row[7] or row[9].split()[0],
-            'notes': row[8] or ''
-        }
-
-        pdf_buffer = generate_pdf_report(prediction_data, patient_info, image_data)
-
-        return send_file(
-            pdf_buffer,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'NeuroScan_Report_{patient_info["patient_id"]}_{prediction_id}.pdf'
-        )
+        return jsonify({
+            "scan_id": scan_id,
+            "prediction": prediction_label,
+            "confidence": round(conf_val * 100, 2),
+            "is_tumor": is_tumor,
+            "probabilities": probabilities
+        })
 
     except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Prediction error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-# -----------------------------
-# Chatbot Route
-# -----------------------------
-@app.route("/api/chatbot", methods=["POST", "OPTIONS"])
-def chatbot():
-    if request.method == "OPTIONS":
-        return '', 200
-
-    if "user_id" not in session:
-        return jsonify({"error": "Not authenticated"}), 401
-
-    try:
-        data = request.json
-        user_message = data.get('message', '').strip()
-        conversation_history = data.get('history', [])
-
-        if not user_message:
-            return jsonify({"error": "Message is required"}), 400
-
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("""
-            SELECT prediction, confidence, created_at
-            FROM predictions
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        """, (session["user_id"],))
-        latest_prediction = c.fetchone()
-        conn.close()
-
-        system_context = """You are a medical AI assistant for NeuroScan brain tumor detection system.
-
-Your role:
-- Explain brain tumor types (glioma, meningioma, pituitary tumors)
-- Help interpret MRI scans
-- Describe NeuroScan's CNN capabilities
-- Provide general medical information
-
-Guidelines:
-- Give accurate medical information
-- Remind users you're an AI, not a replacement for doctors
-- Encourage consulting healthcare professionals
-- Be empathetic and supportive
-- If discussing diagnosis results, emphasize need for professional review
-
-System info:
-- Detects 4 classes: glioma, meningioma, pituitary tumor, normal tissue
-- Uses CNN (VGG19 architecture) with ~94% accuracy
-- Provides confidence scores and probability distributions
-"""
-
-        if latest_prediction:
-            pred_type, confidence, scan_date = latest_prediction
-            system_context += f"\n\nUser's latest scan: {pred_type} ({round(confidence * 100, 2)}%) on {scan_date}"
-
-        full_prompt = f"{system_context}\n\n"
-
-        for msg in conversation_history[-10:]:
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            if content:
-                prefix = "User" if role == 'user' else "Assistant"
-                full_prompt += f"{prefix}: {content}\n"
-
-        full_prompt += f"User: {user_message}\nAssistant:"
-
-        logger.info("Calling Ollama...")
-
-        api_response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "llama3.2:3b",
-                "prompt": full_prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.7
-                }
-            },
-            timeout=60
-        )
-
-        if api_response.status_code != 200:
-            logger.error(f"Ollama error: {api_response.status_code}")
-            return jsonify({
-                "error": "AI service unavailable",
-                "response": "Ollama is not responding. Make sure it's running: 'ollama serve'"
-            }), 500
-
-        api_data = api_response.json()
-        assistant_message = api_data.get("response", "").strip()
-
-        if not assistant_message:
-            assistant_message = "I apologize, but I couldn't generate a response. Please try rephrasing your question."
-
-        logger.info(f"Response generated: {len(assistant_message)} chars")
-
-        return jsonify({
-            "response": assistant_message,
-            "success": True
-        }), 200
-
-    except requests.exceptions.ConnectionError:
-        logger.error("Cannot connect to Ollama")
-        return jsonify({
-            "error": "Connection error",
-            "response": "Cannot connect to Ollama. Please run: ollama serve"
-        }), 503
-
-    except requests.exceptions.Timeout:
-        logger.error("Ollama timeout")
-        return jsonify({
-            "error": "Request timeout",
-            "response": "AI is taking too long. Please try again."
-        }), 504
-
-    except Exception as e:
-        logger.error(f"Chatbot error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            "error": str(e),
-            "response": "An error occurred. Please try again."
-        }), 500
-
-
-@app.route("/api/chatbot/health", methods=["GET"])
-def chatbot_health():
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
-        if response.ok:
-            models = response.json().get("models", [])
-            return jsonify({
-                "status": "online",
-                "service": "Ollama (Local)",
-                "models": [m.get("name") for m in models]
-            }), 200
-    except:
-        pass
-
-    return jsonify({
-        "status": "offline",
-        "service": "Ollama",
-        "message": "Ollama not running. Execute: ollama serve"
-    }), 503
-
-
-# -----------------------------
-# Admin Routes
-# -----------------------------
-def admin_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"error": "Not authenticated"}), 401
-        if session.get("role") != "superadmin":
-            return jsonify({"error": "Admin access required"}), 403
-        return f(*args, **kwargs)
-
-    return wrapper
-
-
-@app.route("/admin/stats", methods=["GET"])
-@admin_required
-def admin_stats():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("SELECT COUNT(*) FROM users")
-    total_users = c.fetchone()[0]
-
-    c.execute("SELECT COUNT(*) FROM predictions")
-    total_predictions = c.fetchone()[0]
-
-    c.execute("SELECT COUNT(*) FROM predictions WHERE is_tumor=1")
-    tumor_detections = c.fetchone()[0]
-
-    rate = round((tumor_detections / total_predictions) * 100, 2) if total_predictions else 0
-
-    c.execute("""
-        SELECT prediction, COUNT(*)
-        FROM predictions
-        GROUP BY prediction
-    """)
-    predictions_by_type = dict(c.fetchall())
-
-    c.execute("""
-        SELECT DATE(created_at), COUNT(*)
-        FROM predictions
-        WHERE created_at >= DATE('now', '-7 days')
-        GROUP BY DATE(created_at)
-    """)
-    recent_activity = [
-        {"date": row[0], "count": row[1]}
-        for row in c.fetchall()
-    ]
-
-    conn.close()
-
-    return jsonify({
-        "total_users": total_users,
-        "total_predictions": total_predictions,
-        "tumor_detections": tumor_detections,
-        "tumor_detection_rate": rate,
-        "predictions_by_type": predictions_by_type,
-        "recent_activity": recent_activity
-    })
-
-
-@app.route("/admin/users", methods=["GET"])
-@admin_required
-def admin_users():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-        SELECT u.id, u.username, u.email, u.role, u.created_at,
-               COUNT(p.id) as prediction_count
-        FROM users u
-        LEFT JOIN predictions p ON u.id = p.user_id
-        GROUP BY u.id
-        ORDER BY u.created_at DESC
-    """)
-
-    users = [
-        {
-            "id": r[0],
-            "username": r[1],
-            "email": r[2],
-            "role": r[3],
-            "created_at": r[4],
-            "prediction_count": r[5]
-        }
-        for r in c.fetchall()
-    ]
-
-    conn.close()
-    return jsonify({"users": users})
-
-
-@app.route("/admin/predictions", methods=["GET"])
-@admin_required
-def admin_predictions():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-        SELECT p.id, u.username, p.prediction, p.confidence,
-               p.is_tumor, p.created_at
-        FROM predictions p
-        JOIN users u ON p.user_id = u.id
-        ORDER BY p.created_at DESC
-        LIMIT 100
-    """)
-
-    predictions = [
-        {
-            "id": r[0],
-            "username": r[1],
-            "prediction": r[2],
-            "confidence": round(r[3] * 100, 2),
-            "is_tumor": bool(r[4]),
-            "created_at": r[5]
-        }
-        for r in c.fetchall()
-    ]
-
-    conn.close()
-    return jsonify({"predictions": predictions})
-
-
-# -----------------------------
-# Grad-CAM Explainability Route
-# -----------------------------
-@app.route("/gradcam/<int:prediction_id>", methods=["GET"])
+@app.route("/generate-report/<int:scan_id>", methods=["GET"])
 @login_required
-def get_gradcam(prediction_id):
-    """Generate Grad-CAM heatmap for a prediction"""
+def generate_report(scan_id):
+    """Generate and download PDF report for a scan"""
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = get_db()
         c = conn.cursor()
 
+        # Get scan data
         c.execute("""
-            SELECT image_data, prediction
-            FROM predictions
-            WHERE id = ? AND user_id = ?
-        """, (prediction_id, session["user_id"]))
+            SELECT s.*, p.*, h.hospital_name, h.hospital_code, hu.full_name as doctor_name
+            FROM mri_scans s
+            JOIN patients p ON s.patient_id = p.id
+            JOIN hospitals h ON s.hospital_id = h.id
+            LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+            WHERE s.id=?
+        """, (scan_id,))
 
         row = c.fetchone()
         conn.close()
 
         if not row:
-            return jsonify({"error": "Prediction not found"}), 404
+            return jsonify({"error": "Scan not found"}), 404
 
-        image_data = row[0]
-        image_bytes = base64.b64decode(image_data)
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        tensor = transform(image).unsqueeze(0).to(device)
+        # Check authorization
+        if session.get("user_type") == "hospital":
+            if row["hospital_id"] != session.get("hospital_id"):
+                return jsonify({"error": "Unauthorized"}), 403
+        elif session.get("user_type") != "admin":
+            return jsonify({"error": "Unauthorized"}), 403
 
-        gradcam_result = generate_gradcam_visualization(
-            model=model,
-            image_tensor=tensor,
-            original_image=image,
-            target_layer=model.conv4,
-            class_names=class_names
+        # Prepare data for PDF
+        scan_data = {
+            "id": row["id"],
+            "prediction": row["prediction"],
+            "confidence": row["confidence"] * 100 if row["confidence"] <= 1 else row["confidence"],
+            "is_tumor": row["is_tumor"],
+            "probabilities": row["probabilities"],
+            "scan_date": row["scan_date"],
+            "scan_image": row["scan_image"],
+            "notes": row["notes"]
+        }
+
+        patient_data = {
+            "full_name": row["full_name"],
+            "patient_code": row["patient_code"],
+            "email": row["email"],
+            "phone": row["phone"],
+            "date_of_birth": row["date_of_birth"],
+            "gender": row["gender"]
+        }
+
+        hospital_data = {
+            "hospital_name": row["hospital_name"],
+            "hospital_code": row["hospital_code"],
+            "doctor_name": row["doctor_name"] or "N/A"
+        }
+
+        # Generate PDF
+        try:
+            pdf_buffer = generate_pdf_report(scan_data, patient_data, hospital_data)
+        except Exception as e:
+            logger.error(f"Error with reportlab, using simple PDF: {e}")
+            from pdf_report import generate_simple_pdf_report
+            pdf_buffer = generate_simple_pdf_report(scan_data, patient_data, hospital_data)
+
+        # Return PDF
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'NeuroScan_Report_{scan_id}.pdf'
         )
 
-        return jsonify(gradcam_result)
-
     except Exception as e:
-        logger.error(f"Grad-CAM error: {str(e)}")
-        return jsonify({"error": f"Grad-CAM failed: {str(e)}"}), 500
+        logger.error(f"Report generation error: {e}")
+        return jsonify({"error": "Failed to generate report"}), 500
 
-@app.route("/admin/users/<int:user_id>", methods=["DELETE"])
-@admin_required
-def delete_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
+
+# ==============================================
+# PATIENT CHAT ROUTES
+# ==============================================
+
+@app.route("/patient/verify", methods=["POST"])
+def patient_verify():
+    """Step 2: Verify patient with access code and send verification code"""
+    data = request.json
+    hospital_code = data.get("hospital_code")
+    patient_code = data.get("patient_code")
+    access_code = data.get("access_code")
+
+    conn = get_db()
     c = conn.cursor()
 
-    c.execute("DELETE FROM predictions WHERE user_id=?", (user_id,))
-    c.execute("DELETE FROM users WHERE id=?", (user_id,))
+    c.execute("""
+        SELECT p.*, h.hospital_name, pac.id as access_id
+        FROM patients p
+        JOIN hospitals h ON p.hospital_id = h.id
+        JOIN patient_access_codes pac ON p.id = pac.patient_id
+        WHERE h.hospital_code=? AND p.patient_code=? AND pac.access_code=?
+            AND pac.expires_at > datetime('now')
+    """, (hospital_code, patient_code, access_code))
 
+    patient = c.fetchone()
+
+    if not patient:
+        conn.close()
+        return jsonify({"error": "Invalid credentials or expired"}), 401
+
+    # Generate verification code
+    verification_code = ''.join(random.choices(string.digits, k=6))
+
+    c.execute("""
+        UPDATE patient_access_codes 
+        SET verification_code=?
+        WHERE id=?
+    """, (verification_code, patient["access_id"]))
     conn.commit()
     conn.close()
-    return jsonify({"message": "User deleted"})
+
+    # Send email with verification code
+    try:
+        send_verification_email(
+            to_email=patient['email'],
+            verification_code=verification_code,
+            patient_name=patient['full_name'],
+            hospital_name=patient['hospital_name']
+        )
+    except Exception as e:
+        logger.error(f"Error sending verification email: {e}")
+
+    # Always log for debugging (in case email fails)
+    logger.info(f"Verification code for {patient['email']}: {verification_code}")
+
+    return jsonify({
+        "message": "Verification code sent to email",
+        "email_hint": patient["email"][:3] + "***" + patient["email"][-10:]
+    })
 
 
-@app.route("/admin/users/<int:user_id>/role", methods=["PUT"])
-@admin_required
-def update_role(user_id):
-    role = request.json.get("role")
-    if role not in ["user", "superadmin"]:
-        return jsonify({"error": "Invalid role"}), 400
+@app.route("/patient/login", methods=["POST"])
+def patient_login():
+    """Step 3: Login patient with verification code"""
+    data = request.json
+    patient_code = data.get("patient_code")
+    verification_code = data.get("verification_code")
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+
+    c.execute("""
+        SELECT p.*, h.hospital_name, pac.id as access_id
+        FROM patients p
+        JOIN hospitals h ON p.hospital_id = h.id
+        JOIN patient_access_codes pac ON p.id = pac.patient_id
+        WHERE p.patient_code=? AND pac.verification_code=?
+    """, (patient_code, verification_code))
+
+    patient = c.fetchone()
+
+    if not patient:
+        conn.close()
+        return jsonify({"error": "Invalid verification code"}), 401
+
+    # Mark as verified
+    c.execute("""
+        UPDATE patient_access_codes 
+        SET is_verified=1, verified_at=datetime('now')
+        WHERE id=?
+    """, (patient["access_id"],))
     conn.commit()
     conn.close()
 
-    return jsonify({"message": "Role updated"})
+    session["patient_id"] = patient["id"]
+    session["patient_type"] = "patient"
+
+    return jsonify({
+        "patient": {
+            "id": patient["id"],
+            "full_name": patient["full_name"],
+            "patient_code": patient["patient_code"],
+            "hospital_name": patient["hospital_name"],
+            "type": "patient"
+        }
+    })
 
 
-# -----------------------------
-# Run
-# -----------------------------
+@app.route("/chat/send", methods=["POST"])
+@login_required
+def send_message():
+    """Send chat message (from patient or doctor)"""
+    data = request.json
+    message = data.get("message")
+
+    # Determine sender
+    if session.get("user_type") == "hospital":
+        conversation_id = data.get("conversation_id")
+        sender_type = "doctor"
+        sender_id = session["user_id"]
+    elif session.get("patient_type") == "patient":
+        conversation_id = data.get("conversation_id")
+        sender_type = "patient"
+        sender_id = session["patient_id"]
+    else:
+        return jsonify({"error": "Invalid sender"}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        INSERT INTO chat_messages (conversation_id, sender_type, sender_id, message)
+        VALUES (?, ?, ?, ?)
+    """, (conversation_id, sender_type, sender_id, message))
+
+    c.execute("""
+        UPDATE chat_conversations 
+        SET last_message_at=datetime('now')
+        WHERE id=?
+    """, (conversation_id,))
+
+    conn.commit()
+    message_id = c.lastrowid
+    conn.close()
+
+    return jsonify({"message_id": message_id})
+
+
+@app.route("/chat/messages/<int:conversation_id>", methods=["GET"])
+@login_required
+def get_messages(conversation_id):
+    """Get chat messages"""
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT * FROM chat_messages
+        WHERE conversation_id=?
+        ORDER BY created_at ASC
+    """, (conversation_id,))
+
+    messages = [dict(row) for row in c.fetchall()]
+    conn.close()
+
+    return jsonify({"messages": messages})
+
+
+# ==============================================
+# GENERAL ROUTES
+# ==============================================
+
+@app.route("/me", methods=["GET"])
+def me():
+    if "user_id" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    return jsonify({
+        "user": {
+            "id": session.get("user_id"),
+            "type": session.get("user_type"),
+            "username": session.get("username")
+        }
+    })
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"message": "Logged out"})
+
+
+# ==============================================
+# RUN
+# ==============================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
