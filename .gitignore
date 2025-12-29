@@ -1,0 +1,4 @@
+.idea/
+*.db
+*_old.py
+*_backup.*
