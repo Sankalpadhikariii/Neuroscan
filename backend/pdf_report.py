@@ -1,99 +1,50 @@
+"""
+PDF Report Generator for NeuroScan Brain Tumor Detection System
+Generates professional medical reports with scan results
+"""
 
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.pdfgen import canvas
 import io
 import base64
 from datetime import datetime
-from PIL import Image
-import matplotlib.pyplot as plt
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
-from reportlab.pdfgen import canvas
+from PIL import Image as PILImage
 
 
-class NumberedCanvas(canvas.Canvas):
-    """Custom canvas for page numbers"""
-
-    def __init__(self, *args, **kwargs):
-        canvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
-
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_number(num_pages)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
-
-    def draw_page_number(self, page_count):
-        self.setFont("Helvetica", 9)
-        self.drawRightString(
-            200 * 2.83464567,  # 200mm in points
-            15,
-            f"Page {self._pageNumber} of {page_count}"
-        )
-
-
-def create_probability_chart(probabilities):
-    """Create a bar chart of tumor probabilities"""
-    fig, ax = plt.subplots(figsize=(6, 3))
-
-    classes = list(probabilities.keys())
-    values = list(probabilities.values())
-
-    colors_map = ['#ef4444' if v == max(values) else '#3b82f6' for v in values]
-
-    ax.barh(classes, values, color=colors_map)
-    ax.set_xlabel('Probability (%)', fontsize=10)
-    ax.set_title('Tumor Classification Probabilities', fontsize=12, fontweight='bold')
-    ax.set_xlim(0, 100)
-
-    # Add value labels on bars
-    for i, v in enumerate(values):
-        ax.text(v + 1, i, f'{v:.1f}%', va='center', fontsize=9)
-
-    plt.tight_layout()
-
-    # Save to BytesIO
-    img_buffer = io.BytesIO()
-    plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
-    img_buffer.seek(0)
-    plt.close()
-
-    return img_buffer
-
-
-def generate_pdf_report(prediction_data, patient_info, image_base64):
+def generate_pdf_report(scan_data, patient_data, hospital_data):
     """
-    Generate comprehensive PDF report
+    Generate a PDF report for brain tumor scan results
 
     Args:
-        prediction_data: dict with 'prediction', 'confidence', 'probabilities'
-        patient_info: dict with 'name', 'age', 'gender', 'patient_id', 'scan_date', 'notes'
-        image_base64: base64 encoded MRI image
+        scan_data: Dictionary containing scan information
+        patient_data: Dictionary containing patient information
+        hospital_data: Dictionary containing hospital information
 
     Returns:
-        BytesIO buffer containing PDF
+        BytesIO object containing the PDF
     """
+    # Create a BytesIO buffer
     buffer = io.BytesIO()
+
+    # Create the PDF document
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
         rightMargin=72,
         leftMargin=72,
         topMargin=72,
-        bottomMargin=18,
+        bottomMargin=72
     )
 
-    # Container for PDF elements
+    # Container for the 'Flowable' objects
     elements = []
+
+    # Define styles
     styles = getSampleStyleSheet()
 
     # Custom styles
@@ -101,7 +52,7 @@ def generate_pdf_report(prediction_data, patient_info, image_base64):
         'CustomTitle',
         parent=styles['Heading1'],
         fontSize=24,
-        textColor=colors.HexColor('#1e40af'),
+        textColor=colors.HexColor('#667eea'),
         spaceAfter=30,
         alignment=TA_CENTER,
         fontName='Helvetica-Bold'
@@ -117,258 +68,341 @@ def generate_pdf_report(prediction_data, patient_info, image_base64):
         fontName='Helvetica-Bold'
     )
 
-    body_style = ParagraphStyle(
-        'CustomBody',
-        parent=styles['BodyText'],
+    normal_style = ParagraphStyle(
+        'CustomNormal',
+        parent=styles['Normal'],
         fontSize=11,
-        alignment=TA_JUSTIFY,
-        spaceAfter=12
+        textColor=colors.HexColor('#374151'),
+        spaceAfter=6,
+        leading=14
     )
 
-    # ============ TITLE ============
-    elements.append(Paragraph("NEUROSCAN", title_style))
-    elements.append(Paragraph("Brain Tumor Detection Report", styles['Heading2']))
-    elements.append(Spacer(1, 0.3 * inch))
-
-    # ============ REPORT INFO ============
-    report_date = datetime.now().strftime('%B %d, %Y at %I:%M %p')
-    elements.append(Paragraph(f"<b>Report Generated:</b> {report_date}", body_style))
+    # Add header/title
+    title = Paragraph("NeuroScan Brain Tumor Detection Report", title_style)
+    elements.append(title)
     elements.append(Spacer(1, 0.2 * inch))
 
-    # ============ PATIENT INFORMATION ============
-    elements.append(Paragraph("Patient Information", heading_style))
+    # Add report metadata
+    report_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    metadata = Paragraph(f"<b>Report Generated:</b> {report_date}", normal_style)
+    elements.append(metadata)
+    elements.append(Spacer(1, 0.3 * inch))
 
-    patient_data = [
-        ['Patient Name:', patient_info.get('name', 'N/A')],
-        ['Patient ID:', patient_info.get('patient_id', 'N/A')],
-        ['Age:', f"{patient_info.get('age', 'N/A')} years"],
-        ['Gender:', patient_info.get('gender', 'N/A')],
-        ['Scan Date:', patient_info.get('scan_date', 'N/A')],
+    # Hospital Information Section
+    hospital_header = Paragraph("Hospital Information", heading_style)
+    elements.append(hospital_header)
+
+    hospital_info = [
+        ["Hospital Name:", hospital_data.get('hospital_name', 'N/A')],
+        ["Hospital Code:", hospital_data.get('hospital_code', 'N/A')],
+        ["Doctor/Staff:", hospital_data.get('doctor_name', 'N/A')],
     ]
 
-    patient_table = Table(patient_data, colWidths=[2 * inch, 4 * inch])
-    patient_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f3f4f6')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+    hospital_table = Table(hospital_info, colWidths=[2 * inch, 4 * inch])
+    hospital_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
         ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#374151')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
     ]))
+    elements.append(hospital_table)
+    elements.append(Spacer(1, 0.2 * inch))
 
+    # Patient Information Section
+    patient_header = Paragraph("Patient Information", heading_style)
+    elements.append(patient_header)
+
+    patient_info = [
+        ["Patient Name:", patient_data.get('full_name', 'N/A')],
+        ["Patient Code:", patient_data.get('patient_code', 'N/A')],
+        ["Email:", patient_data.get('email', 'N/A')],
+        ["Phone:", patient_data.get('phone', 'N/A') or 'N/A'],
+        ["Date of Birth:", patient_data.get('date_of_birth', 'N/A') or 'N/A'],
+        ["Gender:", patient_data.get('gender', 'N/A') or 'N/A'],
+    ]
+
+    patient_table = Table(patient_info, colWidths=[2 * inch, 4 * inch])
+    patient_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#374151')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
     elements.append(patient_table)
     elements.append(Spacer(1, 0.3 * inch))
 
-    # ============ MRI IMAGE ============
-    elements.append(Paragraph("MRI Scan Analysis", heading_style))
+    # Scan Information Section
+    scan_header = Paragraph("Scan Information", heading_style)
+    elements.append(scan_header)
 
-    try:
-        # Decode and add MRI image
-        img_data = base64.b64decode(image_base64)
-        img = Image.open(io.BytesIO(img_data))
+    scan_date = scan_data.get('scan_date', 'N/A')
+    if scan_date and scan_date != 'N/A':
+        try:
+            scan_date = datetime.strptime(scan_date, '%Y-%m-%d').strftime('%B %d, %Y')
+        except:
+            pass
 
-        # Save to buffer
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
+    scan_info = [
+        ["Scan Date:", scan_date],
+        ["Scan ID:", f"#{scan_data.get('id', 'N/A')}"],
+    ]
 
-        mri_image = RLImage(img_buffer, width=4 * inch, height=4 * inch)
-        elements.append(mri_image)
-        elements.append(Spacer(1, 0.2 * inch))
-    except Exception as e:
-        elements.append(Paragraph(f"Error loading MRI image: {str(e)}", body_style))
+    scan_table = Table(scan_info, colWidths=[2 * inch, 4 * inch])
+    scan_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#374151')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(scan_table)
+    elements.append(Spacer(1, 0.3 * inch))
 
-    # ============ DETECTION RESULTS ============
-    elements.append(Paragraph("Detection Results", heading_style))
+    # MRI Scan Image
+    if scan_data.get('scan_image'):
+        try:
+            image_header = Paragraph("MRI Scan Image", heading_style)
+            elements.append(image_header)
 
-    prediction = prediction_data['prediction']
-    confidence = prediction_data['confidence']
-    is_tumor = prediction.lower() != 'notumor'
+            # Decode base64 image
+            image_data = base64.b64decode(scan_data['scan_image'])
+            img = PILImage.open(io.BytesIO(image_data))
 
-    # Result box styling
-    result_color = colors.HexColor('#fee2e2') if is_tumor else colors.HexColor('#dcfce7')
-    result_text = f"""
-    <para alignment="center">
-        <b><font size="16" color="{'#dc2626' if is_tumor else '#16a34a'}">
-            {prediction.upper()}
-        </font></b><br/>
-        <font size="12">Confidence: {confidence:.2f}%</font>
-    </para>
-    """
+            # Save to temporary buffer
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
 
-    result_table = Table([[Paragraph(result_text, body_style)]], colWidths=[6 * inch])
+            # Add image to PDF (scaled to fit)
+            scan_image = Image(img_buffer, width=4 * inch, height=4 * inch)
+            elements.append(scan_image)
+            elements.append(Spacer(1, 0.3 * inch))
+        except Exception as e:
+            print(f"Error adding image: {e}")
+
+    # Analysis Results Section
+    results_header = Paragraph("Analysis Results", heading_style)
+    elements.append(results_header)
+
+    # Prediction result box
+    prediction = scan_data.get('prediction', 'Unknown').upper()
+    confidence = scan_data.get('confidence', 0)
+    is_tumor = scan_data.get('is_tumor', False)
+
+    # Color coding based on result
+    if is_tumor:
+        result_color = colors.HexColor('#fee2e2')
+        text_color = colors.HexColor('#991b1b')
+    else:
+        result_color = colors.HexColor('#dcfce7')
+        text_color = colors.HexColor('#166534')
+
+    result_style = ParagraphStyle(
+        'ResultStyle',
+        parent=styles['Normal'],
+        fontSize=18,
+        textColor=text_color,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold',
+        spaceAfter=8,
+        spaceBefore=8
+    )
+
+    result_data = [[Paragraph(f"{prediction}", result_style),
+                    Paragraph(f"Confidence: {confidence:.2f}%", result_style)]]
+
+    result_table = Table(result_data, colWidths=[6 * inch])
     result_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), result_color),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 20),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 20),
-        ('TOPPADDING', (0, 0), (-1, -1), 20),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 20),
-        ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#dc2626' if is_tumor else '#16a34a')),
+        ('TOPPADDING', (0, 0), (-1, -1), 15),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
     ]))
-
     elements.append(result_table)
-    elements.append(Spacer(1, 0.3 * inch))
+    elements.append(Spacer(1, 0.2 * inch))
 
-    # ============ PROBABILITY DISTRIBUTION ============
-    elements.append(Paragraph("Probability Distribution", heading_style))
+    # Probability Distribution
+    probabilities = scan_data.get('probabilities', {})
+    if probabilities:
+        if isinstance(probabilities, str):
+            import ast
+            try:
+                probabilities = ast.literal_eval(probabilities)
+            except:
+                probabilities = {}
 
-    chart_buffer = create_probability_chart(prediction_data['probabilities'])
-    chart_image = RLImage(chart_buffer, width=5 * inch, height=2.5 * inch)
-    elements.append(chart_image)
-    elements.append(Spacer(1, 0.3 * inch))
+        prob_header = Paragraph("Probability Distribution", heading_style)
+        elements.append(prob_header)
 
-    # Probability table
-    prob_data = [['Tumor Type', 'Probability']]
-    for tumor_type, prob in prediction_data['probabilities'].items():
-        prob_data.append([tumor_type.capitalize(), f"{prob:.2f}%"])
+        prob_data = [["Tumor Type", "Probability"]]
+        for tumor_type, prob in probabilities.items():
+            prob_data.append([tumor_type.capitalize(), f"{prob:.2f}%"])
 
-    prob_table = Table(prob_data, colWidths=[3 * inch, 2 * inch])
-    prob_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563eb')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-    ]))
+        prob_table = Table(prob_data, colWidths=[3 * inch, 3 * inch])
+        prob_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ]))
+        elements.append(prob_table)
+        elements.append(Spacer(1, 0.2 * inch))
 
-    elements.append(prob_table)
-    elements.append(Spacer(1, 0.3 * inch))
+    # Clinical Notes
+    notes = scan_data.get('notes', '')
+    if notes:
+        notes_header = Paragraph("Clinical Notes", heading_style)
+        elements.append(notes_header)
 
-    # ============ MEDICAL RECOMMENDATIONS ============
-    elements.append(Paragraph("Medical Recommendations", heading_style))
+        notes_text = Paragraph(notes, normal_style)
+        elements.append(notes_text)
+        elements.append(Spacer(1, 0.2 * inch))
+
+    # Recommendations
+    recommendations_header = Paragraph("Medical Recommendations", heading_style)
+    elements.append(recommendations_header)
 
     if is_tumor:
-        recommendations = """
-        <b>Action Required:</b> A potential tumor has been detected.<br/><br/>
-
-        <b>Recommended Next Steps:</b><br/>
-        1. Consult with a qualified neurologist or oncologist immediately<br/>
-        2. Schedule a comprehensive neurological examination<br/>
-        3. Consider additional imaging tests (CT scan, PET scan) for confirmation<br/>
-        4. Discuss biopsy options with your healthcare provider<br/>
-        5. Prepare medical history and current symptoms documentation<br/><br/>
-
-        <b>Important:</b> Early detection significantly improves treatment outcomes. 
-        Please schedule an appointment with a specialist as soon as possible.
+        recommendations_text = """
+        <b>IMPORTANT:</b> This scan indicates the presence of a brain tumor. The following actions are recommended:
+        <br/><br/>
+        • <b>Immediate consultation</b> with a neurologist or neurosurgeon<br/>
+        • <b>Additional imaging</b> may be required for detailed assessment<br/>
+        • <b>Biopsy</b> may be necessary to determine tumor type and grade<br/>
+        • <b>Treatment planning</b> should begin as soon as possible<br/>
+        • <b>Follow-up scans</b> to monitor progression<br/>
+        <br/>
+        <b>Note:</b> Early detection and treatment significantly improve outcomes.
         """
     else:
-        recommendations = """
-        <b>Status:</b> No tumor detected in this scan.<br/><br/>
-
-        <b>Recommended Next Steps:</b><br/>
-        1. Continue regular health monitoring as advised by your physician<br/>
-        2. Maintain a healthy lifestyle and report any new symptoms<br/>
-        3. Schedule follow-up scans if recommended by your healthcare provider<br/>
-        4. Keep a record of this scan for future medical reference<br/><br/>
-
-        <b>Note:</b> While no tumor was detected, regular medical check-ups remain important 
-        for overall health maintenance.
+        recommendations_text = """
+        <b>Result:</b> No tumor detected in this scan. However, the following recommendations apply:
+        <br/><br/>
+        • <b>Regular monitoring</b> if patient has symptoms or risk factors<br/>
+        • <b>Follow-up scan</b> as per physician's recommendation<br/>
+        • <b>Maintain healthy lifestyle</b> and report any new symptoms<br/>
+        • <b>Consult physician</b> for any concerns or questions<br/>
+        <br/>
+        <b>Note:</b> This result is based on AI analysis and should be confirmed by a qualified physician.
         """
 
-    elements.append(Paragraph(recommendations, body_style))
+    recommendations = Paragraph(recommendations_text, normal_style)
+    elements.append(recommendations)
     elements.append(Spacer(1, 0.3 * inch))
 
-    # ============ ADDITIONAL NOTES ============
-    if patient_info.get('notes'):
-        elements.append(Paragraph("Additional Notes", heading_style))
-        elements.append(Paragraph(patient_info['notes'], body_style))
-        elements.append(Spacer(1, 0.3 * inch))
-
-    # ============ DISCLAIMER ============
-    elements.append(PageBreak())
-    elements.append(Paragraph("Important Disclaimer", heading_style))
+    # Disclaimer
+    disclaimer_style = ParagraphStyle(
+        'Disclaimer',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#6b7280'),
+        alignment=TA_CENTER,
+        leading=12,
+        spaceBefore=12
+    )
 
     disclaimer_text = """
-    This report is generated by an AI-assisted diagnostic system (NeuroScan) and is intended 
-    to support medical professionals in their diagnostic process. <b>This is NOT a definitive 
-    medical diagnosis.</b><br/><br/>
-
-    <b>Please note:</b><br/>
-    • This AI system is a screening tool and should not replace professional medical judgment<br/>
-    • All results must be reviewed and confirmed by qualified medical professionals<br/>
-    • The accuracy of AI predictions depends on image quality and may vary<br/>
-    • False positives and false negatives are possible with any diagnostic tool<br/>
-    • This report should be used in conjunction with clinical examination and other diagnostic tests<br/><br/>
-
-    <b>For Medical Professionals:</b><br/>
-    This system uses a Convolutional Neural Network (CNN) based on VGG19 architecture, 
-    trained on MRI brain scans. Model performance metrics: Training Accuracy: 94.23%, 
-    Test Accuracy: 91.61%.<br/><br/>
-
-    Always correlate AI findings with clinical presentation, patient history, and additional 
-    diagnostic evidence before making treatment decisions.
+    <b>MEDICAL DISCLAIMER:</b> This report is generated by an AI-powered diagnostic system 
+    and should be used as a supplementary tool only. All results must be reviewed and confirmed 
+    by a qualified medical professional. This report does not constitute medical advice and should 
+    not be used as the sole basis for medical decisions.
     """
+    disclaimer = Paragraph(disclaimer_text, disclaimer_style)
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(disclaimer)
 
-    elements.append(Paragraph(disclaimer_text, body_style))
-    elements.append(Spacer(1, 0.5 * inch))
+    # Footer
+    footer_style = ParagraphStyle(
+        'Footer',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.HexColor('#9ca3af'),
+        alignment=TA_CENTER,
+        spaceBefore=12
+    )
 
-    # ============ SIGNATURE SECTION ============
-    elements.append(Paragraph("Physician Review", heading_style))
+    footer_text = f"""
+    NeuroScan Brain Tumor Detection System • Powered by AI & Deep Learning<br/>
+    Report ID: {scan_data.get('id', 'N/A')} • Generated: {report_date}
+    """
+    footer = Paragraph(footer_text, footer_style)
+    elements.append(footer)
 
-    signature_data = [
-        ['Reviewed By:', '_' * 50],
-        ['', '(Physician Name & Signature)'],
-        ['', ''],
-        ['Date:', '_' * 50],
-        ['', ''],
-        ['Medical License No.:', '_' * 50],
-    ]
+    # Build PDF
+    doc.build(elements)
 
-    signature_table = Table(signature_data, colWidths=[2 * inch, 4 * inch])
-    signature_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-    ]))
-
-    elements.append(signature_table)
-
-    # ============ BUILD PDF ============
-    doc.build(elements, canvasmaker=NumberedCanvas)
-
+    # Get the value of the BytesIO buffer and return it
     buffer.seek(0)
     return buffer
 
 
-if __name__ == "__main__":
-    # Test the PDF generator
-    test_data = {
-        'prediction': 'glioma',
-        'confidence': 87.5,
-        'probabilities': {
-            'glioma': 87.5,
-            'meningioma': 8.3,
-            'notumor': 2.1,
-            'pituitary': 2.1
-        }
-    }
+def generate_simple_pdf_report(scan_data, patient_data, hospital_data):
+    """
+    Fallback: Generate a simple text-based PDF if reportlab has issues
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
 
-    test_patient = {
-        'name': 'John Doe',
-        'age': 45,
-        'gender': 'Male',
-        'patient_id': 'PT-2025-001',
-        'scan_date': '2025-01-15',
-        'notes': 'Patient reported recurring headaches for 3 weeks.'
-    }
+    # Title
+    c.setFont("Helvetica-Bold", 20)
+    c.drawCentredString(width / 2, height - 50, "NeuroScan Brain Tumor Detection Report")
 
-    # Create dummy image
-    img = Image.new('RGB', (224, 224), color='gray')
-    img_buffer = io.BytesIO()
-    img.save(img_buffer, format='PNG')
-    img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+    # Date
+    c.setFont("Helvetica", 10)
+    report_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    c.drawCentredString(width / 2, height - 70, f"Generated: {report_date}")
 
-    pdf_buffer = generate_pdf_report(test_data, test_patient, img_base64)
+    y = height - 120
 
-    with open('test_report.pdf', 'wb') as f:
-        f.write(pdf_buffer.read())
+    # Hospital Info
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Hospital Information")
+    y -= 20
+    c.setFont("Helvetica", 10)
+    c.drawString(70, y, f"Hospital: {hospital_data.get('hospital_name', 'N/A')}")
+    y -= 15
+    c.drawString(70, y, f"Code: {hospital_data.get('hospital_code', 'N/A')}")
+    y -= 30
 
-    print("Test PDF generated: test_report.pdf")
+    # Patient Info
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Patient Information")
+    y -= 20
+    c.setFont("Helvetica", 10)
+    c.drawString(70, y, f"Name: {patient_data.get('full_name', 'N/A')}")
+    y -= 15
+    c.drawString(70, y, f"Code: {patient_data.get('patient_code', 'N/A')}")
+    y -= 15
+    c.drawString(70, y, f"Email: {patient_data.get('email', 'N/A')}")
+    y -= 30
+
+    # Results
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Analysis Results")
+    y -= 20
+    c.setFont("Helvetica-Bold", 14)
+    prediction = scan_data.get('prediction', 'Unknown').upper()
+    confidence = scan_data.get('confidence', 0)
+    c.drawString(70, y, f"{prediction} - Confidence: {confidence:.2f}%")
+
+    c.save()
+    buffer.seek(0)
+    return buffer
