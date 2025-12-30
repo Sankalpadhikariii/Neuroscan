@@ -25,7 +25,12 @@ from dotenv import load_dotenv
 
 from pdf_report import generate_pdf_report
 from email_utilis import send_verification_email, send_welcome_email
+UPLOAD_FOLDER = 'uploads/profile_pictures'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
+# Create upload directory if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # -----------------------------
 # Environment
 # -----------------------------
@@ -79,7 +84,8 @@ logger.info(f"Using device: {device}")
 # -----------------------------
 DB_FILE = "neuroscan_platform.db"
 
-
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 def get_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -92,9 +98,15 @@ def get_db():
 def login_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if "user_id" not in session or "user_type" not in session:
-            return jsonify({"error": "Not authenticated"}), 401
-        return f(*args, **kwargs)
+        # Check for hospital/admin user
+        if "user_id" in session and "user_type" in session:
+            return f(*args, **kwargs)
+
+        # Check for patient user
+        if "patient_id" in session and "patient_type" in session:
+            return f(*args, **kwargs)
+
+        return jsonify({"error": "Not authenticated"}), 401
 
     return wrapper
 
@@ -146,8 +158,8 @@ def log_activity(user_type, user_id, action, details=None, hospital_id=None):
         """, (user_type, user_id, hospital_id, action, details))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to log activity: {e}")
 
 
 # ==============================================
@@ -754,14 +766,34 @@ def generate_report(scan_id):
         conn.close()
 
         if not row:
+            logger.error(f"Scan {scan_id} not found in database")
             return jsonify({"error": "Scan not found"}), 404
 
         # Check authorization
-        if session.get("user_type") == "hospital":
+        user_type = session.get("user_type")
+        logger.info(f"User type: {user_type}, requesting scan {scan_id}")
+
+        if user_type == "hospital":
+            # Hospital users can only access scans from their hospital
             if row["hospital_id"] != session.get("hospital_id"):
-                return jsonify({"error": "Unauthorized"}), 403
-        elif session.get("user_type") != "admin":
-            return jsonify({"error": "Unauthorized"}), 403
+                logger.warning(f"Hospital user {session.get('user_id')} tried to access scan from different hospital")
+                return jsonify({"error": "Unauthorized - not your hospital"}), 403
+
+        elif user_type == "patient":
+            # Patients can only access their own scans
+            patient_id = session.get("patient_id")
+            logger.info(f"Patient {patient_id} requesting scan for patient {row['patient_id']}")
+            if row["patient_id"] != patient_id:
+                logger.warning(f"Patient {patient_id} tried to access scan belonging to patient {row['patient_id']}")
+                return jsonify({"error": "Unauthorized - not your scan"}), 403
+
+        elif user_type == "admin":
+            # Admins can access all scans
+            logger.info(f"Admin {session.get('user_id')} accessing scan {scan_id}")
+
+        else:
+            logger.error(f"Invalid user type: {user_type}")
+            return jsonify({"error": "Unauthorized - invalid user type"}), 403
 
         # Prepare data for PDF
         scan_data = {
@@ -798,6 +830,8 @@ def generate_report(scan_id):
             from pdf_report import generate_simple_pdf_report
             pdf_buffer = generate_simple_pdf_report(scan_data, patient_data, hospital_data)
 
+        logger.info(f"Successfully generated report for scan {scan_id}")
+
         # Return PDF
         return send_file(
             pdf_buffer,
@@ -808,11 +842,13 @@ def generate_report(scan_id):
 
     except Exception as e:
         logger.error(f"Report generation error: {e}")
-        return jsonify({"error": "Failed to generate report"}), 500
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Failed to generate report: {str(e)}"}), 500
 
 
 # ==============================================
-# PATIENT CHAT ROUTES
+# PATIENT ROUTES
 # ==============================================
 
 @app.route("/patient/verify", methods=["POST"])
@@ -874,7 +910,7 @@ def patient_verify():
 
 @app.route("/patient/login", methods=["POST"])
 def patient_login():
-    """Step 3: Login patient with verification code"""
+    """Step 3: Verify code and log in patient"""
     data = request.json
     patient_code = data.get("patient_code")
     verification_code = data.get("verification_code")
@@ -883,7 +919,7 @@ def patient_login():
     c = conn.cursor()
 
     c.execute("""
-        SELECT p.*, h.hospital_name, pac.id as access_id
+        SELECT p.*, h.hospital_name, h.id as hospital_id, pac.id as access_id
         FROM patients p
         JOIN hospitals h ON p.hospital_id = h.id
         JOIN patient_access_codes pac ON p.id = pac.patient_id
@@ -905,8 +941,14 @@ def patient_login():
     conn.commit()
     conn.close()
 
+    # Set all necessary session variables
     session["patient_id"] = patient["id"]
     session["patient_type"] = "patient"
+    session["user_id"] = patient["id"]
+    session["user_type"] = "patient"
+    session["hospital_id"] = patient["hospital_id"]  # Added for potential future use
+
+    logger.info(f"Patient {patient['id']} logged in successfully")
 
     return jsonify({
         "patient": {
@@ -918,6 +960,41 @@ def patient_login():
         }
     })
 
+
+@app.route("/patient/scans", methods=["GET"])
+@patient_required
+def get_patient_scans():
+    """Get all scans for the logged-in patient"""
+    try:
+        patient_id = session.get("patient_id")
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT s.*, h.hospital_name, hu.full_name as doctor_name
+            FROM mri_scans s
+            JOIN hospitals h ON s.hospital_id = h.id
+            LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+            WHERE s.patient_id=?
+            ORDER BY s.created_at DESC
+        """, (patient_id,))
+
+        scans = [dict(row) for row in c.fetchall()]
+        conn.close()
+
+        logger.info(f"Patient {patient_id} retrieved {len(scans)} scans")
+
+        return jsonify({"scans": scans})
+
+    except Exception as e:
+        logger.error(f"Error fetching patient scans: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# CHAT ROUTES
+# ==============================================
 
 @app.route("/chat/send", methods=["POST"])
 @login_required
@@ -979,22 +1056,73 @@ def get_messages(conversation_id):
 
 
 # ==============================================
-# GENERAL ROUTES
+# DEBUG ROUTES (Remove in production)
 # ==============================================
 
-@app.route("/me", methods=["GET"])
-def me():
-    if "user_id" not in session:
-        return jsonify({"error": "Not authenticated"}), 401
-
+@app.route("/debug/session", methods=["GET"])
+def debug_session():
+    """Diagnostic endpoint to check session state"""
     return jsonify({
-        "user": {
-            "id": session.get("user_id"),
-            "type": session.get("user_type"),
+        "session_keys": list(session.keys()),
+        "session_data": {
+            "user_id": session.get("user_id"),
+            "user_type": session.get("user_type"),
+            "patient_id": session.get("patient_id"),
+            "patient_type": session.get("patient_type"),
+            "hospital_id": session.get("hospital_id"),
             "username": session.get("username")
         }
     })
 
+
+@app.route("/debug/scan/<int:scan_id>", methods=["GET"])
+@login_required
+def debug_scan(scan_id):
+    """Diagnostic endpoint to check scan data"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT s.id, s.hospital_id, s.patient_id, s.prediction,
+                   p.full_name as patient_name, p.patient_code,
+                   h.hospital_name
+            FROM mri_scans s
+            JOIN patients p ON s.patient_id = p.id
+            JOIN hospitals h ON s.hospital_id = h.id
+            WHERE s.id=?
+        """, (scan_id,))
+
+        row = c.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({"error": "Scan not found"}), 404
+
+        return jsonify({
+            "scan": dict(row),
+            "session": {
+                "user_id": session.get("user_id"),
+                "user_type": session.get("user_type"),
+                "patient_id": session.get("patient_id"),
+                "hospital_id": session.get("hospital_id")
+            },
+            "authorization_check": {
+                "is_hospital": session.get("user_type") == "hospital",
+                "hospital_match": row["hospital_id"] == session.get("hospital_id"),
+                "is_patient": session.get("user_type") == "patient",
+                "patient_match": row["patient_id"] == session.get("patient_id"),
+                "is_admin": session.get("user_type") == "admin"
+            }
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# GENERAL ROUTES
+# ==============================================
 
 @app.route("/logout", methods=["POST"])
 def logout():
@@ -1002,6 +1130,193 @@ def logout():
     return jsonify({"message": "Logged out"})
 
 
+@app.route("/patient/profile-picture", methods=["POST"])
+@patient_required
+def upload_profile_picture():
+    """Upload or update patient profile picture"""
+    try:
+        if 'profile_picture' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files['profile_picture']
+
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+
+        if not allowed_file(file.filename):
+            return jsonify({"error": "Invalid file type. Allowed: png, jpg, jpeg, gif, webp"}), 400
+
+        # Check file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({"error": "File too large. Maximum size is 5MB"}), 400
+
+        patient_id = session.get("patient_id")
+
+        # Read and encode image as base64
+        image_data = file.read()
+        image_base64 = base64.b64encode(image_data).decode('utf-8')
+
+        # Get file extension for mime type
+        file_ext = file.filename.rsplit('.', 1)[1].lower()
+        mime_type = f"image/{file_ext}" if file_ext != 'jpg' else "image/jpeg"
+
+        # Store in database
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if patient already has a profile picture
+        c.execute("SELECT profile_picture FROM patients WHERE id=?", (patient_id,))
+        existing = c.fetchone()
+
+        # Update profile picture
+        c.execute("""
+            UPDATE patients 
+            SET profile_picture=?, profile_picture_mime=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+        """, (image_base64, mime_type, patient_id))
+
+        conn.commit()
+        conn.close()
+
+        log_activity("patient", patient_id, "update_profile_picture")
+
+        return jsonify({
+            "message": "Profile picture updated successfully",
+            "profile_picture": f"data:{mime_type};base64,{image_base64}"
+        })
+
+    except Exception as e:
+        logger.error(f"Profile picture upload error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/patient/profile-picture", methods=["DELETE"])
+@patient_required
+def delete_profile_picture():
+    """Delete patient profile picture"""
+    try:
+        patient_id = session.get("patient_id")
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            UPDATE patients 
+            SET profile_picture=NULL, profile_picture_mime=NULL, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+        """, (patient_id,))
+
+        conn.commit()
+        conn.close()
+
+        log_activity("patient", patient_id, "delete_profile_picture")
+
+        return jsonify({"message": "Profile picture deleted successfully"})
+
+    except Exception as e:
+        logger.error(f"Profile picture deletion error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/patient/profile-picture/<int:patient_id>", methods=["GET"])
+@login_required
+def get_profile_picture(patient_id):
+    """Get patient profile picture"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT profile_picture, profile_picture_mime 
+            FROM patients 
+            WHERE id=?
+        """, (patient_id,))
+
+        result = c.fetchone()
+        conn.close()
+
+        if not result or not result["profile_picture"]:
+            return jsonify({"error": "No profile picture found"}), 404
+
+        return jsonify({
+            "profile_picture": f"data:{result['profile_picture_mime']};base64,{result['profile_picture']}"
+        })
+
+    except Exception as e:
+        logger.error(f"Get profile picture error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# Update the /me endpoint to include profile picture
+# Replace the existing /me endpoint with this enhanced version:
+
+@app.route("/me", methods=["GET"])
+def me():
+    """Get current user/patient information"""
+    if "user_id" not in session and "patient_id" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    user_type = session.get("user_type")
+
+    # If it's a patient, fetch full patient data including profile picture
+    if user_type == "patient":
+        patient_id = session.get("patient_id")
+
+        try:
+            conn = get_db()
+            c = conn.cursor()
+
+            c.execute("""
+                SELECT p.*, h.hospital_name, h.hospital_code
+                FROM patients p
+                JOIN hospitals h ON p.hospital_id = h.id
+                WHERE p.id=?
+            """, (patient_id,))
+
+            patient = c.fetchone()
+            conn.close()
+
+            if not patient:
+                return jsonify({"error": "Patient not found"}), 404
+
+            # Prepare profile picture if exists
+            profile_picture_url = None
+            if patient["profile_picture"] and patient["profile_picture_mime"]:
+                profile_picture_url = f"data:{patient['profile_picture_mime']};base64,{patient['profile_picture']}"
+
+            return jsonify({
+                "user": {
+                    "id": patient["id"],
+                    "type": "patient",
+                    "full_name": patient["full_name"],
+                    "patient_code": patient["patient_code"],
+                    "email": patient["email"],
+                    "phone": patient["phone"],
+                    "date_of_birth": patient["date_of_birth"],
+                    "gender": patient["gender"],
+                    "hospital_name": patient["hospital_name"],
+                    "hospital_code": patient["hospital_code"],
+                    "profile_picture": profile_picture_url
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Error fetching patient data: {e}")
+            return jsonify({"error": "Failed to fetch patient data"}), 500
+
+    # For hospital users and admins
+    return jsonify({
+        "user": {
+            "id": session.get("user_id"),
+            "type": session.get("user_type"),
+            "username": session.get("username"),
+            "hospital_id": session.get("hospital_id")
+        }
+    })
 # ==============================================
 # RUN
 # ==============================================
