@@ -15,7 +15,13 @@
       user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
     -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    
+    <meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://js.stripe.com https://m.stripe.network 'unsafe-inline';
+  style-src 'self' https://js.stripe.network 'unsafe-inline';
+  connect-src 'self' http://localhost:5000;
+">
+
     <title>React App</title>
   </head>
   <body>

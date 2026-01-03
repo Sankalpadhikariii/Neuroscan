@@ -3,12 +3,16 @@ import UniversalLogin from './UniversalLogin';
 import AdminPortal from './AdminPortal';
 import HospitalPortal from './HospitalPortal';
 import PatientPortal from './PatientPortal';
+import PricingPage from './PricingPage';
+import SubscriptionSuccess from './SubscriptionSuccess';
+import SubscriptionCancelled from './SubscriptionCancelled';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [currentView, setCurrentView] = useState('main'); // 'main', 'pricing', 'success', 'cancelled'
 
   useEffect(() => {
     checkAuth();
@@ -44,6 +48,24 @@ export default function App() {
     setUser(userData);
   }
 
+  function handleNavigateToPricing() {
+    setCurrentView('pricing');
+  }
+
+  function handleNavigateToMain() {
+    setCurrentView('main');
+  }
+
+  // Check URL for success/cancelled params
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('session_id')) {
+      setCurrentView('success');
+    } else if (window.location.pathname === '/subscription-cancelled') {
+      setCurrentView('cancelled');
+    }
+  }, []);
+
   if (loading) {
     return (
       <div style={{
@@ -76,6 +98,26 @@ export default function App() {
     );
   }
 
+  // Show success page
+  if (currentView === 'success') {
+    return <SubscriptionSuccess onNavigateHome={handleNavigateToMain} />;
+  }
+
+  // Show cancelled page
+  if (currentView === 'cancelled') {
+    return <SubscriptionCancelled onNavigateHome={handleNavigateToMain} />;
+  }
+
+  // Show pricing page
+  if (currentView === 'pricing') {
+    return (
+      <PricingPage 
+        currentPlan={user?.subscription}
+        onBack={handleNavigateToMain}
+      />
+    );
+  }
+
   // Not authenticated - show login
   if (!user) {
     return <UniversalLogin onLogin={handleLogin} />;
@@ -83,11 +125,11 @@ export default function App() {
 
   // Route based on user type
   if (user.type === 'admin') {
-    return <AdminPortal user={user} onLogout={handleLogout} />;
+    return <AdminPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
   }
 
   if (user.type === 'hospital') {
-    return <HospitalPortal user={user} onLogout={handleLogout} />;
+    return <HospitalPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
   }
 
   if (user.type === 'patient') {
