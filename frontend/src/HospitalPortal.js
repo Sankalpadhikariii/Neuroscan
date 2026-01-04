@@ -35,6 +35,7 @@ export default function HospitalPortal({ user, onLogout }) {
   });
 
   const fileInputRef = useRef(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -264,7 +265,7 @@ const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
           {/* Pricing/Upgrade Button */}
           <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
             <button
-              onClick={() => handleUpgradeClick(2,'monthly')}
+              onClick={() => setShowUpgradeModal(true)}
               style={{
                 width: '100%',
                 padding: '12px 16px',
@@ -924,6 +925,14 @@ const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
         />
       )}
 
+      {showUpgradeModal && (
+        <UpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          onSelectPlan={(plan) => handleUpgradeClick(plan, 'monthly')}
+        />
+      )}
+
       {showScanDetailsModal && selectedScan && (
         <ScanDetailsModal
           scan={selectedScan}
@@ -1031,6 +1040,145 @@ function GuidelineItem({ text }) {
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
       <CheckCircle size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
       <span style={{ fontSize: '14px', color: '#374151' }}>{text}</span>
+    </div>
+  );
+}
+
+// Upgrade Modal Component
+function UpgradeModal({ isOpen, onClose, onSelectPlan }) {
+  if (!isOpen) return null;
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div style={{ width: '900px', maxHeight: '80vh', overflow: 'auto', background: 'white', borderRadius: '12px', padding: '20px' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px' }}>
+          <h2 style={{ margin:0, display: 'flex', alignItems:'center', gap:'8px' }}>📊 Business Model Summary</h2>
+          <button onClick={onClose} style={{ border:'none', background:'transparent', fontSize: '18px', cursor:'pointer' }}>✕</button>
+        </div>
+
+        <h3 style={{ marginTop: '8px' }}>Subscription Tiers</h3>
+        <div style={{ overflowX: 'auto', marginBottom: '16px' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Plan</th>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Price/Month</th>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Scans/Month</th>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Users/Patients</th>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Target Audience</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Free Trial</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$0</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>10</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>250</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Testing & Evaluation</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Basic</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$9</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>100</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>5,500</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Small Clinics</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Professional</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$299</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>500</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>202,000</td>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Medium Hospitals</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px' }}>Enterprise</td>
+                <td style={{ padding:'8px' }}>$799</td>
+                <td style={{ padding:'8px' }}>Unlimited</td>
+                <td style={{ padding:'8px' }}>Unlimited</td>
+                <td style={{ padding:'8px' }}>Large Networks</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Feature Matrix</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Feature</th>
+                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Free</th>
+                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Basic</th>
+                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Professional</th>
+                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Basic MRI Scan</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>PDF Reports</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Patient Portal</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>GradCAM Visualization</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>API Access</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Priority Support</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Custom Branding</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+              <tr>
+                <td style={{ padding:'8px' }}>Dedicated Manager</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
+                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginTop:'12px' }}>
+          <button onClick={() => { onSelectPlan('basic'); onClose(); }} style={{ padding:'10px 14px', background:'#5B6BF5', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Basic</button>
+          <button onClick={() => { onSelectPlan('professional'); onClose(); }} style={{ padding:'10px 14px', background:'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Professional</button>
+          <button onClick={() => { onSelectPlan('enterprise'); onClose(); }} style={{ padding:'10px 14px', background:'#f59e0b', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Enterprise</button>
+        </div>
+      </div>
     </div>
   );
 }
