@@ -8,6 +8,7 @@ import ChatbotToggle from './ChatbotToggle';
 import PatientInfoModal from './PatientInfoModal';
 import AddPatientModal from './AddPatientModal';
 import ScanDetailsModal from './ScanDetailsModal';
+import { UsageIndicator, UsageWarningBanner, UpgradeRequiredModal } from './UsageComponents';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -22,6 +23,12 @@ export default function HospitalPortal({ user, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showPatientModal, setShowPatientModal] = useState(false);
+
+
+// Usage tracking states
+const [usage, setUsage] = useState(null);
+const [showWarningBanner, setShowWarningBanner] = useState(true);
+
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
   const [showScanDetailsModal, setShowScanDetailsModal] = useState(false);
   const [selectedScan, setSelectedScan] = useState(null);
@@ -41,6 +48,8 @@ export default function HospitalPortal({ user, onLogout }) {
     loadDashboard();
     loadPatients();
     loadHistory();
+    loadUsageStatus();
+
   }, []);
 
   useEffect(() => {
@@ -84,6 +93,18 @@ export default function HospitalPortal({ user, onLogout }) {
       console.error('Failed to load history:', err);
     }
   }
+async function loadUsageStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/hospital/usage-status`, {
+      credentials: 'include'
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setUsage(data);
+  } catch (err) {
+    console.error('Failed to load usage status:', err);
+  }
+}
 
   function handleFile(e) {
     const file = e.target.files?.[0];
@@ -119,7 +140,13 @@ export default function HospitalPortal({ user, onLogout }) {
         credentials: 'include'
       });
 
-      if (!res.ok) throw new Error();
+    if (res.status === 403) {
+  setShowUpgradeModal(true);
+  return;
+}
+
+if (!res.ok) throw new Error();
+
 
       const data = await res.json();
       setPrediction(data);
@@ -353,6 +380,18 @@ const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
 
       {/* Main Content */}
       <main style={{ flex: 1, overflow: 'auto' }}>
+        {usage && (
+  <>
+    <UsageWarningBanner
+      usage={usage}
+      visible={showWarningBanner}
+      onDismiss={() => setShowWarningBanner(false)}
+    />
+
+    <UsageIndicator usage={usage} />
+  </>
+)}
+
         {/* Dashboard View */}
         {view === 'dashboard' && stats && (
           <div style={{ padding: '32px' }}>
