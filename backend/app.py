@@ -6,9 +6,9 @@ import secrets
 import logging
 import random
 import string
-import json
+
 from pathlib import Path
-from functools import wraps
+
 from datetime import datetime, timedelta
 import stripe
 import requests
@@ -18,6 +18,8 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 from PIL import Image
 
+from functools import wraps
+
 from flask import Flask, request, jsonify, session, send_file
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -25,7 +27,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import json
-from datetime import datetime, timedelta
+
 from pdf_report import generate_pdf_report
 from email_utilis import send_verification_email, send_welcome_email
 
@@ -283,6 +285,851 @@ def check_usage_limit(hospital_id, resource_type='scans'):
 
     can_use = current < limit
     return can_use, current, limit
+
+
+@app.route('/admin/dashboard', methods=['GET'])
+@login_required
+@admin_required
+def admin_dashboard():
+    """Get admin dashboard statistics"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Get total counts
+        c.execute("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'superadmin')")
+        total_admins = c.fetchone()[0]
+
+        c.execute("SELECT COUNT(*) FROM hospitals")
+        total_hospitals = c.fetchone()[0]
+
+        c.execute("SELECT COUNT(*) FROM patients")
+        total_patients = c.fetchone()[0]
+
+        c.execute("""
+            SELECT COUNT(*) FROM hospital_subscriptions 
+            WHERE status = 'active'
+        """)
+        active_subscriptions = c.fetchone()[0]
+
+        c.execute("SELECT COUNT(*) FROM scans")
+        total_scans = c.fetchone()[0]
+
+        c.execute("""
+            SELECT COUNT(*) FROM scans 
+            WHERE DATE(scan_date) = DATE('now')
+        """)
+        scans_today = c.fetchone()[0]
+
+        c.execute("""
+            SELECT COUNT(*) FROM scans 
+            WHERE strftime('%Y-%m', scan_date) = strftime('%Y-%m', 'now')
+        """)
+        scans_this_month = c.fetchone()[0]
+
+        # Calculate active users (users who logged in within last 30 days)
+        c.execute("""
+            SELECT COUNT(DISTINCT user_id) FROM activity_logs
+            WHERE created_at >= datetime('now', '-30 days')
+        """)
+        active_users = c.fetchone()[0]
+
+        conn.close()
+
+        return jsonify({
+            'stats': {
+                'total_admins': total_admins,
+                'total_hospitals': total_hospitals,
+                'total_patients': total_patients,
+                'active_subscriptions': active_subscriptions,
+                'total_scans': total_scans,
+                'scans_today': scans_today,
+                'scans_this_month': scans_this_month,
+                'active_users': active_users
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error loading admin dashboard: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/subscription-plans', methods=['GET'])
+@login_required
+@admin_required
+def get_subscription_plans():
+    """Get all subscription plans"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT id, name, display_name, description, 
+                   price_monthly, price_yearly, 
+                   max_scans_per_month, max_users, max_patients,
+                   features, is_active
+            FROM subscription_plans
+            WHERE is_active = 1
+            ORDER BY price_monthly ASC
+        """)
+
+        plans = []
+        for row in c.fetchall():
+            plans.append({
+                'id': row[0],
+                'name': row[1],
+                'display_name': row[2],
+                'description': row[3],
+                'price_monthly': row[4],
+                'price_yearly': row[5],
+                'max_scans_per_month': row[6],
+                'max_users': row[7],
+                'max_patients': row[8],
+                'features': json.loads(row[9]) if row[9] else [],
+                'is_active': row[10]
+            })
+
+        conn.close()
+        return jsonify({'plans': plans})
+
+    except Exception as e:
+        logger.error(f"Error loading subscription plans: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==============================================
+# ADMIN - GET ALL USERS BY TYPE
+# ==============================================
+
+@app.route('/admin/users/admins', methods=['GET'])
+@login_required
+@admin_required
+def get_all_admins():
+    """Get all admin users"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT id, username, email, role, created_at
+            FROM users
+            WHERE role IN ('admin', 'superadmin')
+            ORDER BY created_at DESC
+        """)
+
+        admins = []
+        for row in c.fetchall():
+            admins.append({
+                'id': row[0],
+                'username': row[1],
+                'email': row[2],
+                'role': row[3],
+                'created_at': row[4]
+            })
+
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'viewed_all_admins')
+
+        return jsonify({'admins': admins})
+
+    except Exception as e:
+        logger.error(f"Error loading admins: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/hospitals', methods=['GET'])
+@login_required
+@admin_required
+def get_all_hospitals():
+    """Get all hospital accounts"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT h.id, h.hospital_name, h.hospital_code, h.email,
+                   h.contact_person, h.phone, h.address, h.created_at,
+                   hs.status as subscription_status,
+                   sp.display_name as subscription_plan
+            FROM hospitals h
+            LEFT JOIN hospital_subscriptions hs ON h.id = hs.hospital_id AND hs.status = 'active'
+            LEFT JOIN subscription_plans sp ON hs.plan_id = sp.id
+            ORDER BY h.created_at DESC
+        """)
+
+        hospitals = []
+        for row in c.fetchall():
+            hospitals.append({
+                'id': row[0],
+                'hospital_name': row[1],
+                'hospital_code': row[2],
+                'email': row[3],
+                'contact_person': row[4],
+                'phone': row[5],
+                'address': row[6],
+                'created_at': row[7],
+                'subscription_status': row[8] or 'none',
+                'subscription_plan': row[9] or 'Free'
+            })
+
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'viewed_all_hospitals')
+
+        return jsonify({'hospitals': hospitals})
+
+    except Exception as e:
+        logger.error(f"Error loading hospitals: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/patients', methods=['GET'])
+@login_required
+@admin_required
+def get_all_patients():
+    """Get all patient records"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT p.id, p.full_name, p.patient_code, p.email, p.phone,
+                   p.date_of_birth, p.gender, p.created_at,
+                   h.hospital_name, h.hospital_code
+            FROM patients p
+            LEFT JOIN hospitals h ON p.hospital_id = h.id
+            ORDER BY p.created_at DESC
+        """)
+
+        patients = []
+        for row in c.fetchall():
+            patients.append({
+                'id': row[0],
+                'full_name': row[1],
+                'patient_code': row[2],
+                'email': row[3],
+                'phone': row[4],
+                'date_of_birth': row[5],
+                'gender': row[6],
+                'created_at': row[7],
+                'hospital_name': row[8],
+                'hospital_code': row[9]
+            })
+
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'viewed_all_patients')
+
+        return jsonify({'patients': patients})
+
+    except Exception as e:
+        logger.error(f"Error loading patients: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==============================================
+# ADMIN - CREATE NEW USERS
+# ==============================================
+
+@app.route('/admin/users/admin', methods=['POST'])
+@login_required
+@admin_required
+def create_admin_user():
+    """Create a new admin user"""
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['username', 'email', 'password', 'role']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        # Validate role
+        if data['role'] not in ['admin', 'superadmin']:
+            return jsonify({'error': 'Invalid role'}), 400
+
+        # Only superadmin can create other superadmins
+        if data['role'] == 'superadmin' and session.get('role') != 'superadmin':
+            return jsonify({'error': 'Only superadmins can create other superadmins'}), 403
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if username or email already exists
+        c.execute('SELECT id FROM users WHERE username=? OR email=?',
+                  (data['username'], data['email']))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Username or email already exists'}), 400
+
+        # Create admin user
+        hashed_password = generate_password_hash(data['password'])
+        c.execute("""
+            INSERT INTO users (username, email, password, role)
+            VALUES (?, ?, ?, ?)
+        """, (data['username'], data['email'], hashed_password, data['role']))
+
+        user_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'created_admin_user',
+                     f"Created {data['role']} user: {data['username']}")
+
+        return jsonify({
+            'message': f"{data['role'].capitalize()} user created successfully",
+            'user_id': user_id
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating admin user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/hospital', methods=['POST'])
+@login_required
+@admin_required
+def create_hospital_account():
+    """Create a new hospital account"""
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['hospital_name', 'hospital_code', 'email', 'password']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if hospital code or email already exists
+        c.execute('SELECT id FROM hospitals WHERE hospital_code=? OR email=?',
+                  (data['hospital_code'], data['email']))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Hospital code or email already exists'}), 400
+
+        # Create hospital account
+        hashed_password = generate_password_hash(data['password'])
+        c.execute("""
+            INSERT INTO hospitals 
+            (hospital_name, hospital_code, email, password, 
+             contact_person, phone, address)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data['hospital_name'],
+            data['hospital_code'].upper(),
+            data['email'],
+            hashed_password,
+            data.get('contact_person', ''),
+            data.get('phone', ''),
+            data.get('address', '')
+        ))
+
+        hospital_id = c.lastrowid
+
+        # Get subscription plan
+        plan_name = data.get('subscription_plan', 'free')
+        c.execute('SELECT id FROM subscription_plans WHERE name=?', (plan_name,))
+        plan = c.fetchone()
+
+        if plan:
+            plan_id = plan[0]
+
+            # Create subscription
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=30)
+
+            c.execute("""
+                INSERT INTO hospital_subscriptions
+                (hospital_id, plan_id, status, billing_cycle,
+                 current_period_start, current_period_end,
+                 trial_ends_at, is_trial)
+                VALUES (?, ?, 'active', 'monthly', ?, ?, ?, ?)
+            """, (hospital_id, plan_id, start_date.date(), end_date.date(),
+                  end_date.date(), 1 if plan_name == 'free' else 0))
+
+            subscription_id = c.lastrowid
+
+            # Get plan limits
+            c.execute("""
+                SELECT max_scans_per_month, max_users, max_patients
+                FROM subscription_plans WHERE id=?
+            """, (plan_id,))
+            limits = c.fetchone()
+
+            # Create usage tracking
+            c.execute("""
+                INSERT INTO usage_tracking
+                (hospital_id, subscription_id, period_start, period_end,
+                 scans_used, scans_limit, users_count, users_limit,
+                 patients_count, patients_limit, is_current)
+                VALUES (?, ?, ?, ?, 0, ?, 0, ?, 0, ?, 1)
+            """, (hospital_id, subscription_id, start_date.date(), end_date.date(),
+                  limits[0], limits[1], limits[2]))
+
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'created_hospital',
+                     f"Created hospital: {data['hospital_name']}")
+
+        return jsonify({
+            'message': 'Hospital account created successfully',
+            'hospital_id': hospital_id,
+            'hospital_code': data['hospital_code'].upper()
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating hospital: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/patient', methods=['POST'])
+@login_required
+@admin_required
+def create_patient_record():
+    """Create a new patient record"""
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['full_name', 'patient_code', 'access_code', 'email', 'hospital_id']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Verify hospital exists
+        c.execute('SELECT id, hospital_code FROM hospitals WHERE id=?', (data['hospital_id'],))
+        hospital = c.fetchone()
+        if not hospital:
+            conn.close()
+            return jsonify({'error': 'Hospital not found'}), 404
+
+        hospital_code = hospital[1]
+
+        # Check if patient code already exists for this hospital
+        c.execute("""
+            SELECT id FROM patients 
+            WHERE patient_code=? AND hospital_id=?
+        """, (data['patient_code'], data['hospital_id']))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Patient code already exists for this hospital'}), 400
+
+        # Check if email already exists
+        c.execute('SELECT id FROM patients WHERE email=?', (data['email'],))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Email already registered'}), 400
+
+        # Create patient record
+        c.execute("""
+            INSERT INTO patients
+            (hospital_id, full_name, patient_code, access_code, email,
+             phone, date_of_birth, gender, blood_group, 
+             emergency_contact, medical_history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data['hospital_id'],
+            data['full_name'],
+            data['patient_code'].upper(),
+            data['access_code'],
+            data['email'],
+            data.get('phone', ''),
+            data.get('date_of_birth', ''),
+            data.get('gender', ''),
+            data.get('blood_group', ''),
+            data.get('emergency_contact', ''),
+            data.get('medical_history', '')
+        ))
+
+        patient_id = c.lastrowid
+        conn.commit()
+
+        # Update usage tracking
+        try:
+            c.execute("""
+                UPDATE usage_tracking
+                SET patients_count = patients_count + 1
+                WHERE hospital_id = ? AND is_current = 1
+            """, (data['hospital_id'],))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Could not update usage tracking: {e}")
+
+        conn.close()
+
+        # Send welcome email (optional)
+        try:
+            send_welcome_email(
+                data['email'],
+                data['full_name'],
+                data['patient_code'],
+                data['access_code'],
+                'Hospital Name',  # You might want to fetch this
+                hospital_code
+            )
+        except Exception as e:
+            logger.warning(f"Could not send welcome email: {e}")
+
+        log_activity('admin', session['user_id'], 'created_patient',
+                     f"Created patient: {data['full_name']}")
+
+        return jsonify({
+            'message': 'Patient record created successfully',
+            'patient_id': patient_id,
+            'patient_code': data['patient_code'].upper()
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating patient: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==============================================
+# ADMIN - UPDATE USERS
+# ==============================================
+
+@app.route('/admin/users/admin/<int:user_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_admin_user(user_id):
+    """Update an admin user"""
+    try:
+        data = request.get_json()
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if user exists
+        c.execute('SELECT id, role FROM users WHERE id=?', (user_id,))
+        user = c.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        # Only superadmin can modify superadmin accounts
+        if user[1] == 'superadmin' and session.get('role') != 'superadmin':
+            conn.close()
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        # Build update query
+        updates = []
+        params = []
+
+        if 'email' in data and data['email']:
+            updates.append('email = ?')
+            params.append(data['email'])
+
+        if 'username' in data and data['username']:
+            updates.append('username = ?')
+            params.append(data['username'])
+
+        if 'role' in data and data['role'] in ['admin', 'superadmin']:
+            if data['role'] == 'superadmin' and session.get('role') != 'superadmin':
+                conn.close()
+                return jsonify({'error': 'Only superadmins can grant superadmin role'}), 403
+            updates.append('role = ?')
+            params.append(data['role'])
+
+        if 'password' in data and data['password']:
+            updates.append('password = ?')
+            params.append(generate_password_hash(data['password']))
+
+        if not updates:
+            conn.close()
+            return jsonify({'error': 'No valid fields to update'}), 400
+
+        # Perform update
+        query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+        params.append(user_id)
+
+        c.execute(query, params)
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'updated_admin_user',
+                     f"Updated admin user ID: {user_id}")
+
+        return jsonify({'message': 'Admin user updated successfully'})
+
+    except Exception as e:
+        logger.error(f"Error updating admin user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/hospital/<int:hospital_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_hospital_account(hospital_id):
+    """Update a hospital account"""
+    try:
+        data = request.get_json()
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if hospital exists
+        c.execute('SELECT id FROM hospitals WHERE id=?', (hospital_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Hospital not found'}), 404
+
+        # Build update query for hospital
+        updates = []
+        params = []
+
+        updatable_fields = ['hospital_name', 'email', 'contact_person', 'phone', 'address']
+        for field in updatable_fields:
+            if field in data and data[field] is not None:
+                updates.append(f'{field} = ?')
+                params.append(data[field])
+
+        if 'password' in data and data['password']:
+            updates.append('password = ?')
+            params.append(generate_password_hash(data['password']))
+
+        if updates:
+            query = f"UPDATE hospitals SET {', '.join(updates)} WHERE id = ?"
+            params.append(hospital_id)
+            c.execute(query, params)
+
+        # Update subscription if provided
+        if 'subscription_plan' in data:
+            c.execute('SELECT id FROM subscription_plans WHERE name=?',
+                      (data['subscription_plan'],))
+            plan = c.fetchone()
+
+            if plan:
+                plan_id = plan[0]
+
+                # Check if hospital has active subscription
+                c.execute("""
+                    SELECT id FROM hospital_subscriptions
+                    WHERE hospital_id=? AND status='active'
+                """, (hospital_id,))
+                existing_sub = c.fetchone()
+
+                if existing_sub:
+                    # Update existing subscription
+                    c.execute("""
+                        UPDATE hospital_subscriptions
+                        SET plan_id=?, updated_at=CURRENT_TIMESTAMP
+                        WHERE id=?
+                    """, (plan_id, existing_sub[0]))
+
+                    # Update usage limits
+                    c.execute("""
+                        SELECT max_scans_per_month, max_users, max_patients
+                        FROM subscription_plans WHERE id=?
+                    """, (plan_id,))
+                    limits = c.fetchone()
+
+                    c.execute("""
+                        UPDATE usage_tracking
+                        SET scans_limit=?, users_limit=?, patients_limit=?
+                        WHERE hospital_id=? AND is_current=1
+                    """, (limits[0], limits[1], limits[2], hospital_id))
+                else:
+                    # Create new subscription
+                    start_date = datetime.now()
+                    end_date = start_date + timedelta(days=30)
+
+                    c.execute("""
+                        INSERT INTO hospital_subscriptions
+                        (hospital_id, plan_id, status, billing_cycle,
+                         current_period_start, current_period_end)
+                        VALUES (?, ?, 'active', 'monthly', ?, ?)
+                    """, (hospital_id, plan_id, start_date.date(), end_date.date()))
+
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'updated_hospital',
+                     f"Updated hospital ID: {hospital_id}")
+
+        return jsonify({'message': 'Hospital account updated successfully'})
+
+    except Exception as e:
+        logger.error(f"Error updating hospital: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/patient/<int:patient_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_patient_record(patient_id):
+    """Update a patient record"""
+    try:
+        data = request.get_json()
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if patient exists
+        c.execute('SELECT id FROM patients WHERE id=?', (patient_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Patient not found'}), 404
+
+        # Build update query
+        updates = []
+        params = []
+
+        updatable_fields = [
+            'full_name', 'email', 'phone', 'date_of_birth', 'gender',
+            'blood_group', 'emergency_contact', 'medical_history'
+        ]
+
+        for field in updatable_fields:
+            if field in data and data[field] is not None:
+                updates.append(f'{field} = ?')
+                params.append(data[field])
+
+        if not updates:
+            conn.close()
+            return jsonify({'error': 'No valid fields to update'}), 400
+
+        query = f"UPDATE patients SET {', '.join(updates)} WHERE id = ?"
+        params.append(patient_id)
+
+        c.execute(query, params)
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'updated_patient',
+                     f"Updated patient ID: {patient_id}")
+
+        return jsonify({'message': 'Patient record updated successfully'})
+
+    except Exception as e:
+        logger.error(f"Error updating patient: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==============================================
+# ADMIN - DELETE USERS
+# ==============================================
+
+@app.route('/admin/users/admin/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_admin_user(user_id):
+    """Delete an admin user"""
+    try:
+        # Prevent deleting yourself
+        if user_id == session['user_id']:
+            return jsonify({'error': 'Cannot delete your own account'}), 400
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if user exists and get role
+        c.execute('SELECT id, role FROM users WHERE id=?', (user_id,))
+        user = c.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        # Only superadmin can delete superadmin accounts
+        if user[1] == 'superadmin' and session.get('role') != 'superadmin':
+            conn.close()
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        # Delete user
+        c.execute('DELETE FROM users WHERE id=?', (user_id,))
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_admin_user',
+                     f"Deleted admin user ID: {user_id}")
+
+        return jsonify({'message': 'Admin user deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting admin user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/hospital/<int:hospital_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_hospital_account(hospital_id):
+    """Delete a hospital account and all related data"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if hospital exists
+        c.execute('SELECT id FROM hospitals WHERE id=?', (hospital_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Hospital not found'}), 404
+
+        # Delete hospital (cascades to subscriptions, patients, scans due to foreign keys)
+        c.execute('DELETE FROM hospitals WHERE id=?', (hospital_id,))
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_hospital',
+                     f"Deleted hospital ID: {hospital_id}")
+
+        return jsonify({'message': 'Hospital account deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting hospital: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/patient/<int:patient_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_patient_record(patient_id):
+    """Delete a patient record"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if patient exists
+        c.execute('SELECT id, hospital_id FROM patients WHERE id=?', (patient_id,))
+        patient = c.fetchone()
+        if not patient:
+            conn.close()
+            return jsonify({'error': 'Patient not found'}), 404
+
+        hospital_id = patient[1]
+
+        # Delete patient (cascades to scans)
+        c.execute('DELETE FROM patients WHERE id=?', (patient_id,))
+
+        # Update usage tracking
+        try:
+            c.execute("""
+                UPDATE usage_tracking
+                SET patients_count = GREATEST(0, patients_count - 1)
+                WHERE hospital_id = ? AND is_current = 1
+            """, (hospital_id,))
+        except Exception as e:
+            logger.warning(f"Could not update usage tracking: {e}")
+
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_patient',
+                     f"Deleted patient ID: {patient_id}")
+
+        return jsonify({'message': 'Patient record deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting patient: {e}")
+        return jsonify({'error': str(e)}), 500
 @app.route("/api/stripe/config", methods=["GET"])
 def stripe_config():
     return jsonify({"publishableKey": STRIPE_PUBLISHABLE_KEY})
@@ -326,6 +1173,188 @@ def has_feature(hospital_id, feature_key):
     except:
         return False
 
+
+# ==============================================
+# USAGE CHECK MIDDLEWARE
+# ==============================================
+
+def check_scan_limit(f):
+    """
+    Decorator to check if hospital can perform scan
+    Returns usage info even if blocked (for frontend display)
+    """
+
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        hospital_id = session.get("hospital_id")
+
+        if not hospital_id:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        usage_info = get_detailed_usage(hospital_id)
+
+        # Check if blocked
+        if usage_info['is_blocked']:
+            return jsonify({
+                "error": "Usage limit reached",
+                "usage": usage_info,
+                "upgrade_required": True,
+                "message": usage_info['block_message']
+            }), 403
+
+        # Proceed with function, but attach usage info
+        request.usage_info = usage_info
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def get_detailed_usage(hospital_id):
+    """
+    Get comprehensive usage information for a hospital
+    Returns detailed status including limits, cooldowns, etc.
+    """
+    conn = get_db()
+    c = conn.cursor()
+
+    # Get subscription
+    c.execute("""
+        SELECT hs.*, sp.name as plan_name, sp.display_name, 
+               sp.max_scans_per_month, sp.price_monthly
+        FROM hospital_subscriptions hs
+        JOIN subscription_plans sp ON hs.plan_id = sp.id
+        WHERE hs.hospital_id = ? AND hs.status = 'active'
+        ORDER BY hs.created_at DESC
+        LIMIT 1
+    """, (hospital_id,))
+    subscription = c.fetchone()
+
+    if not subscription:
+        conn.close()
+        return {
+            'is_blocked': True,
+            'block_message': 'No active subscription',
+            'can_scan': False
+        }
+
+    subscription = dict(subscription)
+
+    # Get usage
+    c.execute("""
+        SELECT * FROM usage_tracking
+        WHERE hospital_id = ? AND is_current = 1
+        ORDER BY period_start DESC
+        LIMIT 1
+    """, (hospital_id,))
+    usage = c.fetchone()
+
+    if not usage:
+        conn.close()
+        return {
+            'is_blocked': True,
+            'block_message': 'Usage tracking not found',
+            'can_scan': False
+        }
+
+    usage = dict(usage)
+
+    scans_used = usage['scans_used']
+    scans_limit = usage['scans_limit']
+
+    # Check for unlimited
+    if scans_limit == -1:
+        conn.close()
+        return {
+            'is_blocked': False,
+            'can_scan': True,
+            'scans_used': scans_used,
+            'scans_limit': -1,
+            'is_unlimited': True,
+            'plan_name': subscription['display_name'],
+            'usage_percent': 0
+        }
+
+    # Calculate usage percentage
+    usage_percent = (scans_used / scans_limit * 100) if scans_limit > 0 else 0
+
+    # Check if blocked
+    is_blocked = scans_used >= scans_limit
+
+    # Check cooldown (for free tier)
+    cooldown_active = False
+    cooldown_ends = None
+
+    if subscription['plan_name'] == 'free' and is_blocked:
+        # Check last scan time
+        c.execute("""
+            SELECT created_at FROM mri_scans
+            WHERE hospital_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (hospital_id,))
+        last_scan = c.fetchone()
+
+        if last_scan:
+            last_scan_time = datetime.strptime(last_scan['created_at'], '%Y-%m-%d %H:%M:%S')
+            cooldown_ends = last_scan_time + timedelta(hours=24)
+            cooldown_active = datetime.now() < cooldown_ends
+
+    # Period end date
+    period_end = datetime.strptime(usage['period_end'], '%Y-%m-%d')
+    days_until_reset = (period_end - datetime.now()).days
+
+    # Generate appropriate message
+    if is_blocked:
+        if subscription['plan_name'] == 'free':
+            if cooldown_active:
+                hours_left = int((cooldown_ends - datetime.now()).total_seconds() / 3600)
+                block_message = f"Free scan available in {hours_left} hours. Upgrade for unlimited scans!"
+            else:
+                block_message = f"Monthly limit reached. Resets in {days_until_reset} days or upgrade now!"
+        else:
+            block_message = f"Monthly limit of {scans_limit} scans reached. Upgrade to get more!"
+    elif usage_percent >= 80:
+        remaining = scans_limit - scans_used
+        block_message = f"Only {remaining} scans remaining this month. Consider upgrading!"
+    else:
+        block_message = None
+
+    conn.close()
+
+    return {
+        'is_blocked': is_blocked and (not cooldown_active if cooldown_active else True),
+        'can_scan': not is_blocked or (cooldown_active == False),
+        'scans_used': scans_used,
+        'scans_limit': scans_limit,
+        'scans_remaining': max(0, scans_limit - scans_used),
+        'usage_percent': round(usage_percent, 1),
+        'plan_name': subscription['display_name'],
+        'plan_id': subscription['plan_id'],
+        'is_free_tier': subscription['plan_name'] == 'free',
+        'is_trial': subscription.get('is_trial', 0) == 1,
+        'days_until_reset': days_until_reset,
+        'period_end': usage['period_end'],
+        'block_message': block_message,
+        'cooldown_active': cooldown_active,
+        'cooldown_ends': cooldown_ends.isoformat() if cooldown_ends else None,
+        'upgrade_plans': get_upgrade_options(subscription['plan_id'])
+    }
+
+
+def get_upgrade_options(current_plan_id):
+    """Get available upgrade plans"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, name, display_name, price_monthly, max_scans_per_month
+        FROM subscription_plans
+        WHERE id > ? AND is_active = 1
+        ORDER BY price_monthly ASC
+        LIMIT 3
+    """, (current_plan_id,))
+    plans = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return plans
 
 def requires_feature(feature_key):
     """Decorator to check feature access"""
@@ -418,7 +1447,7 @@ except Exception as e:
 # ==============================================
 
 @app.route("/api/subscription/plans", methods=["GET"])
-def get_subscription_plans():
+def get_public_subscription_plans():
     """Get all available subscription plans"""
     conn = get_db()
     c = conn.cursor()
@@ -487,50 +1516,6 @@ def admin_login():
     })
 
 
-@app.route("/admin/dashboard", methods=["GET"])
-@admin_required
-def admin_dashboard():
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT COUNT(*) as count FROM hospitals WHERE status='active'")
-    total_hospitals = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM hospital_users WHERE status='active'")
-    total_doctors = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM patients")
-    total_patients = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM mri_scans")
-    total_scans = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM bug_reports WHERE status!='resolved'")
-    open_bugs = c.fetchone()["count"]
-
-    c.execute("""
-        SELECT id, hospital_name, hospital_code, email, city, created_at
-        FROM hospitals ORDER BY created_at DESC LIMIT 5
-    """)
-    recent_hospitals = [dict(row) for row in c.fetchall()]
-
-    c.execute("""
-        SELECT h.hospital_name, COUNT(s.id) as scan_count
-        FROM hospitals h
-        LEFT JOIN mri_scans s ON h.id = s.hospital_id
-        GROUP BY h.id ORDER BY scan_count DESC LIMIT 5
-    """)
-    top_hospitals = [dict(row) for row in c.fetchall()]
-
-    conn.close()
-
-    return jsonify({
-        "stats": {
-            "total_hospitals": total_hospitals,
-            "total_doctors": total_doctors,
-            "total_patients": total_patients,
-            "total_scans": total_scans,
-            "open_bugs": open_bugs
-        },
-        "recent_hospitals": recent_hospitals,
-        "top_hospitals": top_hospitals
-    })
 
 
 @app.route("/admin/hospitals", methods=["GET", "POST"])
@@ -911,6 +1896,56 @@ def get_hospital_subscription_info():
     })
 
 
+@app.route("/hospital/usage-status", methods=["GET"])
+@hospital_required
+def get_usage_status():
+    """
+    Get current usage status
+    Called on dashboard load and before actions
+    """
+    hospital_id = session["hospital_id"]
+    usage_info = get_detailed_usage(hospital_id)
+    return jsonify(usage_info)
+
+
+# ==============================================
+# COOLDOWN SYSTEM (Optional)
+# ==============================================
+
+@app.route("/hospital/claim-free-scan", methods=["POST"])
+@hospital_required
+def claim_free_scan():
+    """
+    Allow free tier users to claim 1 scan after 24h cooldown
+    """
+    hospital_id = session["hospital_id"]
+    usage_info = get_detailed_usage(hospital_id)
+
+    if not usage_info['is_free_tier']:
+        return jsonify({"error": "Only available for free tier"}), 403
+
+    if usage_info['cooldown_active']:
+        return jsonify({
+            "error": "Cooldown still active",
+            "cooldown_ends": usage_info['cooldown_ends']
+        }), 403
+
+    # Reset 1 scan (temporary increase of limit)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE usage_tracking
+        SET scans_limit = scans_limit + 1
+        WHERE hospital_id = ? AND is_current = 1
+    """, (hospital_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "Free scan claimed! 1 additional scan available.",
+        "usage": get_detailed_usage(hospital_id)
+    })
+
 @app.route("/hospital/subscription/upgrade", methods=["POST"])
 @hospital_required
 def upgrade_subscription():
@@ -1160,20 +2195,13 @@ def hospital_history():
 
 @app.route("/hospital/predict", methods=["POST"])
 @hospital_required
+@check_scan_limit  # Add usage check
 def predict():
     """Predict with usage limit enforcement"""
     hospital_id = session["hospital_id"]
 
-    # ✅ CHECK USAGE LIMIT BEFORE PROCESSING
-    can_scan, current, limit = check_usage_limit(hospital_id, 'scans')
-
-    if not can_scan:
-        return jsonify({
-            "error": "Scan limit reached",
-            "current_usage": current,
-            "limit": limit,
-            "upgrade_required": True
-        }), 403
+    # Usage info already checked by decorator
+    usage_info = getattr(request, 'usage_info', None)
 
     try:
         if "image" not in request.files:
@@ -1221,8 +2249,11 @@ def predict():
         conn.commit()
         conn.close()
 
-        # ✅ INCREMENT USAGE AFTER SUCCESSFUL SCAN
+        # Increment usage
         increment_usage(hospital_id, 'scans', 1)
+
+        # Get updated usage
+        updated_usage = get_detailed_usage(hospital_id)
 
         log_activity("hospital", session["user_id"], "prediction", hospital_id=hospital_id)
 
@@ -1232,10 +2263,7 @@ def predict():
             "confidence": round(conf_val * 100, 2),
             "is_tumor": is_tumor,
             "probabilities": probabilities,
-            "usage": {
-                "scans_used": current + 1,
-                "scans_limit": limit
-            }
+            "usage": updated_usage  # Return updated usage info
         })
 
     except Exception as e:
