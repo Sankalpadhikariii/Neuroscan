@@ -47,7 +47,8 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
     
     try {
       // Create checkout session
-      const res = await fetch(`${API_BASE}/create-checkout-session`, {
+     const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+ 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -194,20 +194,6 @@ def get_hospital_subscription(hospital_id):
     conn.close()
     return dict(sub) if sub else None
 
-# ==============================================
-# STRIPE HELPERS
-# ==============================================
-
-def get_stripe_price_id(plan_name, billing_cycle):
-    price_mapping = {
-        'basic_monthly': os.getenv('STRIPE_PRICE_BASIC_MONTHLY'),
-        'basic_yearly': os.getenv('STRIPE_PRICE_BASIC_YEARLY'),
-        'professional_monthly': os.getenv('STRIPE_PRICE_PRO_MONTHLY'),
-        'professional_yearly': os.getenv('STRIPE_PRICE_PRO_YEARLY'),
-        'enterprise_monthly': os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
-        'enterprise_yearly': os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY'),
-    }
-    return price_mapping.get(plan_name)
 
 
 def get_or_create_stripe_customer(hospital_id):
@@ -669,50 +655,81 @@ def admin_get_all_subscriptions():
     conn.close()
 
     return jsonify({"subscriptions": subscriptions, "stats": stats})
+
+
 @app.route("/api/stripe/create-checkout-session", methods=["POST"])
 @hospital_required
 def create_checkout_session():
     data = request.json
-    plan_id = data.get("plan_id")
+    plan_identifier = data.get("plan_id")  # Can be ID or name
     billing_cycle = data.get("billing_cycle", "monthly")
 
-    # 🔹 Debug log
-    print("DEBUG: plan_id =", plan_id, "billing_cycle =", billing_cycle)
+    print(f"DEBUG: plan_identifier = {plan_identifier}, billing_cycle = {billing_cycle}")
 
     hospital_id = session["hospital_id"]
 
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_id,))
+
+    # Try to find plan by ID (numeric) OR by name (string)
+    if isinstance(plan_identifier, str) and not plan_identifier.isdigit():
+        # Plan name provided (e.g., "basic", "professional")
+        c.execute("SELECT * FROM subscription_plans WHERE name=?", (plan_identifier,))
+    else:
+        # Numeric ID provided
+        c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_identifier,))
+
     plan = c.fetchone()
-    conn.close()
 
     if not plan:
-        return jsonify({"error": "Plan not found"}), 404
+        conn.close()
+        print(f"ERROR: Plan not found for identifier: {plan_identifier}")
+        return jsonify({"error": f"Plan '{plan_identifier}' not found"}), 404
 
+    plan = dict(plan)
+    print(f"SUCCESS: Found plan - {plan['name']} (ID: {plan['id']})")
+
+    # Get the Stripe price ID
     price_id = get_stripe_price_id(plan["id"], billing_cycle)
     if not price_id:
-        return jsonify({"error": "Stripe price not configured"}), 400
+        conn.close()
+        print(f"ERROR: No Stripe price configured for plan {plan['id']}, cycle {billing_cycle}")
+        return jsonify({"error": "Stripe price not configured for this plan"}), 400
 
+    print(f"DEBUG: Using Stripe price_id: {price_id}")
+
+    # Get or create Stripe customer
     customer_id = get_or_create_stripe_customer(hospital_id)
+    print(f"DEBUG: Stripe customer_id: {customer_id}")
 
-    checkout_session = stripe.checkout.Session.create(
-        customer=customer_id,
-        mode="subscription",
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=f"{os.getenv('FRONTEND_URL')}/subscription-success",
-        cancel_url=f"{os.getenv('FRONTEND_URL')}/subscription-cancelled",
-        metadata={
-            "hospital_id": hospital_id,
-            "plan_id": plan_id,
-            "billing_cycle": billing_cycle
-        }
-    )
+    try:
+        # Create Stripe checkout session
+        checkout_session = stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/subscription-cancelled",
+            metadata={
+                "hospital_id": hospital_id,
+                "plan_id": plan["id"],
+                "billing_cycle": billing_cycle
+            }
+        )
 
-    return jsonify({"url": checkout_session.url})
+        conn.close()
+        print(f"SUCCESS: Checkout session created: {checkout_session.id}")
+        return jsonify({"url": checkout_session.url, "sessionId": checkout_session.id})
 
-
+    except stripe.error.StripeError as e:
+        conn.close()
+        print(f"STRIPE ERROR: {str(e)}")
+        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
+    except Exception as e:
+        conn.close()
+        print(f"UNEXPECTED ERROR: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 @app.route("/admin/revenue", methods=["GET"])
 @admin_required
 def admin_revenue_analytics():
