@@ -447,7 +447,7 @@ docker-compose restart
 - **Sankalpa Adhikari** (21185177) - Backend Development, Model Training
 - **Sushil Adhikari** (21185185) - Database, DevOps, Documentation
 
-**Supervisor**: [Professor Name]  
+
 **Institution**: Pokhara University  
 **Program**: Bachelor of Software Engineering  
 **Date**:  2025
