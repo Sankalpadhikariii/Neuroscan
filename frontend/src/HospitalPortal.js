@@ -291,31 +291,60 @@ const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
           
           {/* Pricing/Upgrade Button */}
           <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
-            <button
-              onClick={() => setShowUpgradeModal(true)}
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
-                transition: 'transform 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
-              onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
-            >
-              <CreditCard size={18} />
-              Upgrade Plan
-            </button>
+            {user?.subscription && (
+  <div style={{
+    background: 'white',
+    borderRadius: '12px',
+    padding: '16px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    minWidth: '200px'
+  }}>
+    <div style={{
+      fontSize: '12px',
+      color: '#6b7280',
+      marginBottom: '4px',
+      fontWeight: '600'
+    }}>
+      Current Plan
+    </div>
+    <div style={{
+      fontSize: '18px',
+      fontWeight: 'bold',
+      color: '#111827',
+      marginBottom: '8px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px'
+    }}>
+      <CreditCard size={20} color="#667eea" />
+      {user.subscription || 'Free Trial'}
+    </div>
+    {user.subscription !== 'Enterprise' && (
+      <div style={{
+        fontSize: '12px',
+        color: '#6b7280',
+        marginTop: '8px',
+        padding: '8px',
+        background: '#f9fafb',
+        borderRadius: '6px'
+      }}>
+        💡 Contact admin to upgrade
+      </div>
+    )}
+    {user.subscription === 'Enterprise' && (
+      <div style={{
+        fontSize: '12px',
+        color: '#059669',
+        marginTop: '8px',
+        padding: '8px',
+        background: '#d1fae5',
+        borderRadius: '6px'
+      }}>
+        ✅ Unlimited access
+      </div>
+    )}
+  </div>
+)}
           </div>
         </nav>
 

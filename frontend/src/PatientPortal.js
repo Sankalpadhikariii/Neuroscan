@@ -100,7 +100,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   }
 
   async function handleDeleteProfilePicture() {
-    if (!confirm('Are you sure you want to remove your profile picture?')) {
+    if (!window.confirm('Are you sure you want to remove your profile picture?')) {
       return;
     }
 
