@@ -6,9 +6,10 @@ import secrets
 import logging
 import random
 import string
-
+from typing import Optional, List, Dict
 from pathlib import Path
-
+from werkzeug.utils import secure_filename
+import mimetypes
 from datetime import datetime, timedelta
 import stripe
 import requests
@@ -24,6 +25,7 @@ from flask import Flask, request, jsonify, session, send_file
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_socketio import SocketIO, emit, join_room, leave_room, send
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import json
@@ -39,7 +41,10 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 MODEL_PATH = "Brain_Tumor_model.pt"
-
+CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
+ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
+MAX_CHAT_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+os.makedirs(CHAT_UPLOAD_FOLDER, exist_ok=True)
 # Create upload directory
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -58,34 +63,33 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 # Flask App Setup
 # -----------------------------
 app = Flask(__name__)
+CORS(app,
+    resources={
+        r"/*": {
+            "origins": ["http://localhost:3000", "http://localhost:3001", "http://192.168.1.70:3000"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True,
+            "expose_headers": ["Content-Type"]
+        }
+    }
+)
 app.secret_key = SECRET_KEY
 
-CORS(
+# SocketIO with permissive CORS for development
+socketio = SocketIO(
     app,
-    supports_credentials=True,
-    resources={r"/*": {
-        "origins": ["http://localhost:3000"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "expose_headers": ["Content-Type"],
-        "supports_credentials": True
-    }}
+    cors_allowed_origins="*",
+    logger=False,
+    engineio_logger=False
 )
 
+# Limiter
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["50 per minute"]
 )
-
-
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
 
 
 # Logging
@@ -95,6 +99,7 @@ logger = logging.getLogger(__name__)
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
+
 
 
 # ==============================================
@@ -175,9 +180,1467 @@ def patient_required(f):
     return wrapper
 
 
+def create_notifications_table():
+    """Create notifications table - Run once during setup"""
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            user_type TEXT NOT NULL,
+            hospital_id INTEGER,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            prediction_id INTEGER,
+            scan_id INTEGER,
+            patient_id INTEGER,
+            is_read INTEGER DEFAULT 0,
+            priority TEXT DEFAULT 'normal',
+            action_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            read_at TIMESTAMP,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE,
+            FOREIGN KEY (prediction_id) REFERENCES mri_scans(id) ON DELETE CASCADE,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Create indexes for performance
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_notifications_user 
+        ON notifications(user_id, user_type, is_read)
+    """)
+
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_notifications_hospital 
+        ON notifications(hospital_id, created_at)
+    """)
+
+    conn.commit()
+    conn.close()
+    logger.info("✅ Notifications table created")
+
+
+def create_messages_table():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            hospital_user_id INTEGER NOT NULL,
+            sender_type TEXT NOT NULL CHECK (sender_type IN ('patient', 'hospital')),
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_read INTEGER DEFAULT 0,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+            FOREIGN KEY (hospital_user_id) REFERENCES hospital_users(id) ON DELETE CASCADE
+        )
+    """)
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_chat
+        ON messages(patient_id, hospital_user_id, created_at)
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("✅ Messages table created")
+
+
+# Call to create tables
+create_notifications_table()
+create_messages_table()
+
+# SocketIO connected users (for private messaging)
+connected_users = {}  # {user_id: sid} for both patient and hospital users
+
+
+@socketio.on('connect')
+def handle_connect(auth=None):  # ← Add auth=None parameter
+    """Handle socket connection"""
+    try:
+        if 'patient_id' in session:
+            user_id = session['patient_id']
+            user_type = 'patient'
+        elif 'user_id' in session and session.get('user_type') == 'hospital':
+            user_id = session['user_id']
+            user_type = 'hospital'
+        else:
+            print("⚠️ Unauthenticated connection")
+            return False
+
+        connected_users[user_id] = request.sid
+        room_name = f"{user_type}_{user_id}"
+        join_room(room_name)
+
+        print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
+
+        # Remove broadcast=True - just use emit()
+        emit('connected', {
+            'user_id': user_id,
+            'user_type': user_type,
+            'status': 'online'
+        })
+
+        return True
+    except Exception as e:
+        print(f"❌ Connection error: {e}")
+        return False
+
+    # Store connection
+    connected_users[user_id] = request.sid
+
+    # Join user-specific room
+    room_name = f"{user_type}_{user_id}"
+    join_room(room_name)
+
+    print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
+
+    # Emit status WITHOUT broadcast parameter
+    socketio.emit('user_status', {
+        'user_id': user_id,
+        'user_type': user_type,
+        'status': 'online'
+    }, room=room_name)  # <- REMOVE broadcast=True
+@socketio.on('disconnect')
+def handle_disconnect():
+    for key, sid in list(connected_users.items()):
+        if sid == request.sid:
+            del connected_users[key]
+            print(f"User disconnected: {key}")
+            break
+
+@socketio.on('join_chat')
+def on_join(data):
+    patient_id = data['patient_id']
+    room = f"chat_{patient_id}"
+    join_room(room)
+    print(f"Joined room {room}")
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    patient_id = data['patient_id']
+    hospital_user_id = data['hospital_user_id']
+    message = data['message']
+    sender_type = 'patient' if 'patient_id' in session else 'hospital'
+    sender_id = session.get('patient_id') or session.get('user_id')
+
+    # Save message to DB
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO messages (patient_id, hospital_user_id, sender_type, message)
+        VALUES (?, ?, ?, ?)
+    """, (patient_id, hospital_user_id, sender_type, message))
+    message_id = c.lastrowid
+    conn.commit()
+    conn.close()
+
+    # Emit to room
+    room = f"chat_{patient_id}"
+    emit('new_message', {
+        'id': message_id,
+        'sender_type': sender_type,
+        'message': message,
+        'created_at': datetime.now().isoformat()
+    }, room=room)
+
+    # Send notification to recipient
+    recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
+    recipient_id = hospital_user_id if sender_type == 'patient' else patient_id
+    create_notification(
+        user_id=recipient_id,
+        user_type=recipient_type,
+        notification_type='new_message',
+        title='New Message',
+        message=f"You have a new message from {sender_type}",
+        patient_id=patient_id,
+        priority='normal',
+        action_url=f"/chat/{patient_id}"
+    )
+
+
+def create_enhanced_messages_table():
+    """Enhanced messages table with file attachments"""
+    conn = get_db()
+    c = conn.cursor()
+
+    # Drop old table if exists (for migration)
+    # c.execute("DROP TABLE IF EXISTS messages")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            hospital_user_id INTEGER NOT NULL,
+            sender_type TEXT NOT NULL CHECK (sender_type IN ('patient', 'hospital')),
+            message TEXT,
+            attachment BLOB,
+            attachment_name TEXT,
+            attachment_type TEXT,
+            attachment_size INTEGER,
+            is_read INTEGER DEFAULT 0,
+            read_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+            FOREIGN KEY (hospital_user_id) REFERENCES hospital_users(id) ON DELETE CASCADE
+        )
+    """)
+
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_chat
+        ON messages(patient_id, hospital_user_id, created_at DESC)
+    """)
+
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_unread
+        ON messages(patient_id, hospital_user_id, is_read)
+    """)
+
+    conn.commit()
+    conn.close()
+    logger.info("✅ Enhanced messages table created")
+
+
+# Call this during initialization
+create_enhanced_messages_table()
+
 # ==============================================
-# SUBSCRIPTION HELPERS
+# ENHANCED SOCKET.IO EVENTS
 # ==============================================
+
+# Track typing status
+typing_users = {}  # {room_id: {user_id: timestamp}}
+
+# Track online users
+online_users = {}  # {user_type_user_id: {sid, patient_id, hospital_user_id}}
+
+
+@socketio.on('connect')
+def handle_connect():
+    """Enhanced connection handler with online status"""
+    if 'patient_id' in session:
+        user_id = session['patient_id']
+        user_type = 'patient'
+        patient_id = user_id
+        hospital_user_id = None
+    elif 'user_id' in session and session.get('user_type') == 'hospital':
+        user_id = session['user_id']
+        user_type = 'hospital'
+        patient_id = None
+        hospital_user_id = user_id
+    else:
+        return False
+
+    user_key = f"{user_type}_{user_id}"
+    online_users[user_key] = {
+        'sid': request.sid,
+        'user_id': user_id,
+        'user_type': user_type,
+        'patient_id': patient_id,
+        'hospital_user_id': hospital_user_id
+    }
+
+    print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
+
+
+    emit('connected', {'status': 'connected', 'user_type': user_type, 'user_id': user_id})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Enhanced disconnect handler"""
+    user_key = None
+    user_info = None
+
+    for key, info in list(online_users.items()):
+        if info['sid'] == request.sid:
+            user_key = key
+            user_info = info
+            del online_users[key]
+            print(f"❌ User disconnected: {key}")
+            break
+
+    if user_info:
+        # Notify others that user is offline
+        socketio.emit('user_status', {
+            'user_type': user_info['user_type'],
+            'user_id': user_info['user_id'],
+            'status': 'offline'
+        }, broadcast=True)
+
+
+@socketio.on('join_chat')
+def on_join_chat(data):
+    """Join a specific chat room"""
+    patient_id = data.get('patient_id')
+    hospital_user_id = data.get('hospital_user_id')
+
+    if not patient_id or not hospital_user_id:
+        emit('error', {'message': 'Invalid chat parameters'})
+        return
+
+    room = f"chat_{patient_id}_{hospital_user_id}"
+    join_room(room)
+
+    print(f"👥 Joined room: {room}")
+
+    # Notify room members
+    emit('user_joined', {
+        'room': room,
+        'timestamp': datetime.now().isoformat()
+    }, room=room)
+
+    # Mark messages as read for the joining user
+    if 'patient_id' in session:
+        mark_messages_read(patient_id, hospital_user_id, 'patient')
+    elif 'user_id' in session:
+        mark_messages_read(patient_id, hospital_user_id, 'hospital')
+
+
+@socketio.on('leave_chat')
+def on_leave_chat(data):
+    """Leave a chat room"""
+    patient_id = data.get('patient_id')
+    hospital_user_id = data.get('hospital_user_id')
+    room = f"chat_{patient_id}_{hospital_user_id}"
+
+    leave_room(room)
+    print(f"👋 Left room: {room}")
+
+
+@socketio.on('typing')
+def on_typing(data):
+    """Handle typing indicators"""
+    patient_id = data.get('patient_id')
+    hospital_user_id = data.get('hospital_user_id')
+    is_typing = data.get('is_typing', False)
+
+    room = f"chat_{patient_id}_{hospital_user_id}"
+
+    if 'patient_id' in session:
+        sender_type = 'patient'
+        sender_id = session['patient_id']
+    else:
+        sender_type = 'hospital'
+        sender_id = session['user_id']
+
+    emit('user_typing', {
+        'sender_type': sender_type,
+        'sender_id': sender_id,
+        'is_typing': is_typing
+    }, room=room, include_self=False)
+
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    """Enhanced message handler with read receipts"""
+    patient_id = data.get('patient_id')
+    hospital_user_id = data.get('hospital_user_id')
+    message = data.get('message', '').strip()
+
+    if not patient_id or not hospital_user_id:
+        emit('error', {'message': 'Invalid message parameters'})
+        return
+
+    if not message:
+        emit('error', {'message': 'Message cannot be empty'})
+        return
+
+    sender_type = 'patient' if 'patient_id' in session else 'hospital'
+    sender_id = session.get('patient_id') or session.get('user_id')
+
+    # Save message to database
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO messages (
+            patient_id, hospital_user_id, sender_type, message
+        ) VALUES (?, ?, ?, ?)
+    """, (patient_id, hospital_user_id, sender_type, message))
+
+    message_id = c.lastrowid
+    timestamp = datetime.now().isoformat()
+    conn.commit()
+    conn.close()
+
+    room = f"chat_{patient_id}_{hospital_user_id}"
+
+    # Emit to room
+    message_data = {
+        'id': message_id,
+        'patient_id': patient_id,
+        'hospital_user_id': hospital_user_id,
+        'sender_type': sender_type,
+        'sender_id': sender_id,
+        'message': message,
+        'attachment': None,
+        'created_at': timestamp,
+        'is_read': False
+    }
+
+    emit('new_message', message_data, room=room)
+
+    # Send notification to recipient
+    recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
+    recipient_id = hospital_user_id if sender_type == 'patient' else patient_id
+
+    # Get sender name
+    conn = get_db()
+    c = conn.cursor()
+    if sender_type == 'patient':
+        c.execute("SELECT full_name FROM patients WHERE id=?", (sender_id,))
+        sender = c.fetchone()
+        sender_name = sender['full_name'] if sender else 'Patient'
+    else:
+        c.execute("SELECT full_name FROM hospital_users WHERE id=?", (sender_id,))
+        sender = c.fetchone()
+        sender_name = sender['full_name'] if sender else 'Doctor'
+    conn.close()
+
+    # Create notification
+    create_notification(
+        user_id=recipient_id,
+        user_type=recipient_type,
+        notification_type='new_message',
+        title=f'💬 New message from {sender_name}',
+        message=message[:100] + ('...' if len(message) > 100 else ''),
+        patient_id=patient_id,
+        priority='normal',
+        action_url=f'/chat?patient_id={patient_id}&hospital_user_id={hospital_user_id}'
+    )
+
+    # Emit notification to recipient if online
+    recipient_key = f"{recipient_type}_{recipient_id}"
+    if recipient_key in online_users:
+        socketio.emit('notification', {
+            'type': 'new_message',
+            'title': f'New message from {sender_name}',
+            'message': message[:100],
+            'patient_id': patient_id,
+            'hospital_user_id': hospital_user_id
+        }, room=online_users[recipient_key]['sid'])
+
+
+def mark_messages_read(patient_id, hospital_user_id, reader_type):
+    """Mark messages as read"""
+    conn = get_db()
+    c = conn.cursor()
+
+    # Determine which messages to mark as read (ones sent BY the other party)
+    if reader_type == 'patient':
+        # Patient is reading, so mark hospital's messages as read
+        sender_type_to_mark = 'hospital'
+    else:
+        # Hospital is reading, so mark patient's messages as read
+        sender_type_to_mark = 'patient'
+
+    c.execute("""
+        UPDATE messages
+        SET is_read = 1, read_at = CURRENT_TIMESTAMP
+        WHERE patient_id = ?
+        AND hospital_user_id = ?
+        AND sender_type = ?
+        AND is_read = 0
+    """, (patient_id, hospital_user_id, sender_type_to_mark))
+
+    conn.commit()
+    conn.close()
+
+
+# ==============================================
+# CHAT FILE UPLOAD ENDPOINTS
+# ==============================================
+
+@app.route('/api/chat/upload', methods=['POST'])
+@login_required
+def upload_chat_file():
+    """Upload file/image to chat"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        file = request.files['file']
+        patient_id = request.form.get('patient_id')
+        hospital_user_id = request.form.get('hospital_user_id')
+        message_text = request.form.get('message', '').strip()
+
+        if not patient_id or not hospital_user_id:
+            return jsonify({'error': 'Missing chat parameters'}), 400
+
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Check file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+
+        if file_size > MAX_CHAT_FILE_SIZE:
+            return jsonify({'error': 'File too large (max 10MB)'}), 400
+
+        # Check file extension
+        filename = secure_filename(file.filename)
+        file_ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+
+        if file_ext not in ALLOWED_CHAT_FILES:
+            return jsonify({'error': f'File type not allowed. Allowed: {", ".join(ALLOWED_CHAT_FILES)}'}), 400
+
+        # Read file data
+        file_data = file.read()
+
+        # Determine sender
+        sender_type = 'patient' if 'patient_id' in session else 'hospital'
+        sender_id = session.get('patient_id') or session.get('user_id')
+
+        # Detect MIME type
+        mime_type, _ = mimetypes.guess_type(filename)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+
+        # Save to database
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO messages (
+                patient_id, hospital_user_id, sender_type, message,
+                attachment, attachment_name, attachment_type, attachment_size
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            patient_id, hospital_user_id, sender_type,
+            message_text if message_text else None,
+            file_data, filename, mime_type, file_size
+        ))
+
+        message_id = c.lastrowid
+        timestamp = datetime.now().isoformat()
+        conn.commit()
+        conn.close()
+
+        # Prepare response data
+        room = f"chat_{patient_id}_{hospital_user_id}"
+
+        message_data = {
+            'id': message_id,
+            'patient_id': int(patient_id),
+            'hospital_user_id': int(hospital_user_id),
+            'sender_type': sender_type,
+            'sender_id': sender_id,
+            'message': message_text if message_text else None,
+            'attachment': {
+                'name': filename,
+                'type': mime_type,
+                'size': file_size,
+                'url': f'/api/chat/attachment/{message_id}'
+            },
+            'created_at': timestamp,
+            'is_read': False
+        }
+
+        # Emit to room
+        socketio.emit('new_message', message_data, room=room)
+
+        # Send notification
+        recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
+        recipient_id = int(hospital_user_id) if sender_type == 'patient' else int(patient_id)
+
+        conn = get_db()
+        c = conn.cursor()
+        if sender_type == 'patient':
+            c.execute("SELECT full_name FROM patients WHERE id=?", (sender_id,))
+            sender = c.fetchone()
+            sender_name = sender['full_name'] if sender else 'Patient'
+        else:
+            c.execute("SELECT full_name FROM hospital_users WHERE id=?", (sender_id,))
+            sender = c.fetchone()
+            sender_name = sender['full_name'] if sender else 'Doctor'
+        conn.close()
+
+        notif_message = f"Sent you a file: {filename}"
+        if message_text:
+            notif_message = f"{message_text[:50]}... (with file: {filename})"
+
+        create_notification(
+            user_id=recipient_id,
+            user_type=recipient_type,
+            notification_type='new_message',
+            title=f'📎 {sender_name} sent a file',
+            message=notif_message,
+            patient_id=int(patient_id),
+            priority='normal',
+            action_url=f'/chat?patient_id={patient_id}&hospital_user_id={hospital_user_id}'
+        )
+
+        log_activity(sender_type, sender_id, 'send_chat_file', f"Sent {filename}")
+
+        return jsonify({
+            'message': 'File uploaded successfully',
+            'data': message_data
+        })
+
+    except Exception as e:
+        logger.error(f"Chat file upload error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/attachment/<int:message_id>', methods=['GET'])
+@login_required
+def get_chat_attachment(message_id):
+    """Get chat attachment"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT attachment, attachment_name, attachment_type
+            FROM messages
+            WHERE id = ?
+        """, (message_id,))
+
+        result = c.fetchone()
+        conn.close()
+
+        if not result or not result['attachment']:
+            return jsonify({'error': 'Attachment not found'}), 404
+
+        # Verify access (user must be part of the conversation)
+        # Add authorization check here if needed
+
+        return send_file(
+            io.BytesIO(result['attachment']),
+            mimetype=result['attachment_type'],
+            as_attachment=True,
+            download_name=result['attachment_name']
+        )
+
+    except Exception as e:
+        logger.error(f"Error retrieving attachment: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/messages/<int:patient_id>/<int:hospital_user_id>', methods=['GET'])
+@login_required
+def get_chat_history(patient_id, hospital_user_id):
+    """Get chat history with pagination"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+
+        # Verify access
+        user_type = session.get('user_type') or 'patient'
+        user_id = session.get('user_id') or session.get('patient_id')
+
+        if user_type == 'patient' and user_id != patient_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        if user_type == 'hospital' and user_id != hospital_user_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT id, patient_id, hospital_user_id, sender_type, message,
+                   attachment_name, attachment_type, attachment_size,
+                   is_read, created_at, read_at
+            FROM messages
+            WHERE patient_id = ? AND hospital_user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, (patient_id, hospital_user_id, limit, offset))
+
+        messages = []
+        for row in c.fetchall():
+            msg = dict(row)
+            if msg['attachment_name']:
+                msg['attachment'] = {
+                    'name': msg['attachment_name'],
+                    'type': msg['attachment_type'],
+                    'size': msg['attachment_size'],
+                    'url': f'/api/chat/attachment/{msg["id"]}'
+                }
+            else:
+                msg['attachment'] = None
+
+            del msg['attachment_name']
+            del msg['attachment_type']
+            del msg['attachment_size']
+
+            messages.append(msg)
+
+        # Get unread count
+        c.execute("""
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE patient_id = ? AND hospital_user_id = ?
+            AND is_read = 0
+            AND sender_type = ?
+        """, (
+            patient_id,
+            hospital_user_id,
+            'hospital' if user_type == 'patient' else 'patient'
+        ))
+
+        unread_count = c.fetchone()['count']
+
+        conn.close()
+
+        # Reverse to show oldest first
+        messages.reverse()
+
+        return jsonify({
+            'messages': messages,
+            'unread_count': unread_count,
+            'has_more': len(messages) == limit
+        })
+
+    except Exception as e:
+        logger.error(f"Error loading chat history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/mark-read', methods=['POST'])
+@login_required
+def mark_chat_read():
+    """Mark chat messages as read"""
+    try:
+        data = request.json
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+
+        if not patient_id or not hospital_user_id:
+            return jsonify({'error': 'Missing parameters'}), 400
+
+        reader_type = 'patient' if 'patient_id' in session else 'hospital'
+        mark_messages_read(patient_id, hospital_user_id, reader_type)
+
+        return jsonify({'message': 'Messages marked as read'})
+
+    except Exception as e:
+        logger.error(f"Error marking messages read: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/conversations', methods=['GET'])
+@login_required
+def get_user_conversations():
+    """Get list of conversations for current user"""
+    try:
+        user_type = session.get('user_type') or 'patient'
+        user_id = session.get('user_id') or session.get('patient_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        if user_type == 'patient':
+            # Get all doctors patient has chatted with
+            c.execute("""
+                SELECT DISTINCT
+                    m.hospital_user_id,
+                    hu.full_name as doctor_name,
+                    hu.email as doctor_email,
+                    (SELECT message FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     ORDER BY m2.created_at DESC LIMIT 1) as last_message,
+                    (SELECT created_at FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     ORDER BY m2.created_at DESC LIMIT 1) as last_message_time,
+                    (SELECT COUNT(*) FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     AND m2.is_read = 0 
+                     AND m2.sender_type = 'hospital') as unread_count
+                FROM messages m
+                JOIN hospital_users hu ON m.hospital_user_id = hu.id
+                WHERE m.patient_id = ?
+                ORDER BY last_message_time DESC
+            """, (user_id,))
+        else:
+            # Get all patients doctor has chatted with
+            c.execute("""
+                SELECT DISTINCT
+                    m.patient_id,
+                    p.full_name as patient_name,
+                    p.patient_code,
+                    p.email as patient_email,
+                    (SELECT message FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     ORDER BY m2.created_at DESC LIMIT 1) as last_message,
+                    (SELECT created_at FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     ORDER BY m2.created_at DESC LIMIT 1) as last_message_time,
+                    (SELECT COUNT(*) FROM messages m2 
+                     WHERE m2.patient_id = m.patient_id 
+                     AND m2.hospital_user_id = m.hospital_user_id 
+                     AND m2.is_read = 0 
+                     AND m2.sender_type = 'patient') as unread_count
+                FROM messages m
+                JOIN patients p ON m.patient_id = p.id
+                WHERE m.hospital_user_id = ?
+                ORDER BY last_message_time DESC
+            """, (user_id,))
+
+        conversations = [dict(row) for row in c.fetchall()]
+        conn.close()
+
+        return jsonify({'conversations': conversations})
+
+    except Exception as e:
+        logger.error(f"Error loading conversations: {e}")
+        return jsonify({'error': str(e)}), 500
+# ==============================================
+# NOTIFICATION HELPER FUNCTIONS
+# ==============================================
+
+def create_notification(
+        user_id: int,
+        user_type: str,
+        notification_type: str,
+        title: str,
+        message: str,
+        hospital_id: Optional[int] = None,
+        prediction_id: Optional[int] = None,
+        scan_id: Optional[int] = None,
+        patient_id: Optional[int] = None,
+        priority: str = 'normal',
+        action_url: Optional[str] = None
+) -> int:
+    """
+    Create a new notification
+
+    Args:
+        user_id: ID of the user to notify
+        user_type: Type of user ('admin', 'hospital', 'patient')
+        notification_type: Notification type ('prediction_complete', 'low_confidence', 'error', 'info', 'warning', 'subscription')
+        title: Notification title
+        message: Notification message
+        hospital_id: Optional hospital ID
+        prediction_id: Optional prediction/scan ID
+        scan_id: Optional scan ID
+        patient_id: Optional patient ID
+        priority: 'low', 'normal', 'high', 'urgent'
+        action_url: Optional URL for action button
+
+    Returns:
+        notification_id: ID of created notification
+    """
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            INSERT INTO notifications (
+                user_id, user_type, hospital_id, type, title, message,
+                prediction_id, scan_id, patient_id, priority, action_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, user_type, hospital_id, notification_type, title, message,
+            prediction_id, scan_id, patient_id, priority, action_url
+        ))
+
+        notification_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        logger.info(f"✅ Notification created: ID={notification_id}, User={user_id}, Type={notification_type}")
+        return notification_id
+
+    except Exception as e:
+        logger.error(f"❌ Error creating notification: {e}")
+        return -1
+
+
+def bulk_create_notifications(notifications: List[Dict]) -> int:
+    """
+    Create multiple notifications at once
+
+    Args:
+        notifications: List of notification dicts with required fields
+
+    Returns:
+        count: Number of notifications created
+    """
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        for notif in notifications:
+            c.execute("""
+                INSERT INTO notifications (
+                    user_id, user_type, hospital_id, type, title, message,
+                    prediction_id, scan_id, patient_id, priority, action_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                notif.get('user_id'),
+                notif.get('user_type'),
+                notif.get('hospital_id'),
+                notif.get('type'),
+                notif.get('title'),
+                notif.get('message'),
+                notif.get('prediction_id'),
+                notif.get('scan_id'),
+                notif.get('patient_id'),
+                notif.get('priority', 'normal'),
+                notif.get('action_url')
+            ))
+
+        count = len(notifications)
+        conn.commit()
+        conn.close()
+
+        logger.info(f"✅ Bulk created {count} notifications")
+        return count
+
+    except Exception as e:
+        logger.error(f"❌ Error bulk creating notifications: {e}")
+        return 0
+
+
+def notify_admins(notification_type: str, title: str, message: str, priority: str = 'normal'):
+    """Notify all admin users"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("SELECT id FROM users WHERE role IN ('admin', 'superadmin')")
+        admins = c.fetchall()
+        conn.close()
+
+        for admin in admins:
+            create_notification(
+                user_id=admin['id'],
+                user_type='admin',
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                priority=priority
+            )
+
+        logger.info(f"✅ Notified {len(admins)} admins")
+
+    except Exception as e:
+        logger.error(f"❌ Error notifying admins: {e}")
+
+
+def notify_hospital_users(hospital_id: int, notification_type: str, title: str, message: str,
+                          priority: str = 'normal', exclude_user_id: Optional[int] = None):
+    """Notify all users in a hospital"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT id FROM hospital_users 
+            WHERE hospital_id=? AND status='active'
+        """, (hospital_id,))
+
+        users = c.fetchall()
+        conn.close()
+
+        for user in users:
+            if exclude_user_id and user['id'] == exclude_user_id:
+                continue
+
+            create_notification(
+                user_id=user['id'],
+                user_type='hospital',
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                hospital_id=hospital_id,
+                priority=priority
+            )
+
+        logger.info(f"✅ Notified {len(users)} hospital users")
+
+    except Exception as e:
+        logger.error(f"❌ Error notifying hospital users: {e}")
+
+
+# ==============================================
+# NOTIFICATION API ENDPOINTS
+# ==============================================
+
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    """Get notifications for current user"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+        user_type = session.get('user_type') or 'patient'
+
+        # Get query parameters
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Build query
+        query = """
+            SELECT * FROM notifications
+            WHERE user_id=? AND user_type=?
+        """
+        params = [user_id, user_type]
+
+        if unread_only:
+            query += " AND is_read=0"
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        c.execute(query, params)
+        notifications = [dict(row) for row in c.fetchall()]
+
+        # Get unread count
+        c.execute("""
+            SELECT COUNT(*) as count FROM notifications
+            WHERE user_id=? AND user_type=? AND is_read=0
+        """, (user_id, user_type))
+
+        unread_count = c.fetchone()['count']
+
+        conn.close()
+
+        return jsonify({
+            'notifications': notifications,
+            'unread_count': unread_count,
+            'total': len(notifications)
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting notifications: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/<int:notification_id>/read', methods=['PUT'])
+@login_required
+def mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Verify ownership
+        c.execute("""
+            SELECT id FROM notifications
+            WHERE id=? AND user_id=?
+        """, (notification_id, user_id))
+
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Notification not found'}), 404
+
+        # Mark as read
+        c.execute("""
+            UPDATE notifications
+            SET is_read=1, read_at=CURRENT_TIMESTAMP
+            WHERE id=?
+        """, (notification_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': 'Notification marked as read'})
+
+    except Exception as e:
+        logger.error(f"❌ Error marking notification read: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/read-all', methods=['PUT'])
+@login_required
+def mark_all_notifications_read():
+    """Mark all notifications as read for current user"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+        user_type = session.get('user_type') or 'patient'
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            UPDATE notifications
+            SET is_read=1, read_at=CURRENT_TIMESTAMP
+            WHERE user_id=? AND user_type=? AND is_read=0
+        """, (user_id, user_type))
+
+        count = c.rowcount
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': f'Marked {count} notifications as read',
+            'count': count
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error marking all read: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/<int:notification_id>', methods=['DELETE'])
+@login_required
+def delete_notification(notification_id):
+    """Delete a notification"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Verify ownership
+        c.execute("""
+            SELECT id FROM notifications
+            WHERE id=? AND user_id=?
+        """, (notification_id, user_id))
+
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Notification not found'}), 404
+
+        # Delete
+        c.execute("DELETE FROM notifications WHERE id=?", (notification_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': 'Notification deleted'})
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting notification: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/clear-all', methods=['DELETE'])
+@login_required
+def clear_all_notifications():
+    """Delete all notifications for current user"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+        user_type = session.get('user_type') or 'patient'
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            DELETE FROM notifications
+            WHERE user_id=? AND user_type=?
+        """, (user_id, user_type))
+
+        count = c.rowcount
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': f'Deleted {count} notifications',
+            'count': count
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error clearing notifications: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/unread-count', methods=['GET'])
+@login_required
+def get_unread_count():
+    """Get unread notification count"""
+    try:
+        user_id = session.get('user_id') or session.get('patient_id')
+        user_type = session.get('user_type') or 'patient'
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT COUNT(*) as count FROM notifications
+            WHERE user_id=? AND user_type=? AND is_read=0
+        """, (user_id, user_type))
+
+        count = c.fetchone()['count']
+        conn.close()
+
+        return jsonify({'unread_count': count})
+
+    except Exception as e:
+        logger.error(f"❌ Error getting unread count: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==============================================
+# CHAT API ENDPOINTS
+# ==============================================
+
+@app.route('/api/chat/messages', methods=['GET'])
+@login_required
+def get_chat_messages():
+    """Get chat messages for a patient-doctor conversation"""
+    try:
+        patient_id = request.args.get('patient_id', type=int)
+        if not patient_id:
+            return jsonify({'error': 'Patient ID required'}), 400
+
+        user_type = session.get('user_type') or 'patient'
+        if user_type == 'patient':
+            if session.get('patient_id') != patient_id:
+                return jsonify({'error': 'Unauthorized'}), 403
+            hospital_user_id = None  # Patient view, get all with their doctor
+        else:
+            hospital_user_id = session.get('user_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        query = """
+            SELECT * FROM messages
+            WHERE patient_id = ?
+        """
+        params = [patient_id]
+
+        if hospital_user_id:
+            query += " AND hospital_user_id = ?"
+            params.append(hospital_user_id)
+
+        query += " ORDER BY created_at ASC"
+        c.execute(query, params)
+        messages = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+
+        return jsonify({'messages': messages})
+
+    except Exception as e:
+        logger.error(f"Error getting messages: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==============================================
+# INTEGRATE WITH EXISTING ROUTES
+# ==============================================
+
+# MODIFY YOUR EXISTING /hospital/predict ROUTE
+# Replace the existing predict function with this updated version:
+
+def check_scan_limit(args):
+    pass
+
+
+@app.route("/hospital/predict", methods=["POST"])
+@hospital_required
+def predict_with_notifications():
+    """Predict with notifications"""
+    hospital_id = session["hospital_id"]
+    user_id = session["user_id"]
+    usage_info = getattr(request, 'usage_info', None)
+
+    try:
+        if "image" not in request.files:
+            return jsonify({"error": "No image"}), 400
+
+        patient_id = request.form.get("patient_id")
+        if not patient_id:
+            return jsonify({"error": "Patient ID required"}), 400
+
+        image_bytes = request.files["image"].read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tensor = transform(image).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            output = model(tensor)
+            probs = torch.exp(output)[0]
+            conf, pred = torch.max(probs, 0)
+
+        pred_idx = int(pred.item())
+        conf_val = float(conf.item())
+        prediction_label = class_names[pred_idx]
+        is_tumor = prediction_label != "notumor"
+
+        probabilities = {
+            class_names[i]: round(float(probs[i].item()) * 100, 2)
+            for i in range(len(class_names))
+        }
+
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO mri_scans (
+                hospital_id, patient_id, uploaded_by, scan_image,
+                prediction, confidence, is_tumor, probabilities,
+                notes, scan_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            hospital_id, patient_id, user_id,
+            base64.b64encode(image_bytes).decode(),
+            prediction_label, conf_val, is_tumor, str(probabilities),
+            request.form.get("notes", ""),
+            request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
+        ))
+        scan_id = c.lastrowid
+
+        # Get patient info for notification
+        c.execute("SELECT full_name, patient_code FROM patients WHERE id=?", (patient_id,))
+        patient = c.fetchone()
+
+        conn.commit()
+        conn.close()
+
+        # Increment usage
+        increment_usage(hospital_id, 'scans', 1)
+
+        # 🔔 CREATE NOTIFICATIONS
+        confidence_percent = round(conf_val * 100, 2)
+
+        # Determine notification type and priority
+        if is_tumor:
+            if confidence_percent < 70:
+                notification_type = 'low_confidence'
+                title = '⚠️ Low Confidence Detection'
+                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}. Manual review recommended.'
+                priority = 'high'
+            else:
+                notification_type = 'prediction_complete'
+                title = '🔴 Tumor Detected'
+                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}.'
+                priority = 'high'
+        else:
+            notification_type = 'prediction_complete'
+            title = '✅ Scan Analysis Complete'
+            message = f'No tumor detected for patient {patient["patient_code"]} with {confidence_percent}% confidence.'
+            priority = 'normal'
+
+        # Notify the user who uploaded
+        create_notification(
+            user_id=user_id,
+            user_type='hospital',
+            notification_type='scan_result',
+            title=title,
+            message=message,
+            hospital_id=hospital_id,
+            scan_id=scan_id,
+            patient_id=patient_id,
+            priority=priority,
+            action_url=f'/scan/{scan_id}'
+        )
+
+        # If tumor detected with high confidence, notify all hospital users
+        if is_tumor and confidence_percent >= 85:
+            notify_hospital_users(
+                hospital_id=hospital_id,
+                notification_type='urgent_alert',
+                title=f'🚨 Urgent: {prediction_label.capitalize()} Detected',
+                message=f'High confidence ({confidence_percent}%) tumor detection for patient {patient["patient_code"]}. Immediate attention required.',
+                priority='urgent',
+                exclude_user_id=user_id
+            )
+
+        # Notify patient if they have an account
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id FROM patients WHERE id=? AND email IS NOT NULL", (patient_id,))
+        if c.fetchone():
+            create_notification(
+                user_id=patient_id,
+                user_type='patient',
+                notification_type='scan_result',
+                title='📋 Your MRI Scan Results',
+                message=f'Your brain MRI scan analysis is complete. {title}',
+                hospital_id=hospital_id,
+                scan_id=scan_id,
+                patient_id=patient_id,
+                priority='high',
+                action_url=f'/patient/scans/{scan_id}'
+            )
+        conn.close()
+
+        # Get updated usage
+        updated_usage = get_detailed_usage(hospital_id)
+
+        log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
+
+        return jsonify({
+            "scan_id": scan_id,
+            "prediction": prediction_label,
+            "confidence": confidence_percent,
+            "is_tumor": is_tumor,
+            "probabilities": probabilities,
+            "usage": updated_usage,
+            "notification_sent": True
+        })
+
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+
+        # Send error notification
+        create_notification(
+            user_id=user_id,
+            user_type='hospital',
+            notification_type='error',
+            title='❌ Prediction Failed',
+            message=f'Failed to analyze MRI scan: {str(e)}',
+            hospital_id=hospital_id,
+            priority='high'
+        )
+
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# SUBSCRIPTION NOTIFICATIONS
+# ==============================================
+
+def notify_usage_limit_warning(hospital_id: int, usage_percent: float):
+    """Notify when approaching usage limits"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notification_type='usage_warning',
+        title='⚠️ Usage Limit Warning',
+        message=f'You have used {usage_percent}% of your monthly scan limit. Consider upgrading your plan.',
+        priority='normal'
+    )
+
+
+def notify_usage_limit_reached(hospital_id: int):
+    """Notify when usage limit is reached"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notification_type='usage_limit',
+        title='🚫 Monthly Limit Reached',
+        message='You have reached your monthly scan limit. Upgrade your plan to continue scanning.',
+        priority='high'
+    )
+
+
+def notify_subscription_expiring(hospital_id: int, days_remaining: int):
+    """Notify when subscription is expiring"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notif_type='subscription_expiring',
+        title='⏰ Subscription Expiring Soon',
+        message=f'Your subscription will expire in {days_remaining} days. Renew to avoid service interruption.',
+        priority='high'
+    )
+
+
+# ==============================================
+# SETUP COMMAND
+# ==============================================
+
+@app.cli.command()
+def setup_notifications():
+    """CLI command to setup notifications table"""
+    create_notifications_table()
+    print("✅ Notifications system initialized")
+
+
 
 def get_hospital_subscription(hospital_id):
     """Get active subscription for a hospital"""
@@ -224,7 +1687,6 @@ def get_or_create_stripe_customer(hospital_id):
 # -----------------------------
 # STRIPE HELPERS
 # -----------------------------
-
 def get_stripe_price_id(plan_id, billing_cycle):
     """
     Map subscription plan IDs to Stripe price IDs.
@@ -1073,7 +2535,7 @@ def delete_hospital_account(hospital_id):
             conn.close()
             return jsonify({'error': 'Hospital not found'}), 404
 
-        # Delete hospital (cascades to subscriptions, patients, scans due to foreign keys)
+        # Delete hospital (cascades to related tables if FK set)
         c.execute('DELETE FROM hospitals WHERE id=?', (hospital_id,))
         conn.commit()
         conn.close()
@@ -2724,72 +4186,390 @@ def stripe_webhook():
             conn.commit()
             conn.close()
 
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "success"}), 200
 
 
+# ==============================================
+# CHAT ENDPOINTS - ADD THESE TO app.py
+# ==============================================
 
-
-
-@app.route("/api/chatbot", methods=["POST"])
+@app.route('/api/chat/send', methods=['POST'])
 @login_required
-def chatbot():
-    """AI Chatbot endpoint using Ollama"""
+def send_chat_message():
+    """Send a new chat message"""
     try:
-        data = request.json
-        message = data.get('message', '')
+        data = request.get_json()
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+        message = data.get('message', '').strip()
 
-        # Get chatbot response from Ollama
-        response = get_ollama_response(message)
+        if not message:
+            return jsonify({'error': 'Message cannot be empty'}), 400
+
+        if not patient_id or not hospital_user_id:
+            return jsonify({'error': 'Patient ID and Hospital User ID required'}), 400
+
+        # Determine sender type
+        user_type = session.get('user_type') or 'patient'
+
+        # Verify authorization
+        if user_type == 'patient':
+            if session.get('patient_id') != int(patient_id):
+                return jsonify({'error': 'Unauthorized'}), 403
+            sender_type = 'patient'
+        elif user_type == 'hospital':
+            if session.get('user_id') != int(hospital_user_id):
+                return jsonify({'error': 'Unauthorized'}), 403
+            sender_type = 'hospital'
+        else:
+            return jsonify({'error': 'Invalid user type'}), 403
+
+        # Insert message into database
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO messages 
+            (patient_id, hospital_user_id, sender_type, message, is_read)
+            VALUES (?, ?, ?, ?, 0)
+        """, (patient_id, hospital_user_id, sender_type, message))
+
+        message_id = c.lastrowid
+
+        # Get the created message
+        c.execute("""
+            SELECT * FROM messages WHERE id = ?
+        """, (message_id,))
+        new_message = dict(c.fetchone())
+
+        conn.commit()
+        conn.close()
+
+        # Emit via SocketIO for real-time delivery
+        socketio.emit('new_message', new_message,
+                      room=f"chat_{patient_id}_{hospital_user_id}")
+
+        # Create notification for recipient
+        if sender_type == 'patient':
+            # Notify hospital user
+            create_notification(
+                user_id=hospital_user_id,
+                user_type='hospital',
+                notification_type='new_message',
+                title='New Message',
+                message=f'New message from patient',
+                patient_id=patient_id
+            )
+        else:
+            # Notify patient
+            create_notification(
+                user_id=patient_id,
+                user_type='patient',
+                notification_type='new_message',
+                title='New Message from Doctor',
+                message=f'You have a new message',
+                hospital_id=session.get('hospital_id')
+            )
 
         return jsonify({
-            'response': response,
-            'timestamp': datetime.now().isoformat()
-        })
+            'success': True,
+            'message_id': message_id,
+            'message': new_message
+        }), 201
+
     except Exception as e:
-        logger.error(f"Chatbot error: {e}")
+        logger.error(f"Error sending message: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-def get_ollama_response(user_message):
-    """Get response from local Ollama instance"""
+@app.route('/api/chat/conversations', methods=['GET'])
+@login_required
+def get_conversations():
+    """Get all conversations for current user"""
     try:
-        # System prompt for NeuroScan context
-        system_prompt = """You are NeuroScan AI Assistant, a helpful medical AI specializing in brain tumor detection. 
-        You help users understand:
-        - Brain tumor types (Glioma, Meningioma, Pituitary)
-        - MRI scan interpretation
-        - How to use the NeuroScan platform
-        - General brain health information
+        user_type = session.get('user_type') or 'patient'
 
-        Keep responses concise, accurate, and professional. Always remind users to consult medical professionals for diagnosis."""
+        conn = get_db()
+        c = conn.cursor()
 
-        # Call Ollama API
-        response = requests.post(
-            'http://localhost:11434/api/generate',
-            json={
-                'model': 'llama3.2:3b',
-                'prompt': f"{system_prompt}\n\nUser: {user_message}\nAssistant:",
-                'stream': False
-            },
-            timeout=30
-        )
+        if user_type == 'hospital':
+            # Get all patients this hospital user has messaged
+            hospital_user_id = session.get('user_id')
 
-        if response.status_code == 200:
-            result = response.json()
-            return result['response']
-        else:
-            logger.error(f"Ollama error: {response.status_code}")
-            return "I'm having trouble connecting. Please try again."
+            c.execute("""
+                SELECT DISTINCT
+                    p.id as patient_id,
+                    p.full_name as patient_name,
+                    p.patient_code,
+                    p.email as patient_email,
+                    (
+                        SELECT m.message 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message,
+                    (
+                        SELECT m.created_at 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message_time,
+                    (
+                        SELECT COUNT(*) 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        AND m.sender_type = 'patient'
+                        AND m.is_read = 0
+                    ) as unread_count
+                FROM patients p
+                INNER JOIN messages m ON m.patient_id = p.id
+                WHERE m.hospital_user_id = ?
+                GROUP BY p.id
+                ORDER BY last_message_time DESC
+            """, (hospital_user_id, hospital_user_id, hospital_user_id, hospital_user_id))
 
-    except requests.exceptions.ConnectionError:
-        logger.error("Cannot connect to Ollama. Is it running?")
-        return "AI service is currently unavailable. Please make sure Ollama is running."
+            conversations = [dict(row) for row in c.fetchall()]
+
+        else:  # patient
+            # Get the doctor assigned to this patient
+            patient_id = session.get('patient_id')
+
+            c.execute("""
+                SELECT DISTINCT
+                    hu.id as hospital_user_id,
+                    hu.username as doctor_name,
+                    hu.email as doctor_email,
+                    h.hospital_name,
+                    (
+                        SELECT m.message 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message,
+                    (
+                        SELECT m.created_at 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message_time,
+                    (
+                        SELECT COUNT(*) 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        AND m.sender_type = 'hospital'
+                        AND m.is_read = 0
+                    ) as unread_count
+                FROM hospital_users hu
+                INNER JOIN hospitals h ON hu.hospital_id = h.id
+                INNER JOIN messages m ON m.hospital_user_id = hu.id
+                WHERE m.patient_id = ?
+                GROUP BY hu.id
+                ORDER BY last_message_time DESC
+            """, (patient_id, patient_id, patient_id, patient_id))
+
+            conversations = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+
+        return jsonify({
+            'conversations': conversations
+        })
+
     except Exception as e:
-        logger.error(f"Ollama error: {e}")
-        return "Sorry, I encountered an error. Please try again."
+        logger.error(f"Error getting conversations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def create_notification(user_id, user_type, notification_type, title, message,
+                        hospital_id=None, patient_id=None, scan_id=None,
+                        priority='normal', action_url=None):
+    """Helper function to create notifications"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            INSERT INTO notifications 
+            (user_id, user_type, hospital_id, type, title, message, 
+             patient_id, scan_id, priority, action_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, user_type, hospital_id, notification_type, title,
+              message, patient_id, scan_id, priority, action_url))
+
+        notification_id = c.lastrowid
+        conn.commit()
+
+        # Get the created notification
+        c.execute("SELECT * FROM notifications WHERE id = ?", (notification_id,))
+        notification = dict(c.fetchone())
+        conn.close()
+
+        # Emit real-time notification via SocketIO
+        socketio.emit('notification', notification,
+                      room=f"{user_type}_{user_id}")
+
+        return notification_id
+
+    except Exception as e:
+        logger.error(f"Error creating notification: {e}")
+        return None
+
+
+
+
 # ==============================================
-# RUN SERVER
+# SOCKETIO EVENTS FOR CHAT
+# ==============================================
+
+@socketio.on('join_chat')
+def handle_join_chat(data):
+    """Join a chat room"""
+    try:
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+
+        if patient_id and hospital_user_id:
+            room = f"chat_{patient_id}_{hospital_user_id}"
+            join_room(room)
+            logger.info(f"User joined room: {room}")
+
+            # Also join notification room
+            user_type = data.get('user_type', 'patient')
+            if user_type == 'patient':
+                user_id = patient_id
+            else:
+                user_id = hospital_user_id
+
+            notification_room = f"{user_type}_{user_id}"
+            join_room(notification_room)
+
+            emit('joined', {'room': room})
+    except Exception as e:
+        logger.error(f"Error joining chat: {e}")
+
+
+@socketio.on('leave_chat')
+def handle_leave_chat(data):
+    """Leave a chat room"""
+    try:
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+
+        if patient_id and hospital_user_id:
+            room = f"chat_{patient_id}_{hospital_user_id}"
+            leave_room(room)
+            logger.info(f"User left room: {room}")
+            emit('left', {'room': room})
+    except Exception as e:
+        logger.error(f"Error leaving chat: {e}")
+
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    """Handle real-time message sending via WebSocket"""
+    try:
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+
+        if patient_id and hospital_user_id:
+            room = f"chat_{patient_id}_{hospital_user_id}"
+
+            # Broadcast to room (including sender for confirmation)
+            emit('new_message', data, room=room, include_self=True)
+
+            # Send confirmation to sender
+            emit('message_sent', {
+                'temp_id': data.get('temp_id'),
+                'message_id': data.get('id'),
+                'status': 'delivered'
+            })
+
+    except Exception as e:
+        logger.error(f"Error in send_message: {e}")
+        emit('message_error', {'error': str(e)})
+
+
+@socketio.on('typing')
+def handle_typing(data):
+    """Handle typing indicator"""
+    try:
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+        user_type = data.get('user_type')
+
+        if patient_id and hospital_user_id:
+            room = f"chat_{patient_id}_{hospital_user_id}"
+
+            # Broadcast typing to others in room (not self)
+            emit('user_typing', {
+                'user_type': user_type
+            }, room=room, include_self=False)
+
+    except Exception as e:
+        logger.error(f"Error in typing indicator: {e}")
+
+
+@socketio.on('mark_read')
+def handle_mark_read(data):
+    """Mark messages as read via WebSocket"""
+    try:
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+        user_type = data.get('user_type', 'patient')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Mark unread messages from the other party as read
+        if user_type == 'patient':
+            sender_to_mark = 'hospital'
+        else:
+            sender_to_mark = 'patient'
+
+        c.execute("""
+            UPDATE messages 
+            SET is_read = 1, read_at = CURRENT_TIMESTAMP
+            WHERE patient_id = ? 
+            AND hospital_user_id = ?
+            AND sender_type = ?
+            AND is_read = 0
+        """, (patient_id, hospital_user_id, sender_to_mark))
+
+        affected_rows = c.rowcount
+        conn.commit()
+        conn.close()
+
+        if affected_rows > 0:
+            # Notify the sender that their messages were read
+            room = f"chat_{patient_id}_{hospital_user_id}"
+            emit('messages_read', {
+                'patient_id': patient_id,
+                'hospital_user_id': hospital_user_id,
+                'reader_type': user_type
+            }, room=room, include_self=False)
+
+    except Exception as e:
+        logger.error(f"Error marking messages as read: {e}")
+# ==============================================
+# RUN SERVER WITH SOCKETIO
 # ==============================================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    print("🚀 Starting NeuroScan Platform with Real-time Chat...")
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        use_reloader=True,
+        allow_unsafe_werkzeug=True  # Needed for debug mode with SocketIO
+    )
