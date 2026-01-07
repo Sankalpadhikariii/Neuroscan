@@ -1,985 +1,701 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Upload, Brain, LogOut, Users, 
-  FileText, Plus, Search, Loader, FileDown, Eye, Calendar, 
-  AlertCircle, BarChart3, Settings, CheckCircle, X as XIcon, CreditCard
-} from 'lucide-react';
-import ChatbotToggle from './ChatbotToggle';
-import PatientInfoModal from './PatientInfoModal';
-import AddPatientModal from './AddPatientModal';
-import ScanDetailsModal from './ScanDetailsModal';
-import { UsageIndicator, UsageWarningBanner, UpgradeRequiredModal } from './UsageComponents';
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Upload, Brain, LogOut, Users, FileText, Plus, Loader, FileDown,
+  AlertCircle, BarChart3, Settings, CheckCircle, X as XIcon, MessageCircle
+} from "lucide-react";
+import { io } from "socket.io-client";
+import ChatbotToggle from "./ChatbotToggle";
+import AddPatientModal from "./AddPatientModal";
+import ScanDetailsModal from "./ScanDetailsModal";
+import { UsageIndicator, UsageWarningBanner } from "./UsageComponents";
+import EnhancedChat from './components/EnhancedChat';
+import NotificationBell from './components/NotificationBell';
+import AnalysisResults from './AnalysisResults';
 
-const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
+const socket = io(API_BASE, { withCredentials: true });
 
 export default function HospitalPortal({ user, onLogout }) {
-  const [view, setView] = useState('scan');
-  const [stats, setStats] = useState(null);
+  const [showChat, setShowChat] = useState(false);
+  const [activeChatPatient, setActiveChatPatient] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [unreadChats, setUnreadChats] = useState(0);
+
+  const [darkMode, setDarkMode] = useState(
+    localStorage.getItem("hospitalTheme") === "dark"
+  );
+
+  const [view, setView] = useState("scan");
   const [patients, setPatients] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [selectedPatient, setSelectedPatient] = useState(null);
+
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [showPatientModal, setShowPatientModal] = useState(false);
 
-
-// Usage tracking states
-const [usage, setUsage] = useState(null);
-const [showWarningBanner, setShowWarningBanner] = useState(true);
-
+  const [usage, setUsage] = useState(null);
+  const [showWarningBanner, setShowWarningBanner] = useState(true);
+  
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
   const [showScanDetailsModal, setShowScanDetailsModal] = useState(false);
   const [selectedScan, setSelectedScan] = useState(null);
-  const [selectedPatient, setSelectedPatient] = useState(null);
-  const [currentScanId, setCurrentScanId] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [historyFilter, setHistoryFilter] = useState('all');
-  const [patientInfo, setPatientInfo] = useState({
-    notes: '',
-    scan_date: new Date().toISOString().split('T')[0]
-  });
+  const [history, setHistory] = useState([]);
 
   const fileInputRef = useRef(null);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   useEffect(() => {
-    loadDashboard();
     loadPatients();
-    loadHistory();
     loadUsageStatus();
-
+    loadConversations();
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
-
-  async function loadDashboard() {
+  async function loadConversations() {
     try {
-      const res = await fetch(`${API_BASE}/hospital/dashboard`, {
+      const res = await fetch(`${API_BASE}/api/chat/conversations`, {
         credentials: 'include'
       });
-      const data = await res.json();
-      setStats(data.stats);
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.conversations || []);
+        
+        // Calculate unread count
+        const unread = data.conversations.reduce((sum, conv) => 
+          sum + (conv.unread_count || 0), 0
+        );
+        setUnreadChats(unread);
+      }
     } catch (err) {
-      console.error('Failed to load dashboard:', err);
+      console.error('Error loading conversations:', err);
     }
   }
 
   async function loadPatients() {
-    try {
-      const res = await fetch(`${API_BASE}/hospital/patients`, {
-        credentials: 'include'
-      });
-      const data = await res.json();
-      setPatients(data.patients);
-    } catch (err) {
-      console.error('Failed to load patients:', err);
-    }
+    const res = await fetch(`${API_BASE}/hospital/patients`, { credentials: "include" });
+    const data = await res.json();
+    setPatients(data.patients || []);
   }
 
-  async function loadHistory() {
-    try {
-      const res = await fetch(`${API_BASE}/hospital/history`, {
-        credentials: 'include'
-      });
-      const data = await res.json();
-      setHistory(data.scans || []);
-    } catch (err) {
-      console.error('Failed to load history:', err);
-    }
+  async function loadUsageStatus() {
+    const res = await fetch(`${API_BASE}/hospital/usage-status`, { credentials: "include" });
+    if (res.ok) setUsage(await res.json());
   }
-async function loadUsageStatus() {
-  try {
-    const res = await fetch(`${API_BASE}/hospital/usage-status`, {
-      credentials: 'include'
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    setUsage(data);
-  } catch (err) {
-    console.error('Failed to load usage status:', err);
-  }
-}
 
   function handleFile(e) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) {
-      setError('Please select a valid image file');
-      return;
-    }
+    const file = e.target.files[0];
+    if (!file) return;
     setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
-    setPrediction(null);
-    setError(null);
   }
 
   async function performAnalysis() {
-    if (!selectedFile || !selectedPatient) {
-      alert('Please select an image and patient');
-      return;
-    }
-
+    if (!selectedFile || !selectedPatient) return;
     setLoading(true);
-    setError(null);
 
     const formData = new FormData();
-    formData.append('image', selectedFile);
-    formData.append('patient_id', selectedPatient.id);
-    formData.append('notes', patientInfo.notes);
-    formData.append('scan_date', patientInfo.scan_date);
+    formData.append("image", selectedFile);
+    formData.append("patient_id", selectedPatient.id);
 
-    try {
-      const res = await fetch(`${API_BASE}/hospital/predict`, {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
-      });
-
-    if (res.status === 403) {
-  setShowUpgradeModal(true);
-  return;
-}
-
-if (!res.ok) throw new Error();
-
-
-      const data = await res.json();
-      setPrediction(data);
-      setCurrentScanId(data.scan_id);
-      loadDashboard();
-      loadHistory();
-    } catch {
-      setError('Failed to analyze image');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function downloadReport() {
-    if (!currentScanId) return;
-
-    const res = await fetch(`${API_BASE}/generate-report/${currentScanId}`, {
-      credentials: 'include'
+    const res = await fetch(`${API_BASE}/hospital/predict`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
     });
 
-    if (!res.ok) return;
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `NeuroScan_Report_${currentScanId}.pdf`;
-    a.click();
-
-    URL.revokeObjectURL(url);
-  }
-
-  function reset() {
-    setSelectedFile(null);
-    setPreview(null);
-    setPrediction(null);
-    setError(null);
-    setSelectedPatient(null);
-    setPatientInfo({ notes: '', scan_date: new Date().toISOString().split('T')[0] });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-
-  function removeImage() {
-    setSelectedFile(null);
-    setPreview(null);
-    setPrediction(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-
-  const filteredPatients = patients.filter(p =>
-    p.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.patient_code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
-  try {
-    const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_id: planName, billing_cycle: billingCycle })
-    });
     const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || 'Failed to create checkout session');
-      return;
-    }
-    window.location.href = data.url; // redirect to Stripe checkout
-  } catch (err) {
-    console.error('Stripe checkout error:', err);
-    alert('An error occurred while starting payment. Please try again.');
+    setPrediction(data);
+    setLoading(false);
   }
-};
-
-  const filteredHistory = history.filter(scan => {
-    if (historyFilter === 'tumor') return scan.is_tumor;
-    if (historyFilter === 'normal') return !scan.is_tumor;
-    return true;
-  });
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#f8f9fa' }}>
-      {/* Sidebar */}
-      <aside style={{
-        width: '260px',
-        background: 'white',
-        borderRight: '1px solid #e5e7eb',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
-        {/* Logo */}
-        <div style={{
-          padding: '24px 20px',
-          borderBottom: '1px solid #e5e7eb'
-        }}>
-          <h1 style={{
-            margin: 0,
-            fontSize: '24px',
-            fontWeight: 'bold',
-            color: '#5B6BF5',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <Brain size={28} />
-            NeuroScan
-          </h1>
-        </div>
-
-        {/* Navigation */}
-        <nav style={{ flex: 1, padding: '20px 12px' }}>
-          <NavItem
-            icon={<BarChart3 size={20} />}
-            label="Dashboard"
-            active={view === 'dashboard'}
-            onClick={() => setView('dashboard')}
-          />
-          <NavItem
-            icon={<Upload size={20} />}
-            label="Upload"
-            active={view === 'scan'}
-            onClick={() => setView('scan')}
-          />
-          <NavItem
-            icon={<Users size={20} />}
-            label="Patients"
-            active={view === 'patients'}
-            onClick={() => setView('patients')}
-          />
-          <NavItem
-            icon={<FileText size={20} />}
-            label="Results"
-            active={view === 'history'}
-            onClick={() => setView('history')}
-          />
-          <NavItem
-            icon={<Settings size={20} />}
-            label="Settings"
-            active={false}
-            onClick={() => {}}
-          />
-          
-          {/* Pricing/Upgrade Button */}
-          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
-            {user?.subscription && (
-  <div style={{
-    background: 'white',
-    borderRadius: '12px',
-    padding: '16px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    minWidth: '200px'
-  }}>
-    <div style={{
-      fontSize: '12px',
-      color: '#6b7280',
-      marginBottom: '4px',
-      fontWeight: '600'
-    }}>
-      Current Plan
-    </div>
-    <div style={{
-      fontSize: '18px',
-      fontWeight: 'bold',
-      color: '#111827',
-      marginBottom: '8px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px'
-    }}>
-      <CreditCard size={20} color="#667eea" />
-      {user.subscription || 'Free Trial'}
-    </div>
-    {user.subscription !== 'Enterprise' && (
-      <div style={{
-        fontSize: '12px',
-        color: '#6b7280',
-        marginTop: '8px',
-        padding: '8px',
-        background: '#f9fafb',
-        borderRadius: '6px'
-      }}>
-        💡 Contact admin to upgrade
-      </div>
-    )}
-    {user.subscription === 'Enterprise' && (
-      <div style={{
-        fontSize: '12px',
-        color: '#059669',
-        marginTop: '8px',
-        padding: '8px',
-        background: '#d1fae5',
-        borderRadius: '6px'
-      }}>
-        ✅ Unlimited access
-      </div>
-    )}
-  </div>
-)}
-          </div>
-        </nav>
-
-        {/* User Profile */}
-        <div style={{
-          padding: '16px',
-          borderTop: '1px solid #e5e7eb',
+    <div className={darkMode ? "dark" : ""}>
+      <div style={{ display: "flex", minHeight: "100vh" }}>
+        <aside style={{ 
+          width: 260, 
+          background: darkMode ? '#1e293b' : 'white', 
+          padding: '20px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
+          flexDirection: 'column',
+          borderRight: '1px solid #e5e7eb'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          <div style={{ marginBottom: '32px' }}>
+            <h1 style={{ 
+              fontSize: '24px', 
+              fontWeight: 'bold', 
+              color: '#6366f1',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <Brain size={28} /> NeuroScan
+            </h1>
+            <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>
+              Hospital Portal
+            </p>
+          </div>
+
+          <nav style={{ flex: 1 }}>
+            <NavItem icon={<Upload />} label="Scan" onClick={() => setView("scan")} active={view === "scan"} />
+            <NavItem icon={<Users />} label="Patients" onClick={() => setView("patients")} active={view === "patients"} />
+            <NavItem 
+              icon={<FileText />} 
+              label="Chat" 
+              onClick={() => setView("chat")} 
+              active={view === "chat"}
+              badge={unreadChats > 0 ? unreadChats : null}
+            />
+            <NavItem icon={<BarChart3 />} label="Dashboard" onClick={() => setView("dashboard")} active={view === "dashboard"} />
+            <NavItem icon={<FileDown />} label="History" onClick={() => setView("history")} active={view === "history"} />
+            <NavItem icon={<Settings />} label="Settings" onClick={() => setView("settings")} active={view === "settings"} />
+          </nav>
+
+          <button 
+            onClick={onLogout} 
+            style={{ 
+              width: '100%',
+              padding: '14px',
+              background: '#fef2f2',
+              color: '#dc2626',
+              border: '1px solid #fecaca',
+              borderRadius: '12px',
+              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'white',
-              fontWeight: 'bold',
-              fontSize: '16px'
-            }}>
-              {user?.full_name?.charAt(0) || 'U'}
-            </div>
-            <div>
-              <p style={{
-                margin: 0,
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#111827'
-              }}>
-                {user?.role || 'User'}
-              </p>
-              <p style={{
-                margin: 0,
-                fontSize: '12px',
-                color: '#6b7280'
-              }}>
-                {user?.hospital_name || 'Hospital'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onLogout}
-            style={{
-              padding: '8px',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#6b7280',
-              display: 'flex',
-              alignItems: 'center'
+              gap: '10px',
+              marginTop: '16px'
             }}
-            title="Logout"
           >
-            <LogOut size={20} />
+            <LogOut size={20} /> Logout
           </button>
-        </div>
-      </aside>
+        </aside>
 
-      {/* Main Content */}
-      <main style={{ flex: 1, overflow: 'auto' }}>
-        {usage && (
-  <>
-    <UsageWarningBanner
-      usage={usage}
-      visible={showWarningBanner}
-      onDismiss={() => setShowWarningBanner(false)}
-    />
-
-    <UsageIndicator usage={usage} />
-  </>
-)}
-
-        {/* Dashboard View */}
-        {view === 'dashboard' && stats && (
-          <div style={{ padding: '32px' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#111827', margin: '0 0 24px 0' }}>
-              Dashboard Overview
+        <main style={{ flex: 1, padding: 24, background: darkMode ? '#0f172a' : '#f8fafc' }}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            marginBottom: '24px'
+          }}>
+            <h2 style={{ fontSize: '28px', fontWeight: 'bold' }}>
+              {view === 'scan' && 'Medical Image Analysis'}
+              {view === 'patients' && 'Patient Management'}
+              {view === 'chat' && 'Conversations'}
+              {view === 'dashboard' && 'Dashboard'}
+              {view === 'history' && 'Scan History'}
+              {view === 'settings' && 'Settings'}
             </h2>
-
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '20px',
-              marginBottom: '32px'
-            }}>
-              <StatCard
-                icon={<Users size={24} />}
-                label="Total Patients"
-                value={stats.total_patients}
-                color="#5B6BF5"
-              />
-              <StatCard
-                icon={<FileText size={24} />}
-                label="Total Scans"
-                value={stats.total_scans}
-                color="#10b981"
-              />
-              <StatCard
-                icon={<AlertCircle size={24} />}
-                label="Tumors Detected"
-                value={stats.tumor_detected}
-                color="#ef4444"
-              />
-              <StatCard
-                icon={<Calendar size={24} />}
-                label="This Month"
-                value={stats.scans_this_month}
-                color="#f59e0b"
-              />
-            </div>
+            <NotificationBell />
           </div>
-        )}
 
-        {/* Upload/Scan View */}
-        {view === 'scan' && (
-          <div style={{ padding: '32px', maxWidth: '900px', margin: '0 auto' }}>
-            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-              <h2 style={{
-                fontSize: '32px',
-                fontWeight: 'bold',
-                color: '#111827',
-                margin: '0 0 8px 0'
-              }}>
-                Upload MRI Scan
-              </h2>
-              <p style={{
-                fontSize: '14px',
-                color: '#6b7280',
-                margin: 0
-              }}>
-                Supported formats: JPEG, PNG | Max file size: 10MB
-              </p>
-            </div>
+          {usage && (
+            <>
+              <UsageWarningBanner usage={usage} visible={showWarningBanner} onDismiss={() => setShowWarningBanner(false)} />
+              <UsageIndicator usage={usage} />
+            </>
+          )}
 
-            <div style={{
-              background: 'white',
-              borderRadius: '16px',
-              padding: '40px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          {view === "settings" && (
+            <div style={{ 
+              padding: '24px', 
+              background: darkMode ? '#1e293b' : 'white', 
+              borderRadius: '12px' 
             }}>
-              {/* Patient Selection */}
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  marginBottom: '8px',
-                  color: '#374151'
-                }}>
-                  Select Patient
-                </label>
-                <select
-                  value={selectedPatient?.id || ''}
-                  onChange={(e) => {
-                    const patient = patients.find(p => p.id === parseInt(e.target.value));
-                    setSelectedPatient(patient);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    background: 'white'
-                  }}
-                >
-                  <option value="">Choose a patient...</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} ({p.patient_code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Image Upload Area */}
-              <div style={{
-                border: '2px dashed #d1d5db',
-                borderRadius: '12px',
-                padding: preview ? '20px' : '60px 20px',
-                textAlign: 'center',
-                cursor: preview ? 'default' : 'pointer',
-                background: '#f9fafb',
-                marginBottom: '24px',
-                position: 'relative'
-              }}
-              onClick={() => !preview && fileInputRef.current?.click()}
-              >
-                {preview ? (
-                  <div style={{ position: 'relative', display: 'inline-block' }}>
-                    <img
-                      src={preview}
-                      alt="MRI Preview"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '400px',
-                        borderRadius: '8px'
-                      }}
-                    />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage();
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: '-10px',
-                        right: '-10px',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        background: '#ef4444',
-                        color: 'white',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                      }}
-                      title="Remove image"
-                    >
-                      <XIcon size={18} />
-                    </button>
-                    {selectedFile && (
-                      <p style={{
-                        marginTop: '12px',
-                        fontSize: '13px',
-                        color: '#6b7280'
-                      }}>
-                        {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <Upload size={48} color="#9ca3af" style={{ margin: '0 auto 16px' }} />
-                    <p style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '500', color: '#374151' }}>
-                      Click to upload MRI image
-                    </p>
-                    <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-                      PNG, JPG up to 10MB
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFile}
-                style={{ display: 'none' }}
-              />
-
-              {/* Patient Info Fields */}
-              {selectedPatient && selectedFile && (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr',
-                  gap: '16px',
-                  marginBottom: '24px'
-                }}>
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      marginBottom: '6px',
-                      color: '#6b7280'
-                    }}>
-                      Clinical Notes (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={patientInfo.notes}
-                      onChange={(e) => setPatientInfo({ ...patientInfo, notes: e.target.value })}
-                      placeholder="Any additional notes..."
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        fontSize: '14px'
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      marginBottom: '6px',
-                      color: '#6b7280'
-                    }}>
-                      Scan Date
-                    </label>
-                    <input
-                      type="date"
-                      value={patientInfo.scan_date}
-                      onChange={(e) => setPatientInfo({ ...patientInfo, scan_date: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        fontSize: '14px'
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Error Message */}
-              {error && (
-                <div style={{
-                  padding: '12px 16px',
-                  background: '#fee2e2',
-                  border: '1px solid #fca5a5',
-                  borderRadius: '8px',
-                  marginBottom: '20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  color: '#991b1b',
-                  fontSize: '14px'
-                }}>
-                  <AlertCircle size={18} />
-                  {error}
-                </div>
-              )}
-
-              {/* Analyze Button */}
+              <h3 style={{ marginBottom: '16px' }}>Theme Settings</h3>
               <button
-                onClick={performAnalysis}
-                disabled={!selectedFile || !selectedPatient || loading}
+                onClick={() => {
+                  const next = !darkMode;
+                  setDarkMode(next);
+                  localStorage.setItem("hospitalTheme", next ? "dark" : "light");
+                }}
                 style={{
-                  width: '100%',
-                  padding: '14px',
-                  background: (!selectedFile || !selectedPatient || loading) 
-                    ? '#9ca3af' 
-                    : 'linear-gradient(135deg, #5B6BF5 0%, #764ba2 100%)',
+                  padding: '12px 24px',
+                  background: '#6366f1',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '10px',
-                  cursor: (!selectedFile || !selectedPatient || loading) ? 'not-allowed' : 'pointer',
-                  fontWeight: '600',
-                  fontSize: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  boxShadow: (!selectedFile || !selectedPatient || loading) ? 'none' : '0 4px 12px rgba(91,107,245,0.3)',
-                  transition: 'transform 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading && selectedFile && selectedPatient) {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
+                  borderRadius: '8px',
+                  cursor: 'pointer'
                 }}
               >
-                {loading ? (
-                  <>
-                    <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Brain size={20} />
-                    Analyze Image
-                  </>
-                )}
+                {darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
               </button>
+            </div>
+          )}
 
-              {/* Results */}
-              {prediction && (
+          {view === 'chat' && (
+            <div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+              }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
+                  {conversations.length > 0 ? 'Active Conversations' : 'Start a Conversation'}
+                </h3>
+                <button 
+                  onClick={loadConversations}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#6366f1',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {conversations.length === 0 && (
                 <div style={{
-                  marginTop: '32px',
                   padding: '24px',
-                  background: prediction.is_tumor ? '#fee2e2' : '#dcfce7',
+                  background: darkMode ? '#1e293b' : '#f0f9ff',
                   borderRadius: '12px',
-                  border: `2px solid ${prediction.is_tumor ? '#fca5a5' : '#86efac'}`
+                  marginBottom: '24px',
+                  border: `1px solid ${darkMode ? '#334155' : '#bae6fd'}`
                 }}>
-                  <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                    <h3 style={{
-                      margin: '0 0 8px 0',
-                      fontSize: '28px',
-                      color: prediction.is_tumor ? '#991b1b' : '#166534',
-                      textTransform: 'uppercase',
-                      fontWeight: 'bold'
-                    }}>
-                      {prediction.prediction}
-                    </h3>
-                    <p style={{
-                      margin: 0,
-                      fontSize: '18px',
-                      color: prediction.is_tumor ? '#7f1d1d' : '#14532d',
-                      fontWeight: '600'
-                    }}>
-                      Confidence: {prediction.confidence.toFixed(2)}%
-                    </p>
-                  </div>
+                  <h4 style={{ 
+                    margin: '0 0 12px 0',
+                    color: darkMode ? '#f1f5f9' : '#0f172a'
+                  }}>
+                    No active conversations yet
+                  </h4>
+                  <p style={{ 
+                    margin: '0 0 16px 0',
+                    fontSize: '14px',
+                    color: darkMode ? '#94a3b8' : '#64748b'
+                  }}>
+                    Select a patient below to start chatting. You can message any patient you've added to your system.
+                  </p>
+                </div>
+              )}
 
+              {/* Show patient list when no conversations */}
+              {conversations.length === 0 && patients.length > 0 && (
+                <div>
+                  <h4 style={{ 
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: darkMode ? '#f1f5f9' : '#0f172a'
+                  }}>
+                    Your Patients
+                  </h4>
+                  <div style={{
+                    display: 'grid',
+                    gap: '12px',
+                    marginBottom: '20px'
+                  }}>
+                    {patients.map(patient => (
+                      <div
+                        key={patient.id}
+                        onClick={() => {
+                          setActiveChatPatient({
+                            id: patient.id,
+                            name: patient.full_name,
+                            code: patient.patient_code
+                          });
+                          setShowChat(true);
+                        }}
+                        style={{
+                          padding: '16px',
+                          background: darkMode ? '#1e293b' : 'white',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          border: '1px solid #e5e7eb',
+                          transition: 'transform 0.2s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      >
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px'
+                        }}>
+                          <div style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '18px',
+                            fontWeight: 'bold'
+                          }}>
+                            {patient.full_name.charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ margin: '0 0 4px 0' }}>
+                              {patient.full_name}
+                            </h4>
+                            <p style={{
+                              margin: 0,
+                              fontSize: '14px',
+                              color: '#6b7280'
+                            }}>
+                              Code: {patient.patient_code}
+                            </p>
+                          </div>
+                          <div style={{
+                            padding: '6px 12px',
+                            background: '#6366f1',
+                            color: 'white',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            fontWeight: '500'
+                          }}>
+                            Start Chat
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Show empty state if no patients at all */}
+              {conversations.length === 0 && patients.length === 0 && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '60px 20px',
+                  background: darkMode ? '#1e293b' : 'white',
+                  borderRadius: '12px'
+                }}>
+                  <MessageCircle size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
+                  <p style={{ 
+                    color: '#6b7280',
+                    fontSize: '16px',
+                    margin: 0
+                  }}>
+                    No patients added yet
+                  </p>
+                  <p style={{ 
+                    color: '#94a3b8',
+                    fontSize: '14px',
+                    margin: '8px 0 16px 0'
+                  }}>
+                    Add patients from the "Patients" tab to start chatting
+                  </p>
                   <button
-                    onClick={downloadReport}
+                    onClick={() => setView('patients')}
                     style={{
-                      width: '100%',
-                      padding: '12px',
-                      background: '#10b981',
+                      padding: '10px 20px',
+                      background: '#6366f1',
                       color: 'white',
                       border: 'none',
                       borderRadius: '8px',
                       cursor: 'pointer',
-                      fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px'
+                      fontSize: '14px',
+                      fontWeight: '500'
                     }}
                   >
-                    <FileDown size={18} />
-                    Download PDF Report
+                    Go to Patients
                   </button>
                 </div>
               )}
 
-              {/* Guidelines */}
-              <div style={{
-                marginTop: '32px',
-                padding: '20px',
-                background: '#f9fafb',
-                borderRadius: '8px',
-                border: '1px solid #e5e7eb'
-              }}>
-                <h4 style={{
-                  margin: '0 0 16px 0',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#374151'
+              {/* Conversation List */}
+              {conversations.length > 0 && (
+                <div style={{
+                  display: 'grid',
+                  gap: '12px',
+                  marginBottom: '20px'
                 }}>
-                  Guidelines for Best Results
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <GuidelineItem text="Ensure the MRI image is clear and well-focused" />
-                  <GuidelineItem text="Upload brain MRI scans only (axial view preferred)" />
-                  <GuidelineItem text="File size should not exceed 10MB" />
-                  <GuidelineItem text="JPEG or PNG formats recommended" />
+                  {conversations.map(conv => (
+                  <div
+                    key={conv.patient_id}
+                    onClick={() => {
+                      setActiveChatPatient({
+                        id: conv.patient_id,
+                        name: conv.patient_name,
+                        code: conv.patient_code
+                      });
+                      setShowChat(true);
+                    }}
+                    style={{
+                      padding: '16px',
+                      background: darkMode ? '#1e293b' : 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      border: '1px solid #e5e7eb',
+                      position: 'relative',
+                      transition: 'transform 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'start'
+                    }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 4px 0' }}>
+                          {conv.patient_name}
+                        </h4>
+                        <p style={{
+                          margin: 0,
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '300px'
+                        }}>
+                          {conv.last_message || 'No messages yet'}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{
+                          margin: '0 0 4px 0',
+                          fontSize: '12px',
+                          color: '#9ca3af'
+                        }}>
+                          {conv.last_message_time ? 
+                            new Date(conv.last_message_time).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : ''
+                          }
+                        </p>
+                        {conv.unread_count > 0 && (
+                          <span style={{
+                            background: '#ef4444',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}>
+                            {conv.unread_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              )}
 
-        {/* Patients View */}
-        {view === 'patients' && (
-          <div style={{ padding: '32px' }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '24px'
-            }}>
-              <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#111827', margin: 0 }}>
-                Patients
-              </h2>
-              <button
-                onClick={() => setShowAddPatientModal(true)}
-                style={{
-                  padding: '10px 20px',
-                  background: 'linear-gradient(135deg, #5B6BF5 0%, #764ba2 100%)',
+              {/* Chat Modal */}
+              {showChat && activeChatPatient && (
+                <div style={{
+                  position: 'fixed',
+                  bottom: '20px',
+                  right: '20px',
+                  width: '400px',
+                  zIndex: 1000,
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)'
+                }}>
+                  <EnhancedChat
+                    patientId={activeChatPatient.id}
+                    hospitalUserId={user.id}
+                    userType="hospital"
+                    currentUserId={user.id}
+                    recipientName={activeChatPatient.name}
+                    darkMode={darkMode}
+                    onClose={() => {
+                      setShowChat(false);
+                      setActiveChatPatient(null);
+                      loadConversations();
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {view === "patients" && (
+            <div>
+              <button 
+                onClick={() => setShowAddPatientModal(true)} 
+                style={{ 
+                  marginBottom: 16,
+                  padding: '12px 20px',
+                  background: '#6366f1',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  fontWeight: '600',
-                  boxShadow: '0 4px 12px rgba(91,107,245,0.3)'
+                  gap: '8px'
                 }}
               >
-                <Plus size={18} />
-                Add Patient
+                <Plus size={16} /> Add Patient
               </button>
+              <div style={{ 
+                display: 'grid', 
+                gap: '12px',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))'
+              }}>
+                {patients.map(p => (
+                  <div
+                    key={p.id} 
+                    onClick={() => setSelectedPatient(p)} 
+                    style={{ 
+                      cursor: "pointer", 
+                      padding: '16px',
+                      background: darkMode ? '#1e293b' : 'white',
+                      borderRadius: '8px',
+                      border: selectedPatient?.id === p.id ? '2px solid #6366f1' : '1px solid #e5e7eb'
+                    }}
+                  >
+                    <strong>{p.full_name}</strong>
+                    <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>
+                      Code: {p.patient_code}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
 
-            <div style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          {view === "scan" && (
+            <div style={{ 
+              padding: '24px', 
+              background: darkMode ? '#1e293b' : 'white', 
+              borderRadius: '12px' 
             }}>
               <div style={{ marginBottom: '20px' }}>
-                <input
-                  type="text"
-                  placeholder="Search patients..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                  Select Patient:
+                </label>
+                <select 
+                  value={selectedPatient?.id || ''} 
+                  onChange={(e) => {
+                    const patient = patients.find(p => p.id === parseInt(e.target.value));
+                    setSelectedPatient(patient);
                   }}
-                />
+                  style={{ 
+                    width: '100%', 
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #e5e7eb'
+                  }}
+                >
+                  <option value="">-- Select a patient --</option>
+                  {patients.map(p => (
+                    <option key={p.id} value={p.id}>{p.full_name}</option>
+                  ))}
+                </select>
               </div>
 
-              {filteredPatients.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
-                  <Users size={48} style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                  <p style={{ margin: 0, fontSize: '16px', fontWeight: '500' }}>
-                    No patients found
-                  </p>
+              <input 
+                ref={fileInputRef} 
+                type="file" 
+                onChange={handleFile} 
+                accept="image/*"
+                style={{ marginBottom: '16px' }}
+              />
+              
+              {preview && (
+                <div style={{ marginTop: '16px', marginBottom: '16px' }}>
+                  <img 
+                    src={preview} 
+                    alt="Preview" 
+                    style={{ 
+                      maxWidth: '100%', 
+                      maxHeight: '400px',
+                      borderRadius: '8px',
+                      border: '1px solid #e5e7eb'
+                    }} 
+                  />
                 </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6b7280', fontSize: '14px' }}>
-                        Patient Name
-                      </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6b7280', fontSize: '14px' }}>
-                        Code
-                      </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6b7280', fontSize: '14px' }}>
-                        Email
-                      </th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6b7280', fontSize: '14px' }}>
-                        Scans
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPatients.map(patient => (
-                      <tr key={patient.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                        <td style={{ padding: '12px', fontWeight: '500' }}>{patient.full_name}</td>
-                        <td style={{ padding: '12px' }}>
-                          <code style={{
-                            background: '#f3f4f6',
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '12px'
-                          }}>
-                            {patient.patient_code}
-                          </code>
-                        </td>
-                        <td style={{ padding: '12px', fontSize: '14px' }}>{patient.email}</td>
-                        <td style={{ padding: '12px' }}>
-                          <span style={{
-                            background: '#eff6ff',
-                            color: '#1e40af',
-                            padding: '4px 12px',
-                            borderRadius: '12px',
-                            fontSize: '13px',
-                            fontWeight: '500'
-                          }}>
-                            {patient.scan_count || 0}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              )}
+
+              <button 
+                onClick={performAnalysis} 
+                disabled={loading || !selectedFile || !selectedPatient} 
+                style={{ 
+                  padding: '12px 24px',
+                  background: (loading || !selectedFile || !selectedPatient) ? '#d1d5db' : '#6366f1',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: (loading || !selectedFile || !selectedPatient) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {loading ? (
+                  <>
+                    <Loader size={16} className="animate-spin" /> Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Brain size={16} /> Analyze Image
+                  </>
+                )}
+              </button>
+
+              {prediction && (
+                <div style={{ marginTop: '24px' }}>
+                  <AnalysisResults prediction={prediction} darkMode={darkMode} />
+                </div>
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* History View */}
-        {view === 'history' && (
-          <div style={{ padding: '32px' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#111827', margin: '0 0 24px 0' }}>
-              Scan History
-            </h2>
-            
-            <div style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          {view === "dashboard" && (
+            <div style={{ 
+              padding: '24px', 
+              background: darkMode ? '#1e293b' : 'white', 
+              borderRadius: '12px' 
             }}>
-              {filteredHistory.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#6b7280' }}>
-                  <FileText size={48} style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                  <p style={{ margin: 0, fontSize: '16px', fontWeight: '500' }}>
-                    No scan history found
-                  </p>
-                </div>
+              <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
+                <StatCard label="Total Patients" value={patients.length} />
+                <StatCard label="Active Conversations" value={conversations.length} />
+                <StatCard label="Unread Messages" value={unreadChats} />
+              </div>
+            </div>
+          )}
+
+          {view === "history" && (
+            <div>
+              {history.length === 0 ? (
+                <p style={{ 
+                  textAlign: 'center', 
+                  padding: '40px',
+                  color: '#6b7280'
+                }}>
+                  No scan history available
+                </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {filteredHistory.map(scan => (
-                    <div key={scan.id} style={{
-                      padding: '16px',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}>
-                      <div>
-                        <p style={{ margin: '0 0 4px 0', fontWeight: '600' }}>
-                          {scan.patient_name}
-                        </p>
-                        <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
-                          {scan.prediction} - {new Date(scan.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <span style={{
-                        padding: '6px 12px',
-                        borderRadius: '12px',
-                        fontSize: '13px',
-                        fontWeight: '500',
-                        background: scan.is_tumor ? '#fee2e2' : '#dcfce7',
-                        color: scan.is_tumor ? '#991b1b' : '#166534'
-                      }}>
-                        {scan.is_tumor ? 'Tumor' : 'Normal'}
-                      </span>
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  {history.map(scan => (
+                    <div
+                      key={scan.id}
+                      style={{
+                        padding: 16,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 8,
+                        background: darkMode ? '#1e293b' : 'white',
+                        cursor: "pointer"
+                      }}
+                      onClick={() => {
+                        setSelectedScan(scan);
+                        setShowScanDetailsModal(true);
+                      }}
+                    >
+                      <strong>{scan.patient_name}</strong>
+                      <div style={{ marginTop: '8px', color: '#6b7280' }}>{scan.prediction}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
-      {/* Modals */}
       {showAddPatientModal && (
         <AddPatientModal
           isOpen={showAddPatientModal}
@@ -987,266 +703,110 @@ const handleUpgradeClick = async (planName, billingCycle = 'monthly') => {
           onPatientAdded={(patient) => {
             setPatients([patient, ...patients]);
             setShowAddPatientModal(false);
-            loadDashboard();
           }}
-          darkMode={false}
-        />
-      )}
-
-      {showUpgradeModal && (
-        <UpgradeModal
-          isOpen={showUpgradeModal}
-          onClose={() => setShowUpgradeModal(false)}
-          onSelectPlan={(plan) => handleUpgradeClick(plan, 'monthly')}
+          darkMode={darkMode}
         />
       )}
 
       {showScanDetailsModal && selectedScan && (
         <ScanDetailsModal
           scan={selectedScan}
-          patient={patients.find(p => p.patient_code === selectedScan.patient_code)}
           onClose={() => {
             setShowScanDetailsModal(false);
             setSelectedScan(null);
           }}
-          darkMode={false}
+          darkMode={darkMode}
         />
       )}
 
-      <ChatbotToggle theme="light" user={user} />
+      <ChatbotToggle theme={darkMode ? "dark" : "light"} user={user} />
 
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}
-      </style>
+      <style>{`
+        .dark {
+          background-color: #0f172a;
+          color: #e5e7eb;
+        }
+        .dark input,
+        .dark textarea,
+        .dark select {
+          background-color: #1e293b;
+          color: #e5e7eb;
+          border: 1px solid #334155;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+      `}</style>
     </div>
   );
 }
 
-// Navigation Item Component
-function NavItem({ icon, label, active, onClick }) {
+// UTILITY COMPONENTS
+
+function NavItem({ icon, label, active, onClick, badge }) {
   return (
     <button
       onClick={onClick}
       style={{
         width: '100%',
-        padding: '12px 16px',
+        padding: '14px 16px',
+        marginBottom: '6px',
         display: 'flex',
         alignItems: 'center',
-        gap: '12px',
-        background: active ? 'linear-gradient(135deg, #5B6BF5 0%, #764ba2 100%)' : 'transparent',
-        color: active ? 'white' : '#6b7280',
+        gap: '14px',
+        background: active ? '#6366f1' : 'transparent',
+        color: active ? 'white' : '#64748b',
         border: 'none',
-        borderRadius: '8px',
+        borderRadius: '12px',
         cursor: 'pointer',
-        fontSize: '14px',
-        fontWeight: active ? '600' : '500',
-        marginBottom: '4px',
+        position: 'relative',
         transition: 'all 0.2s'
-      }}
-      onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = '#f3f4f6';
-          e.currentTarget.style.color = '#374151';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = 'transparent';
-          e.currentTarget.style.color = '#6b7280';
-        }
       }}
     >
       {icon}
-      {label}
+      <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
+      {badge && (
+        <span style={{
+          background: '#ef4444',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          padding: '2px 8px',
+          borderRadius: '999px',
+          minWidth: '20px',
+          textAlign: 'center'
+        }}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   );
 }
 
-// Stat Card Component
-function StatCard({ icon, label, value, color }) {
+function StatCard({ label, value }) {
   return (
-    <div style={{
-      background: 'white',
-      borderRadius: '12px',
-      padding: '20px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '16px'
+    <div style={{ 
+      padding: 20, 
+      border: "1px solid #e5e7eb", 
+      borderRadius: 12,
+      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+      color: 'white'
     }}>
-      <div style={{
-        width: '56px',
-        height: '56px',
-        borderRadius: '12px',
-        background: `${color}15`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: color
-      }}>
-        {icon}
-      </div>
-      <div>
-        <p style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#6b7280' }}>
-          {label}
-        </p>
-        <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#111827' }}>
-          {value}
-        </p>
-      </div>
+      <div style={{ fontSize: '14px', marginBottom: '8px', opacity: 0.9 }}>{label}</div>
+      <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{value}</div>
     </div>
   );
 }
 
-// Guideline Item Component
 function GuidelineItem({ text }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-      <CheckCircle size={18} color="#10b981" style={{ marginTop: '2px', flexShrink: 0 }} />
-      <span style={{ fontSize: '14px', color: '#374151' }}>{text}</span>
-    </div>
-  );
-}
-
-// Upgrade Modal Component
-function UpgradeModal({ isOpen, onClose, onSelectPlan }) {
-  if (!isOpen) return null;
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-      <div style={{ width: '900px', maxHeight: '80vh', overflow: 'auto', background: 'white', borderRadius: '12px', padding: '20px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px' }}>
-          <h2 style={{ margin:0, display: 'flex', alignItems:'center', gap:'8px' }}>📊 Business Model Summary</h2>
-          <button onClick={onClose} style={{ border:'none', background:'transparent', fontSize: '18px', cursor:'pointer' }}>✕</button>
-        </div>
-
-        <h3 style={{ marginTop: '8px' }}>Subscription Tiers</h3>
-        <div style={{ overflowX: 'auto', marginBottom: '16px' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Plan</th>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Price/Month</th>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Scans/Month</th>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Users/Patients</th>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Target Audience</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Free Trial</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$0</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>10</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>250</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Testing & Evaluation</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Basic</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$9</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>100</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>5,500</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Small Clinics</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Professional</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>$299</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>500</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>202,000</td>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Medium Hospitals</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px' }}>Enterprise</td>
-                <td style={{ padding:'8px' }}>$799</td>
-                <td style={{ padding:'8px' }}>Unlimited</td>
-                <td style={{ padding:'8px' }}>Unlimited</td>
-                <td style={{ padding:'8px' }}>Large Networks</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <h3>Feature Matrix</h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign:'left', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Feature</th>
-                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Free</th>
-                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Basic</th>
-                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Professional</th>
-                <th style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #e5e7eb' }}>Enterprise</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Basic MRI Scan</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>PDF Reports</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Patient Portal</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>GradCAM Visualization</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>API Access</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Priority Support</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✓</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px', borderBottom:'1px solid #f3f4f6' }}>Custom Branding</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px', borderBottom:'1px solid #f3f4f6' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-              <tr>
-                <td style={{ padding:'8px' }}>Dedicated Manager</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✗</td>
-                <td style={{ textAlign:'center', padding:'8px' }}>✓</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginTop:'12px' }}>
-          <button onClick={() => { onSelectPlan('basic'); onClose(); }} style={{ padding:'10px 14px', background:'#5B6BF5', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Basic</button>
-          <button onClick={() => { onSelectPlan('professional'); onClose(); }} style={{ padding:'10px 14px', background:'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Professional</button>
-          <button onClick={() => { onSelectPlan('enterprise'); onClose(); }} style={{ padding:'10px 14px', background:'#f59e0b', color:'white', border:'none', borderRadius:'8px', cursor:'pointer' }}>Choose Enterprise</button>
-        </div>
-      </div>
+    <div style={{ display: "flex", gap: 8, alignItems: 'center', marginBottom: '8px' }}>
+      <CheckCircle size={16} color="#10b981" />
+      <span>{text}</span>
     </div>
   );
 }
