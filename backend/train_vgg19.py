@@ -13,7 +13,7 @@ from model_vgg19 import BrainTumorVGG19
 CONFIG = {
     'data_dir': 'brain',  # Your dataset folder
     'batch_size': 8,  # Optimized for GTX 1650 (4GB VRAM)
-    'num_epochs': 20,
+    'num_epochs': 60,
     'learning_rate': 0.001,
     'num_classes': 4,
     'image_size': 224,

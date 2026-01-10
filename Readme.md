@@ -1,7 +1,6 @@
 # 🧠 NeuroScan: Brain Tumor Detection Using CNN (VGG19)
 
 An AI-powered deep learning system for automated detection and classification of brain tumors from MRI images using Convolutional Neural Networks based on VGG19 architecture.
-Test
 
 ![NeuroScan Banner](https://img.shields.io/badge/AI-Brain%20Tumor%20Detection-blue)
 ![Python](https://img.shields.io/badge/Python-3.10+-green)
@@ -444,7 +443,7 @@ docker-compose restart
 
 ## 👥 Contributors
 
-- **Kamala Thapa** (21185159) - Frontend Development, UI/UX
+- **Kamala Thapa** (21185159) -Frontend Development, UI/UX
 - **Sankalpa Adhikari** (21185177) - Backend Development, Model Training
 - **Sushil Adhikari** (21185185) - Database, DevOps, Documentation
 
@@ -466,9 +465,9 @@ This project is developed as part of an academic requirement for Pokhara Univers
 ## 📞 Contact
 
 For questions or collaboration:
-- **Email**: sankalpaadhikari38@gmail.com
-- **GitHub**: [github.com/yourusername/neuroscan](https://github.com/Sankalpaadhikariii/neuroscan)
-- **Issues**: [Report bugs](https://github.com/yourusername/neuroscan/issues)
+- **Email**: neuroscan@university.edu
+- **GitHub**: [github.com/yourusername/neuroscan](https://github.com/Sankalpadhikariii/neuroscan)
+- **Issues**: [Report bugs](https://github.com/Sankalpadhikariii/neuroscan/issues)
 
 ---
 
@@ -488,7 +487,7 @@ If you found this project helpful, please give it a star ⭐ on GitHub!
 
 ```bash
 # Quick start command
-git clone https://github.com/Sankalpaadhikariii/neuroscan.git
+git clone https://github.com/Sankalpadhikariii/neuroscan.git
 cd neuroscan
 docker-compose up --build
 ```
