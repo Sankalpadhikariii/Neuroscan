@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from PIL import Image
-
+from model_vgg19 import BrainTumorVGG19
 from functools import wraps
 
 from flask import Flask, request, jsonify, session, send_file
@@ -97,7 +97,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Device setup
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device( "cpu")
 logger.info(f"Using device: {device}")
 
 
@@ -1163,6 +1163,144 @@ def notify_hospital_users(hospital_id: int, notification_type: str, title: str, 
         logger.error(f"❌ Error notifying hospital users: {e}")
 
 
+@app.route('/api/chat/patients/available', methods=['GET'])
+@hospital_required
+def get_available_patients():
+    """Get all patients that hospital user can chat with"""
+    try:
+        hospital_id = session.get('hospital_id')
+        hospital_user_id = session.get('user_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Get all patients in this hospital
+        c.execute("""
+            SELECT 
+                p.id as patient_id,
+                p.full_name as patient_name,
+                p.patient_code,
+                p.email as patient_email,
+                p.phone,
+                p.date_of_birth,
+                p.gender,
+                -- Check if conversation exists
+                (
+                    SELECT COUNT(*) 
+                    FROM messages m 
+                    WHERE m.patient_id = p.id 
+                    AND m.hospital_user_id = ?
+                ) as message_count,
+                -- Last message if exists
+                (
+                    SELECT m.message 
+                    FROM messages m 
+                    WHERE m.patient_id = p.id 
+                    AND m.hospital_user_id = ?
+                    ORDER BY m.created_at DESC 
+                    LIMIT 1
+                ) as last_message,
+                (
+                    SELECT m.created_at 
+                    FROM messages m 
+                    WHERE m.patient_id = p.id 
+                    AND m.hospital_user_id = ?
+                    ORDER BY m.created_at DESC 
+                    LIMIT 1
+                ) as last_message_time
+            FROM patients p
+            WHERE p.hospital_id = ?
+            ORDER BY p.created_at DESC
+        """, (hospital_user_id, hospital_user_id, hospital_user_id, hospital_id))
+
+        patients = [dict(row) for row in c.fetchall()]
+        conn.close()
+
+        # Separate into active conversations and available patients
+        active_conversations = [p for p in patients if p['message_count'] > 0]
+        available_patients = [p for p in patients if p['message_count'] == 0]
+
+        return jsonify({
+            'active_conversations': active_conversations,
+            'available_patients': available_patients,
+            'total_patients': len(patients)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting available patients: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/start-conversation', methods=['POST'])
+@hospital_required
+def start_conversation():
+    """Start a new conversation with a patient"""
+    try:
+        data = request.get_json()
+        patient_id = data.get('patient_id')
+        initial_message = data.get('message', '').strip()
+
+        if not patient_id:
+            return jsonify({'error': 'Patient ID required'}), 400
+
+        hospital_user_id = session.get('user_id')
+        hospital_id = session.get('hospital_id')
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Verify patient belongs to this hospital
+        c.execute("""
+            SELECT id, full_name, patient_code 
+            FROM patients 
+            WHERE id = ? AND hospital_id = ?
+        """, (patient_id, hospital_id))
+
+        patient = c.fetchone()
+        if not patient:
+            conn.close()
+            return jsonify({'error': 'Patient not found or not in your hospital'}), 404
+
+        patient = dict(patient)
+
+        # Send initial message if provided
+        message_id = None
+        if initial_message:
+            c.execute("""
+                INSERT INTO messages 
+                (patient_id, hospital_user_id, sender_type, message, is_read)
+                VALUES (?, ?, 'hospital', ?, 0)
+            """, (patient_id, hospital_user_id, initial_message))
+
+            message_id = c.lastrowid
+            conn.commit()
+
+            # Create notification for patient
+            create_notification(
+                user_id=patient_id,
+                user_type='patient',
+                notification_type='new_message',
+                title='📨 New Message from Doctor',
+                message=f'Your doctor has started a conversation with you',
+                hospital_id=hospital_id,
+                patient_id=patient_id,
+                priority='normal',
+                action_url=f'/chat?patient_id={patient_id}&hospital_user_id={hospital_user_id}'
+            )
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': 'Conversation started',
+            'patient': patient,
+            'message_id': message_id,
+            'chat_room': f'chat_{patient_id}_{hospital_user_id}'
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting conversation: {e}")
+        return jsonify({'error': str(e)}), 500
 # ==============================================
 # NOTIFICATION API ENDPOINTS
 # ==============================================
@@ -2892,16 +3030,39 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
+# ==============================================
+# VGG19 MODEL LOADING
+# ==============================================
 
-try:
-    logger.info("Loading model...")
-    model = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-    model.to(device)
-    model.eval()
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Error loading model: {e}")
-    raise
+from model_vgg19 import BrainTumorVGG19
+
+
+def load_vgg19_model():
+    """Load trained VGG19 model"""
+    try:
+        logger.info("Loading VGG19 model...")
+        model = BrainTumorVGG19(num_classes=4, freeze_features=False)
+
+        checkpoint = torch.load(
+            'models/vgg19_brain_tumor_best.pth',
+            map_location=device,
+            weights_only=False
+        )
+
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
+        model = model.to(device)
+
+        logger.info("✓ VGG19 model loaded successfully!")
+        return model
+
+    except Exception as e:
+        logger.error(f"Error loading VGG19 model: {e}")
+        raise
+
+
+# Load model at startup
+model = load_vgg19_model()
 
 
 # ==============================================
@@ -4559,6 +4720,7 @@ def handle_mark_read(data):
 
     except Exception as e:
         logger.error(f"Error marking messages as read: {e}")
+
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================
