@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React from 'react';
+=======
+import React, { useEffect, useState } from 'react';
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 import UniversalLogin from './UniversalLogin';
 import AdminPortal from './AdminPortal';
 import HospitalPortal from './HospitalPortal';
@@ -6,17 +10,24 @@ import PatientPortal from './PatientPortal';
 import PricingPage from './PricingPage';
 import SubscriptionSuccess from './SubscriptionSuccess';
 import SubscriptionCancelled from './SubscriptionCancelled';
+<<<<<<< HEAD
 import ConnectionErrorHandler from './ConnectionErrorHandler';
 import { useState, useEffect } from 'react';
 
+=======
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+<<<<<<< HEAD
   const [currentView, setCurrentView] = useState('main');
   const [connectionError, setConnectionError] = useState(false);
+=======
+  const [currentView, setCurrentView] = useState('main'); // 'main', 'pricing', 'success', 'cancelled'
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 
   useEffect(() => {
     checkAuth();
@@ -24,6 +35,7 @@ export default function App() {
 
   async function checkAuth() {
     try {
+<<<<<<< HEAD
       // Test connection with timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -47,6 +59,15 @@ export default function App() {
       if (err.name === 'AbortError' || err.message.includes('fetch')) {
         setConnectionError(true);
       }
+=======
+      const res = await fetch(`${API_BASE}/me`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+      }
+    } catch (err) {
+      console.error('Auth check failed:', err);
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
     } finally {
       setLoading(false);
     }
@@ -118,6 +139,7 @@ export default function App() {
     );
   }
 
+<<<<<<< HEAD
   // Wrap entire app with connection error handler
   return (
     <ConnectionErrorHandler>
@@ -173,4 +195,46 @@ export default function App() {
       )}
     </ConnectionErrorHandler>
   );
+=======
+  // Show success page
+  if (currentView === 'success') {
+    return <SubscriptionSuccess onNavigateHome={handleNavigateToMain} />;
+  }
+
+  // Show cancelled page
+  if (currentView === 'cancelled') {
+    return <SubscriptionCancelled onNavigateHome={handleNavigateToMain} />;
+  }
+
+  // Show pricing page
+  if (currentView === 'pricing') {
+    return (
+      <PricingPage 
+        currentPlan={user?.subscription}
+        onBack={handleNavigateToMain}
+      />
+    );
+  }
+
+  // Not authenticated - show login
+  if (!user) {
+    return <UniversalLogin onLogin={handleLogin} />;
+  }
+
+  // Route based on user type
+  if (user.type === 'admin') {
+    return <AdminPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
+  }
+
+  if (user.type === 'hospital') {
+    return <HospitalPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
+  }
+
+  if (user.type === 'patient') {
+    return <PatientPortal patient={user} onLogout={handleLogout} />;
+  }
+
+  // Fallback
+  return <UniversalLogin onLogin={handleLogin} />;
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 }
