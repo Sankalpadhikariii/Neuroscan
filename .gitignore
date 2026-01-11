@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Python
 __pycache__/
 *.py[cod]
@@ -73,3 +74,9 @@ backend/uploads/
 
 # Logs
 *.log
+=======
+.idea/
+*.db
+*_old.py
+*_backup.*
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1

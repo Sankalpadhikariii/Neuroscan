@@ -6,7 +6,10 @@ import {
 import { io } from "socket.io-client";
 import ChatbotToggle from "./ChatbotToggle";
 import AddPatientModal from "./AddPatientModal";
+<<<<<<< HEAD
 import PatientInfoModal from "./PatientInfoModal";
+=======
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 import ScanDetailsModal from "./ScanDetailsModal";
 import { UsageIndicator, UsageWarningBanner } from "./UsageComponents";
 import EnhancedChat from './components/EnhancedChat';
@@ -44,6 +47,7 @@ export default function HospitalPortal({ user, onLogout }) {
   const [selectedScan, setSelectedScan] = useState(null);
   const [history, setHistory] = useState([]);
 
+<<<<<<< HEAD
   // New states for patient selector
   const [showPatientSelector, setShowPatientSelector] = useState(false);
   const [availablePatients, setAvailablePatients] = useState([]);
@@ -98,6 +102,10 @@ export default function HospitalPortal({ user, onLogout }) {
     }
   };
 
+=======
+  const fileInputRef = useRef(null);
+
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
   useEffect(() => {
     loadPatients();
     loadUsageStatus();
@@ -113,6 +121,10 @@ export default function HospitalPortal({ user, onLogout }) {
         const data = await res.json();
         setConversations(data.conversations || []);
         
+<<<<<<< HEAD
+=======
+        // Calculate unread count
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
         const unread = data.conversations.reduce((sum, conv) => 
           sum + (conv.unread_count || 0), 0
         );
@@ -142,6 +154,7 @@ export default function HospitalPortal({ user, onLogout }) {
   }
 
   async function performAnalysis() {
+<<<<<<< HEAD
     if (!selectedFile) return;
     setLoading(true);
     setError(null);
@@ -229,6 +242,24 @@ export default function HospitalPortal({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
+=======
+    if (!selectedFile || !selectedPatient) return;
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append("image", selectedFile);
+    formData.append("patient_id", selectedPatient.id);
+
+    const res = await fetch(`${API_BASE}/hospital/predict`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+
+    const data = await res.json();
+    setPrediction(data);
+    setLoading(false);
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
   }
 
   return (
@@ -357,6 +388,7 @@ export default function HospitalPortal({ user, onLogout }) {
                 <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
                   {conversations.length > 0 ? 'Active Conversations' : 'Start a Conversation'}
                 </h3>
+<<<<<<< HEAD
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button 
                     onClick={() => {
@@ -391,6 +423,21 @@ export default function HospitalPortal({ user, onLogout }) {
                     Refresh
                   </button>
                 </div>
+=======
+                <button 
+                  onClick={loadConversations}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#6366f1',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Refresh
+                </button>
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
               </div>
 
               {conversations.length === 0 && (
@@ -412,11 +459,105 @@ export default function HospitalPortal({ user, onLogout }) {
                     fontSize: '14px',
                     color: darkMode ? '#94a3b8' : '#64748b'
                   }}>
+<<<<<<< HEAD
                     Click "New Chat" to start a conversation with any patient.
+=======
+                    Select a patient below to start chatting. You can message any patient you've added to your system.
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
                   </p>
                 </div>
               )}
 
+<<<<<<< HEAD
+=======
+              {/* Show patient list when no conversations */}
+              {conversations.length === 0 && patients.length > 0 && (
+                <div>
+                  <h4 style={{ 
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: darkMode ? '#f1f5f9' : '#0f172a'
+                  }}>
+                    Your Patients
+                  </h4>
+                  <div style={{
+                    display: 'grid',
+                    gap: '12px',
+                    marginBottom: '20px'
+                  }}>
+                    {patients.map(patient => (
+                      <div
+                        key={patient.id}
+                        onClick={() => {
+                          setActiveChatPatient({
+                            id: patient.id,
+                            name: patient.full_name,
+                            code: patient.patient_code
+                          });
+                          setShowChat(true);
+                        }}
+                        style={{
+                          padding: '16px',
+                          background: darkMode ? '#1e293b' : 'white',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          border: '1px solid #e5e7eb',
+                          transition: 'transform 0.2s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      >
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px'
+                        }}>
+                          <div style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '18px',
+                            fontWeight: 'bold'
+                          }}>
+                            {patient.full_name.charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ margin: '0 0 4px 0' }}>
+                              {patient.full_name}
+                            </h4>
+                            <p style={{
+                              margin: 0,
+                              fontSize: '14px',
+                              color: '#6b7280'
+                            }}>
+                              Code: {patient.patient_code}
+                            </p>
+                          </div>
+                          <div style={{
+                            padding: '6px 12px',
+                            background: '#6366f1',
+                            color: 'white',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            fontWeight: '500'
+                          }}>
+                            Start Chat
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Show empty state if no patients at all */}
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
               {conversations.length === 0 && patients.length === 0 && (
                 <div style={{
                   textAlign: 'center',
@@ -425,10 +566,25 @@ export default function HospitalPortal({ user, onLogout }) {
                   borderRadius: '12px'
                 }}>
                   <MessageCircle size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
+<<<<<<< HEAD
                   <p style={{ color: '#6b7280', fontSize: '16px', margin: 0 }}>
                     No patients added yet
                   </p>
                   <p style={{ color: '#94a3b8', fontSize: '14px', margin: '8px 0 16px 0' }}>
+=======
+                  <p style={{ 
+                    color: '#6b7280',
+                    fontSize: '16px',
+                    margin: 0
+                  }}>
+                    No patients added yet
+                  </p>
+                  <p style={{ 
+                    color: '#94a3b8',
+                    fontSize: '14px',
+                    margin: '8px 0 16px 0'
+                  }}>
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
                     Add patients from the "Patients" tab to start chatting
                   </p>
                   <button
@@ -449,6 +605,7 @@ export default function HospitalPortal({ user, onLogout }) {
                 </div>
               )}
 
+<<<<<<< HEAD
               {conversations.length > 0 && (
                 <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
                   {conversations.map(conv => (
@@ -516,6 +673,92 @@ export default function HospitalPortal({ user, onLogout }) {
                 </div>
               )}
 
+=======
+              {/* Conversation List */}
+              {conversations.length > 0 && (
+                <div style={{
+                  display: 'grid',
+                  gap: '12px',
+                  marginBottom: '20px'
+                }}>
+                  {conversations.map(conv => (
+                  <div
+                    key={conv.patient_id}
+                    onClick={() => {
+                      setActiveChatPatient({
+                        id: conv.patient_id,
+                        name: conv.patient_name,
+                        code: conv.patient_code
+                      });
+                      setShowChat(true);
+                    }}
+                    style={{
+                      padding: '16px',
+                      background: darkMode ? '#1e293b' : 'white',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      border: '1px solid #e5e7eb',
+                      position: 'relative',
+                      transition: 'transform 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'start'
+                    }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 4px 0' }}>
+                          {conv.patient_name}
+                        </h4>
+                        <p style={{
+                          margin: 0,
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '300px'
+                        }}>
+                          {conv.last_message || 'No messages yet'}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{
+                          margin: '0 0 4px 0',
+                          fontSize: '12px',
+                          color: '#9ca3af'
+                        }}>
+                          {conv.last_message_time ? 
+                            new Date(conv.last_message_time).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : ''
+                          }
+                        </p>
+                        {conv.unread_count > 0 && (
+                          <span style={{
+                            background: '#ef4444',
+                            color: 'white',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}>
+                            {conv.unread_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                </div>
+              )}
+
+              {/* Chat Modal */}
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
               {showChat && activeChatPatient && (
                 <div style={{
                   position: 'fixed',
@@ -540,6 +783,7 @@ export default function HospitalPortal({ user, onLogout }) {
                   />
                 </div>
               )}
+<<<<<<< HEAD
 
               {showPatientSelector && (
                 <div style={{
@@ -636,6 +880,8 @@ export default function HospitalPortal({ user, onLogout }) {
                   </div>
                 </div>
               )}
+=======
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
             </div>
           )}
 
@@ -739,6 +985,7 @@ export default function HospitalPortal({ user, onLogout }) {
               )}
 
               <button 
+<<<<<<< HEAD
                 onClick={handleAnalyzeClick} 
                 disabled={loading || !selectedFile} 
                 style={{ 
@@ -748,6 +995,17 @@ export default function HospitalPortal({ user, onLogout }) {
                   border: 'none',
                   borderRadius: '8px',
                   cursor: (loading || !selectedFile) ? 'not-allowed' : 'pointer',
+=======
+                onClick={performAnalysis} 
+                disabled={loading || !selectedFile || !selectedPatient} 
+                style={{ 
+                  padding: '12px 24px',
+                  background: (loading || !selectedFile || !selectedPatient) ? '#d1d5db' : '#6366f1',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: (loading || !selectedFile || !selectedPatient) ? 'not-allowed' : 'pointer',
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px'
@@ -847,6 +1105,7 @@ export default function HospitalPortal({ user, onLogout }) {
         />
       )}
 
+<<<<<<< HEAD
       {/* Patient info modal used when no patient is selected and user wants to analyze */}
       {showPatientInfoModal && (
         <PatientInfoModal
@@ -857,6 +1116,8 @@ export default function HospitalPortal({ user, onLogout }) {
         />
       )}
 
+=======
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
       <ChatbotToggle theme={darkMode ? "dark" : "light"} user={user} />
 
       <style>{`
@@ -883,6 +1144,11 @@ export default function HospitalPortal({ user, onLogout }) {
   );
 }
 
+<<<<<<< HEAD
+=======
+// UTILITY COMPONENTS
+
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 function NavItem({ icon, label, active, onClick, badge }) {
   return (
     <button
@@ -925,6 +1191,7 @@ function NavItem({ icon, label, active, onClick, badge }) {
 
 function StatCard({ label, value }) {
   return (
+<<<<<<< HEAD
     <div style={{
       padding: '16px',
       background: '#f9fafb',
@@ -937,6 +1204,26 @@ function StatCard({ label, value }) {
       <p style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#1f2937' }}>
         {value}
       </p>
+=======
+    <div style={{ 
+      padding: 20, 
+      border: "1px solid #e5e7eb", 
+      borderRadius: 12,
+      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+      color: 'white'
+    }}>
+      <div style={{ fontSize: '14px', marginBottom: '8px', opacity: 0.9 }}>{label}</div>
+      <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{value}</div>
+    </div>
+  );
+}
+
+function GuidelineItem({ text }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: 'center', marginBottom: '8px' }}>
+      <CheckCircle size={16} color="#10b981" />
+      <span>{text}</span>
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
     </div>
   );
 }
