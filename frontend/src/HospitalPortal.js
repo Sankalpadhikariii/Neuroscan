@@ -6,6 +6,7 @@ import {
 import { io } from "socket.io-client";
 import ChatbotToggle from "./ChatbotToggle";
 import AddPatientModal from "./AddPatientModal";
+import PatientInfoModal from "./PatientInfoModal";
 import ScanDetailsModal from "./ScanDetailsModal";
 import { UsageIndicator, UsageWarningBanner } from "./UsageComponents";
 import EnhancedChat from './components/EnhancedChat';
@@ -46,6 +47,9 @@ export default function HospitalPortal({ user, onLogout }) {
   // New states for patient selector
   const [showPatientSelector, setShowPatientSelector] = useState(false);
   const [availablePatients, setAvailablePatients] = useState([]);
+
+  // Patient info modal (for entering new patient or skipping)
+  const [showPatientInfoModal, setShowPatientInfoModal] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -138,22 +142,93 @@ export default function HospitalPortal({ user, onLogout }) {
   }
 
   async function performAnalysis() {
-    if (!selectedFile || !selectedPatient) return;
+    if (!selectedFile) return;
     setLoading(true);
+    setError(null);
 
     const formData = new FormData();
     formData.append("image", selectedFile);
-    formData.append("patient_id", selectedPatient.id);
+    formData.append("patient_id", selectedPatient?.id || "");
 
-    const res = await fetch(`${API_BASE}/hospital/predict`, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    });
+    try {
+      const res = await fetch(`${API_BASE}/hospital/predict`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
 
-    const data = await res.json();
-    setPrediction(data);
-    setLoading(false);
+      if (!res.ok) {
+        // Try to read response body if possible (may be blocked by CORS)
+        const text = await res.text().catch(() => '');
+        throw new Error(`Server responded with status ${res.status}: ${text}`);
+      }
+
+      const data = await res.json();
+      setPrediction(data);
+    } catch (err) {
+      console.error('Analysis failed:', err);
+      setError('Failed to perform analysis. Ensure the backend is running and CORS allows requests from this origin.');
+      setPrediction(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleAnalyzeClick() {
+    if (!selectedFile) return;
+    // If no patient selected, open modal to create one or skip
+    if (!selectedPatient) {
+      setShowPatientInfoModal(true);
+      return;
+    }
+    performAnalysis();
+  }
+
+  async function handlePatientInfoSubmit(formData) {
+    // formData === null means user clicked "Skip & Analyze"
+    setShowPatientInfoModal(false);
+
+    try {
+      setLoading(true);
+      let payload = {};
+      if (formData === null) {
+        payload = { full_name: `Anonymous Scan ${new Date().toISOString()}` };
+      } else {
+        payload = {
+          full_name: formData.patient_name || `Patient ${new Date().toISOString()}`,
+          email: formData.email || undefined,
+          gender: formData.patient_gender || undefined,
+          date_of_birth: formData.scan_date || undefined
+        };
+      }
+
+      const res = await fetch(`${API_BASE}/hospital/patients`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to create patient: ${res.status} ${text}`);
+      }
+
+      const data = await res.json();
+      const patient = data.patient;
+      if (patient && patient.id) {
+        setSelectedPatient(patient);
+        // Now perform analysis using the newly created patient
+        await performAnalysis();
+      } else {
+        throw new Error('Patient creation did not return an id');
+      }
+    } catch (err) {
+      console.error('Patient creation failed:', err);
+      setError('Unable to create patient for scan. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -664,15 +739,15 @@ export default function HospitalPortal({ user, onLogout }) {
               )}
 
               <button 
-                onClick={performAnalysis} 
-                disabled={loading || !selectedFile || !selectedPatient} 
+                onClick={handleAnalyzeClick} 
+                disabled={loading || !selectedFile} 
                 style={{ 
                   padding: '12px 24px',
-                  background: (loading || !selectedFile || !selectedPatient) ? '#d1d5db' : '#6366f1',
+                  background: (loading || !selectedFile) ? '#d1d5db' : '#6366f1',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
-                  cursor: (loading || !selectedFile || !selectedPatient) ? 'not-allowed' : 'pointer',
+                  cursor: (loading || !selectedFile) ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px'
@@ -768,6 +843,16 @@ export default function HospitalPortal({ user, onLogout }) {
             setShowScanDetailsModal(false);
             setSelectedScan(null);
           }}
+          darkMode={darkMode}
+        />
+      )}
+
+      {/* Patient info modal used when no patient is selected and user wants to analyze */}
+      {showPatientInfoModal && (
+        <PatientInfoModal
+          isOpen={showPatientInfoModal}
+          onClose={() => setShowPatientInfoModal(false)}
+          onSubmit={handlePatientInfoSubmit}
           darkMode={darkMode}
         />
       )}

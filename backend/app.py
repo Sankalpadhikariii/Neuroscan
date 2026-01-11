@@ -18,9 +18,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from PIL import Image
-from model_vgg19 import BrainTumorVGG19
+import torchvision.models as models
 from functools import wraps
-
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from flask import Flask, request, jsonify, session, send_file
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -40,7 +40,7 @@ UPLOAD_FOLDER = 'uploads/profile_pictures'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
-MODEL_PATH = "Brain_Tumor_model.pt"
+MODEL_PATH = r"C:\Users\Acer\OneDrive\Desktop\final year project\backend\models\vgg19_final_20260110_154609.pth"
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
 MAX_CHAT_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -63,23 +63,20 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 # Flask App Setup
 # -----------------------------
 app = Flask(__name__)
-CORS(app,
-    resources={
-        r"/*": {
-            "origins": ["http://localhost:3000", "http://localhost:3001", "http://192.168.1.70:3000"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True,
-            "expose_headers": ["Content-Type"]
-        }
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
     }
-)
+})
 app.secret_key = SECRET_KEY
 
 # SocketIO with permissive CORS for development
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
+    cors_allowed_origins="http://localhost:3000",
     logger=False,
     engineio_logger=False
 )
@@ -96,12 +93,49 @@ limiter = Limiter(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Device setup
-device = torch.device( "cpu")
-logger.info(f"Using device: {device}")
+# 1. Initialize the Architecture to match your CUSTOM training
+device = torch.device('cpu')
+model = models.vgg19(weights=None)
 
+# Your error log shows a customized classifier structure:
+# classifier.0: 4096 (standard)
+# classifier.3: 1024 (mismatch fix)
+# classifier.6: 256  (mismatch fix)
+# classifier.9: 4    (the final output)
+model.classifier = nn.Sequential(
+    nn.Linear(512 * 7 * 7, 4096),
+    nn.ReLU(True),
+    nn.Dropout(),
+    nn.Linear(4096, 1024),  # Changed from 4096 to 1024
+    nn.ReLU(True),
+    nn.Dropout(),
+    nn.Linear(1024, 256),   # Changed from 4096 to 256
+    nn.ReLU(True),
+    nn.Dropout(),
+    nn.Linear(256, 4)       # The final 4 classes
+)
 
+# 2. Load the Checkpoint
+checkpoint = torch.load(MODEL_PATH, map_location=device)
+state_dict = checkpoint.get('model_state_dict', checkpoint)
 
+# 3. Clean the prefixes
+from collections import OrderedDict
+new_state_dict = OrderedDict()
+for k, v in state_dict.items():
+    name = k.replace("vgg19.", "")
+    new_state_dict[name] = v
+
+# 4. Load weights
+try:
+    model.load_state_dict(new_state_dict)
+    print("✅ SUCCESS: Custom VGG19 weights loaded perfectly!")
+except RuntimeError as e:
+    print(f"❌ Load failed: {e}")
+
+model.to(device)
+model.eval()
+print("✅ Model weights loaded successfully from checkpoint!")
 # ==============================================
 # DATABASE & UTILITIES
 # ==============================================
@@ -1163,144 +1197,6 @@ def notify_hospital_users(hospital_id: int, notification_type: str, title: str, 
         logger.error(f"❌ Error notifying hospital users: {e}")
 
 
-@app.route('/api/chat/patients/available', methods=['GET'])
-@hospital_required
-def get_available_patients():
-    """Get all patients that hospital user can chat with"""
-    try:
-        hospital_id = session.get('hospital_id')
-        hospital_user_id = session.get('user_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Get all patients in this hospital
-        c.execute("""
-            SELECT 
-                p.id as patient_id,
-                p.full_name as patient_name,
-                p.patient_code,
-                p.email as patient_email,
-                p.phone,
-                p.date_of_birth,
-                p.gender,
-                -- Check if conversation exists
-                (
-                    SELECT COUNT(*) 
-                    FROM messages m 
-                    WHERE m.patient_id = p.id 
-                    AND m.hospital_user_id = ?
-                ) as message_count,
-                -- Last message if exists
-                (
-                    SELECT m.message 
-                    FROM messages m 
-                    WHERE m.patient_id = p.id 
-                    AND m.hospital_user_id = ?
-                    ORDER BY m.created_at DESC 
-                    LIMIT 1
-                ) as last_message,
-                (
-                    SELECT m.created_at 
-                    FROM messages m 
-                    WHERE m.patient_id = p.id 
-                    AND m.hospital_user_id = ?
-                    ORDER BY m.created_at DESC 
-                    LIMIT 1
-                ) as last_message_time
-            FROM patients p
-            WHERE p.hospital_id = ?
-            ORDER BY p.created_at DESC
-        """, (hospital_user_id, hospital_user_id, hospital_user_id, hospital_id))
-
-        patients = [dict(row) for row in c.fetchall()]
-        conn.close()
-
-        # Separate into active conversations and available patients
-        active_conversations = [p for p in patients if p['message_count'] > 0]
-        available_patients = [p for p in patients if p['message_count'] == 0]
-
-        return jsonify({
-            'active_conversations': active_conversations,
-            'available_patients': available_patients,
-            'total_patients': len(patients)
-        })
-
-    except Exception as e:
-        logger.error(f"Error getting available patients: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/chat/start-conversation', methods=['POST'])
-@hospital_required
-def start_conversation():
-    """Start a new conversation with a patient"""
-    try:
-        data = request.get_json()
-        patient_id = data.get('patient_id')
-        initial_message = data.get('message', '').strip()
-
-        if not patient_id:
-            return jsonify({'error': 'Patient ID required'}), 400
-
-        hospital_user_id = session.get('user_id')
-        hospital_id = session.get('hospital_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Verify patient belongs to this hospital
-        c.execute("""
-            SELECT id, full_name, patient_code 
-            FROM patients 
-            WHERE id = ? AND hospital_id = ?
-        """, (patient_id, hospital_id))
-
-        patient = c.fetchone()
-        if not patient:
-            conn.close()
-            return jsonify({'error': 'Patient not found or not in your hospital'}), 404
-
-        patient = dict(patient)
-
-        # Send initial message if provided
-        message_id = None
-        if initial_message:
-            c.execute("""
-                INSERT INTO messages 
-                (patient_id, hospital_user_id, sender_type, message, is_read)
-                VALUES (?, ?, 'hospital', ?, 0)
-            """, (patient_id, hospital_user_id, initial_message))
-
-            message_id = c.lastrowid
-            conn.commit()
-
-            # Create notification for patient
-            create_notification(
-                user_id=patient_id,
-                user_type='patient',
-                notification_type='new_message',
-                title='📨 New Message from Doctor',
-                message=f'Your doctor has started a conversation with you',
-                hospital_id=hospital_id,
-                patient_id=patient_id,
-                priority='normal',
-                action_url=f'/chat?patient_id={patient_id}&hospital_user_id={hospital_user_id}'
-            )
-
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'message': 'Conversation started',
-            'patient': patient,
-            'message_id': message_id,
-            'chat_room': f'chat_{patient_id}_{hospital_user_id}'
-        })
-
-    except Exception as e:
-        logger.error(f"Error starting conversation: {e}")
-        return jsonify({'error': str(e)}), 500
 # ==============================================
 # NOTIFICATION API ENDPOINTS
 # ==============================================
@@ -1571,14 +1467,12 @@ def get_chat_messages():
 def check_scan_limit(args):
     pass
 
-
 @app.route("/hospital/predict", methods=["POST"])
 @hospital_required
 def predict_with_notifications():
-    """Predict with notifications"""
+    """Predict with notifications and Softmax normalization"""
     hospital_id = session["hospital_id"]
     user_id = session["user_id"]
-    usage_info = getattr(request, 'usage_info', None)
 
     try:
         if "image" not in request.files:
@@ -1588,13 +1482,19 @@ def predict_with_notifications():
         if not patient_id:
             return jsonify({"error": "Patient ID required"}), 400
 
+        # 1. Process Image
         image_bytes = request.files["image"].read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        tensor = transform(image).unsqueeze(0).to(device)
 
+        # Define the variable as 'img_tensor'
+        img_tensor = transform(image).unsqueeze(0).to(device)
+
+        # 2. Prediction with Softmax
         with torch.no_grad():
-            output = model(tensor)
-            probs = torch.exp(output)[0]
+            # Pass 'img_tensor' to the model
+            output = model(img_tensor)
+            # Normalizes output so the sum of all 4 classes is exactly 100%
+            probs = F.softmax(output, dim=1)[0]
             conf, pred = torch.max(probs, 0)
 
         pred_idx = int(pred.item())
@@ -1602,11 +1502,14 @@ def predict_with_notifications():
         prediction_label = class_names[pred_idx]
         is_tumor = prediction_label != "notumor"
 
+        # 3. Create probability dictionary for the Frontend
+        # This maps the classes ['glioma', 'meningioma', 'notumor', 'pituitary']
         probabilities = {
             class_names[i]: round(float(probs[i].item()) * 100, 2)
             for i in range(len(class_names))
         }
 
+        # 4. Save to Database
         conn = get_db()
         c = conn.cursor()
         c.execute("""
@@ -1618,91 +1521,39 @@ def predict_with_notifications():
         """, (
             hospital_id, patient_id, user_id,
             base64.b64encode(image_bytes).decode(),
-            prediction_label, conf_val, is_tumor, str(probabilities),
+            prediction_label, conf_val, is_tumor, json.dumps(probabilities),
             request.form.get("notes", ""),
             request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
         ))
         scan_id = c.lastrowid
 
-        # Get patient info for notification
-        c.execute("SELECT full_name, patient_code FROM patients WHERE id=?", (patient_id,))
-        patient = c.fetchone()
-
+        # Get patient info
+        c.execute("SELECT patient_code FROM patients WHERE id=?", (patient_id,))
+        patient_row = c.fetchone()
         conn.commit()
         conn.close()
 
-        # Increment usage
+        # 5. Notifications
         increment_usage(hospital_id, 'scans', 1)
-
-        # 🔔 CREATE NOTIFICATIONS
         confidence_percent = round(conf_val * 100, 2)
+        patient_code = patient_row["patient_code"] if patient_row else "Unknown"
 
-        # Determine notification type and priority
         if is_tumor:
-            if confidence_percent < 70:
-                notification_type = 'low_confidence'
-                title = '⚠️ Low Confidence Detection'
-                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}. Manual review recommended.'
-                priority = 'high'
-            else:
-                notification_type = 'prediction_complete'
-                title = '🔴 Tumor Detected'
-                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}.'
-                priority = 'high'
+            title, priority = '🔴 Tumor Detected', 'high'
+            message = f'{prediction_label.capitalize()} detected ({confidence_percent}%) for patient {patient_code}.'
         else:
-            notification_type = 'prediction_complete'
-            title = '✅ Scan Analysis Complete'
-            message = f'No tumor detected for patient {patient["patient_code"]} with {confidence_percent}% confidence.'
-            priority = 'normal'
+            title, priority = '✅ Scan Analysis Complete', 'normal'
+            message = f'No tumor detected ({confidence_percent}%) for patient {patient_code}.'
 
-        # Notify the user who uploaded
         create_notification(
-            user_id=user_id,
-            user_type='hospital',
-            notification_type='scan_result',
-            title=title,
-            message=message,
-            hospital_id=hospital_id,
-            scan_id=scan_id,
-            patient_id=patient_id,
-            priority=priority,
+            user_id=user_id, user_type='hospital', notification_type='scan_result',
+            title=title, message=message, hospital_id=hospital_id,
+            scan_id=scan_id, patient_id=patient_id, priority=priority,
             action_url=f'/scan/{scan_id}'
         )
 
-        # If tumor detected with high confidence, notify all hospital users
-        if is_tumor and confidence_percent >= 85:
-            notify_hospital_users(
-                hospital_id=hospital_id,
-                notification_type='urgent_alert',
-                title=f'🚨 Urgent: {prediction_label.capitalize()} Detected',
-                message=f'High confidence ({confidence_percent}%) tumor detection for patient {patient["patient_code"]}. Immediate attention required.',
-                priority='urgent',
-                exclude_user_id=user_id
-            )
-
-        # Notify patient if they have an account
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT id FROM patients WHERE id=? AND email IS NOT NULL", (patient_id,))
-        if c.fetchone():
-            create_notification(
-                user_id=patient_id,
-                user_type='patient',
-                notification_type='scan_result',
-                title='📋 Your MRI Scan Results',
-                message=f'Your brain MRI scan analysis is complete. {title}',
-                hospital_id=hospital_id,
-                scan_id=scan_id,
-                patient_id=patient_id,
-                priority='high',
-                action_url=f'/patient/scans/{scan_id}'
-            )
-        conn.close()
-
-        # Get updated usage
-        updated_usage = get_detailed_usage(hospital_id)
-
         log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
+
 
         return jsonify({
             "scan_id": scan_id,
@@ -1710,24 +1561,11 @@ def predict_with_notifications():
             "confidence": confidence_percent,
             "is_tumor": is_tumor,
             "probabilities": probabilities,
-            "usage": updated_usage,
             "notification_sent": True
         })
 
     except Exception as e:
         logger.error(f"Prediction error: {e}")
-
-        # Send error notification
-        create_notification(
-            user_id=user_id,
-            user_type='hospital',
-            notification_type='error',
-            title='❌ Prediction Failed',
-            message=f'Failed to analyze MRI scan: {str(e)}',
-            hospital_id=hospital_id,
-            priority='high'
-        )
-
         return jsonify({"error": str(e)}), 500
 
 
@@ -3023,6 +2861,33 @@ class CNN_TUMOR(nn.Module):
         return F.log_softmax(X, dim=1)
 
 
+class VGG19_BrainTumor(nn.Module):
+    """VGG19-based model for brain tumor classification"""
+
+    def __init__(self, num_classes=4, dropout_rate=0.5):
+        super(VGG19_BrainTumor, self).__init__()
+
+        # Load pretrained VGG19
+        self.vgg19 = models.vgg19(pretrained=False)
+
+        # Modify classifier to match the saved checkpoint architecture
+        num_features = self.vgg19.classifier[0].in_features  # 25088
+        self.vgg19.classifier = nn.Sequential(
+            nn.Linear(num_features, 4096),  # Layer 0
+            nn.ReLU(True),
+            nn.Dropout(dropout_rate),
+            nn.Linear(4096, 1024),  # Layer 3 (changed from 4096 to 1024)
+            nn.ReLU(True),
+            nn.Dropout(dropout_rate),
+            nn.Linear(1024, 256),  # Layer 6 (changed from 1000 to 256)
+            nn.ReLU(True),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, num_classes)  # Layer 9 (changed from 1000 to 4)
+        )
+
+    def forward(self, x):
+        return self.vgg19(x)
+# Define class names and transforms
 class_names = ["glioma", "meningioma", "notumor", "pituitary"]
 
 transform = transforms.Compose([
@@ -3030,39 +2895,42 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
-# ==============================================
-# VGG19 MODEL LOADING
-# ==============================================
 
-from model_vgg19 import BrainTumorVGG19
+# Load the model
+try:
+    logger.info("Loading model...")
+    checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
+    # Initialize VGG19-based model
+    model = VGG19_BrainTumor(num_classes=4)
 
-def load_vgg19_model():
-    """Load trained VGG19 model"""
-    try:
-        logger.info("Loading VGG19 model...")
-        model = BrainTumorVGG19(num_classes=4, freeze_features=False)
+    # Load the state dict from checkpoint
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info("Loaded from 'model_state_dict' key")
+        elif 'state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
+            logger.info("Loaded from 'state_dict' key")
+        else:
+            # Checkpoint is the state dict itself
+            model.load_state_dict(checkpoint)
+            logger.info("Loaded checkpoint directly as state_dict")
+    else:
+        # It's already a model object
+        model = checkpoint
+        logger.info("Checkpoint was a model object")
 
-        checkpoint = torch.load(
-            'models/vgg19_brain_tumor_best.pth',
-            map_location=device,
-            weights_only=False
-        )
+    model.to(device)
+    model.eval()
+    logger.info("✅ Model loaded successfully and moved to device")
 
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.eval()
-        model = model.to(device)
+except Exception as e:
+    logger.error(f"❌ Error loading model: {e}")
+    import traceback
 
-        logger.info("✓ VGG19 model loaded successfully!")
-        return model
-
-    except Exception as e:
-        logger.error(f"Error loading VGG19 model: {e}")
-        raise
-
-
-# Load model at startup
-model = load_vgg19_model()
+    traceback.print_exc()
+    raise
 
 
 # ==============================================
@@ -3840,7 +3708,7 @@ def predict():
 
         with torch.no_grad():
             output = model(tensor)
-            probs = torch.exp(output)[0]
+            probs = F.softmax(output, dim=1)[0]
             conf, pred = torch.max(probs, 0)
 
         pred_idx = int(pred.item())
@@ -4721,6 +4589,54 @@ def handle_mark_read(data):
     except Exception as e:
         logger.error(f"Error marking messages as read: {e}")
 
+        @app.route('/analyze', methods=['POST'])
+        @hospital_required  # This ensures only logged-in hospitals can use it
+        def analyze_scan():
+            try:
+                if 'image' not in request.files:
+                    return jsonify({"error": "No image uploaded"}), 400
+
+                file = request.files['image']
+                patient_id = request.form.get('patient_id')
+
+                # 1. Load and Transform Image
+                img = Image.open(io.BytesIO(file.read())).convert('RGB')
+                transform = transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ])
+                img_tensor = transform(img).unsqueeze(0)
+
+                # 2. Prediction with Softmax
+                with torch.no_grad():
+                    output = model(img_tensor)
+                    # Softmax forces the 4 outputs to sum to exactly 1.0 (100%)
+                    probabilities = F.softmax(output, dim=1)[0]
+
+                classes = ['glioma', 'meningioma', 'notumor', 'pituitary']
+
+                # 3. Create probability dictionary
+                prob_results = {}
+                for i, class_name in enumerate(classes):
+                    # Convert to percentage and round
+                    prob_results[class_name] = round(float(probabilities[i]) * 100, 2)
+
+                # 4. Get highest confidence result
+                pred_idx = torch.argmax(probabilities).item()
+                prediction = classes[pred_idx]
+                confidence = prob_results[prediction]
+
+                return jsonify({
+                    "status": "success",
+                    "prediction": prediction,
+                    "confidence": confidence,
+                    "probabilities": prob_results
+                })
+
+            except Exception as e:
+                logging.error(f"Analysis error: {str(e)}")
+                return jsonify({"error": "Internal server error during analysis"}), 500
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================

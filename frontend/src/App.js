@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import UniversalLogin from './UniversalLogin';
 import AdminPortal from './AdminPortal';
 import HospitalPortal from './HospitalPortal';
@@ -6,13 +6,17 @@ import PatientPortal from './PatientPortal';
 import PricingPage from './PricingPage';
 import SubscriptionSuccess from './SubscriptionSuccess';
 import SubscriptionCancelled from './SubscriptionCancelled';
+import ConnectionErrorHandler from './ConnectionErrorHandler';
+import { useState, useEffect } from 'react';
+
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState('main'); // 'main', 'pricing', 'success', 'cancelled'
+  const [currentView, setCurrentView] = useState('main');
+  const [connectionError, setConnectionError] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -20,13 +24,29 @@ export default function App() {
 
   async function checkAuth() {
     try {
-      const res = await fetch(`${API_BASE}/me`, { credentials: 'include' });
+      // Test connection with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const res = await fetch(`${API_BASE}/me`, { 
+        credentials: 'include',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        setConnectionError(false);
+      } else {
+        setConnectionError(false); // Server responded but user not authenticated
       }
     } catch (err) {
       console.error('Auth check failed:', err);
+      if (err.name === 'AbortError' || err.message.includes('fetch')) {
+        setConnectionError(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -98,44 +118,59 @@ export default function App() {
     );
   }
 
-  // Show success page
-  if (currentView === 'success') {
-    return <SubscriptionSuccess onNavigateHome={handleNavigateToMain} />;
-  }
+  // Wrap entire app with connection error handler
+  return (
+    <ConnectionErrorHandler>
+      {/* Show success page */}
+      {currentView === 'success' && (
+        <SubscriptionSuccess onNavigateHome={handleNavigateToMain} />
+      )}
 
-  // Show cancelled page
-  if (currentView === 'cancelled') {
-    return <SubscriptionCancelled onNavigateHome={handleNavigateToMain} />;
-  }
+      {/* Show cancelled page */}
+      {currentView === 'cancelled' && (
+        <SubscriptionCancelled onNavigateHome={handleNavigateToMain} />
+      )}
 
-  // Show pricing page
-  if (currentView === 'pricing') {
-    return (
-      <PricingPage 
-        currentPlan={user?.subscription}
-        onBack={handleNavigateToMain}
-      />
-    );
-  }
+      {/* Show pricing page */}
+      {currentView === 'pricing' && (
+        <PricingPage 
+          currentPlan={user?.subscription}
+          onBack={handleNavigateToMain}
+        />
+      )}
 
-  // Not authenticated - show login
-  if (!user) {
-    return <UniversalLogin onLogin={handleLogin} />;
-  }
+      {/* Not authenticated - show login */}
+      {!user && currentView === 'main' && (
+        <UniversalLogin onLogin={handleLogin} />
+      )}
 
-  // Route based on user type
-  if (user.type === 'admin') {
-    return <AdminPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
-  }
+      {/* Route based on user type */}
+      {user && currentView === 'main' && (
+        <>
+          {user.type === 'admin' && (
+            <AdminPortal 
+              user={user} 
+              onLogout={handleLogout} 
+              onNavigateToPricing={handleNavigateToPricing} 
+            />
+          )}
 
-  if (user.type === 'hospital') {
-    return <HospitalPortal user={user} onLogout={handleLogout} onNavigateToPricing={handleNavigateToPricing} />;
-  }
+          {user.type === 'hospital' && (
+            <HospitalPortal 
+              user={user} 
+              onLogout={handleLogout} 
+              onNavigateToPricing={handleNavigateToPricing} 
+            />
+          )}
 
-  if (user.type === 'patient') {
-    return <PatientPortal patient={user} onLogout={handleLogout} />;
-  }
-
-  // Fallback
-  return <UniversalLogin onLogin={handleLogin} />;
+          {user.type === 'patient' && (
+            <PatientPortal 
+              patient={user} 
+              onLogout={handleLogout} 
+            />
+          )}
+        </>
+      )}
+    </ConnectionErrorHandler>
+  );
 }

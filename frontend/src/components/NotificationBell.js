@@ -392,7 +392,7 @@ const NotificationBell = () => {
         </div>
 )}
 
-<style jsx>{`
+<style>{`
         @keyframes slide-up {
           from {
             transform: translateY(100%);
