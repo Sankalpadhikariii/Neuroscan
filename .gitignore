@@ -1,4 +1,82 @@
+<<<<<<< HEAD
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyTorch Model Files - CRITICAL!
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.h5
+*.weights
+models/
+checkpoints/
+saved_models/
+
+# Training outputs
+*.png
+*.jpg
+*.jpeg
+training_curves/
+logs/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node modules (for frontend)
+node_modules/
+
+# Upload folders (contains user data)
+uploads/
+backend/uploads/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+=======
 .idea/
 *.db
 *_old.py
 *_backup.*
+>>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
