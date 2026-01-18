@@ -8,6 +8,8 @@ import random
 import string
 from typing import Optional, List, Dict
 from pathlib import Path
+
+from aext_shared import user_id
 from werkzeug.utils import secure_filename
 import mimetypes
 from datetime import datetime, timedelta
@@ -17,16 +19,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
+import numpy as np
 from PIL import Image
-<<<<<<< HEAD
 import torchvision.models as models
 from functools import wraps
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-=======
+import cv2
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+import json
+from datetime import datetime
 from functools import wraps
 
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 from flask import Flask, request, jsonify, session, send_file
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -46,11 +49,9 @@ UPLOAD_FOLDER = 'uploads/profile_pictures'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
-<<<<<<< HEAD
+
 MODEL_PATH = r"C:\Users\Acer\OneDrive\Desktop\final year project\backend\models\vgg19_final_20260110_154609.pth"
-=======
-MODEL_PATH = "Brain_Tumor_model.pt"
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
 MAX_CHAT_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -73,7 +74,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 # Flask App Setup
 # -----------------------------
 app = Flask(__name__)
-<<<<<<< HEAD
+
 CORS(app, resources={
     r"/*": {
         "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -82,29 +83,27 @@ CORS(app, resources={
         "supports_credentials": True
     }
 })
-=======
+
 CORS(app,
-    resources={
-        r"/*": {
-            "origins": ["http://localhost:3000", "http://localhost:3001", "http://192.168.1.70:3000"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True,
-            "expose_headers": ["Content-Type"]
-        }
-    }
-)
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+     resources={
+         r"/*": {
+             "origins": ["http://localhost:3000", "http://localhost:3001", "http://192.168.1.70:3000"],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True,
+             "expose_headers": ["Content-Type"]
+         }
+     }
+     )
+
 app.secret_key = SECRET_KEY
 
 # SocketIO with permissive CORS for development
 socketio = SocketIO(
     app,
-<<<<<<< HEAD
+
     cors_allowed_origins="http://localhost:3000",
-=======
-    cors_allowed_origins="*",
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+
     logger=False,
     engineio_logger=False
 )
@@ -116,63 +115,18 @@ limiter = Limiter(
     default_limits=["50 per minute"]
 )
 
-
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-# 1. Initialize the Architecture to match your CUSTOM training
-device = torch.device('cpu')
-model = models.vgg19(weights=None)
+# Model loading moved to lines 3009-3079 where VGG19_BrainTumor class is properly defined
+# This early loading is not needed and causes conflicts
 
-# Your error log shows a customized classifier structure:
-# classifier.0: 4096 (standard)
-# classifier.3: 1024 (mismatch fix)
-# classifier.6: 256  (mismatch fix)
-# classifier.9: 4    (the final output)
-model.classifier = nn.Sequential(
-    nn.Linear(512 * 7 * 7, 4096),
-    nn.ReLU(True),
-    nn.Dropout(),
-    nn.Linear(4096, 1024),  # Changed from 4096 to 1024
-    nn.ReLU(True),
-    nn.Dropout(),
-    nn.Linear(1024, 256),   # Changed from 4096 to 256
-    nn.ReLU(True),
-    nn.Dropout(),
-    nn.Linear(256, 4)       # The final 4 classes
-)
-
-# 2. Load the Checkpoint
-checkpoint = torch.load(MODEL_PATH, map_location=device)
-state_dict = checkpoint.get('model_state_dict', checkpoint)
-
-# 3. Clean the prefixes
-from collections import OrderedDict
-new_state_dict = OrderedDict()
-for k, v in state_dict.items():
-    name = k.replace("vgg19.", "")
-    new_state_dict[name] = v
-
-# 4. Load weights
-try:
-    model.load_state_dict(new_state_dict)
-    print("✅ SUCCESS: Custom VGG19 weights loaded perfectly!")
-except RuntimeError as e:
-    print(f"❌ Load failed: {e}")
-
-model.to(device)
-model.eval()
-print("✅ Model weights loaded successfully from checkpoint!")
-=======
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 
 
-
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 # ==============================================
 # DATABASE & UTILITIES
 # ==============================================
@@ -181,6 +135,11 @@ def get_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_db_connection():
+    # Alias for get_db() - for compatibility
+    return get_db()
 
 
 def allowed_file(filename):
@@ -205,9 +164,104 @@ def log_activity(user_type, user_id, action, details=None, hospital_id=None):
         logger.error(f"Failed to log activity: {e}")
 
 
-# ==============================================
-# AUTHENTICATION DECORATORS
-# ==============================================
+def validate_brain_scan(img, prob_results=None):
+    """
+    Enhanced validation to check if uploaded image is a brain MRI scan.
+    Checks image characteristics before running model.
+    """
+    try:
+        # Convert PIL Image to numpy array
+        img_array = np.array(img)
+
+        # CHECK 1: Color check - reject color photos
+        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+            r = img_array[:, :, 0].astype(float)
+            g = img_array[:, :, 1].astype(float)
+            b = img_array[:, :, 2].astype(float)
+
+            color_diff = (np.abs(r - g).mean() + np.abs(r - b).mean() + np.abs(g - b).mean()) / 3
+
+            if color_diff > 20:
+                return False, "Invalid image: This appears to be a color photo, not a grayscale MRI scan.", None
+
+        # CHECK 2: Size check
+        height, width = img_array.shape[:2]
+        if width < 100 or height < 100:
+            return False, f"Image too small: {width}x{height}. Must be at least 100x100 pixels.", None
+
+        # CHECK 3: Aspect ratio
+        aspect_ratio = width / height if height > 0 else 0
+        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+            return False, f"Invalid aspect ratio: {aspect_ratio:.2f}. Brain scans are typically square.", None
+
+        # CHECK 4: Convert to grayscale for analysis
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+
+        # CHECK 5: Brightness check
+        mean_intensity = gray.mean()
+        if mean_intensity < 10 or mean_intensity > 245:
+            return False, "Invalid brightness: Image is too dark or too bright to be an MRI scan.", None
+
+        # CHECK 6: Contrast check
+        std_intensity = gray.std()
+        if std_intensity < 15:
+            return False, "Insufficient contrast: MRI scans have distinct tissue contrasts.", None
+
+        # CHECK 7: Edge detection - detect screenshots/UI
+        edges = cv2.Canny(gray, 50, 150)
+        edge_density = (edges > 0).sum() / edges.size
+
+        if edge_density < 0.02:
+            return False, "Invalid structure: Image is too simple to be a medical scan.", None
+
+        if edge_density > 0.40:
+            return False, "Screenshot detected: This appears to be a UI/screenshot, not a medical scan.", None
+
+        # CHECK 8: Detect UI elements (sharp lines)
+        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+
+        strong_horizontal = (np.abs(sobel_y) > 100).sum() / gray.size
+        strong_vertical = (np.abs(sobel_x) > 100).sum() / gray.size
+
+        if strong_horizontal > 0.15 or strong_vertical > 0.15:
+            return False, "Screenshot detected: Sharp UI elements found. Please upload an MRI scan.", None
+
+        # CHECK 9: Circular structure detection (brain outline)
+        circles = cv2.HoughCircles(
+            gray, cv2.HOUGH_GRADIENT, dp=1, minDist=50,
+            param1=50, param2=30,
+            minRadius=30, maxRadius=min(width, height) // 2
+        )
+
+        if circles is None or len(circles[0]) == 0:
+            return False, "No brain structure detected: No circular/oval brain outline found.", None
+
+        # CHECK 10: Probability check (if provided)
+        if prob_results:
+            max_prob = max(prob_results.values())
+            if max_prob < 50.0:
+                return False, "Low confidence: AI model is uncertain. Image may not be a valid MRI scan.", None
+            if max_prob < 70.0:
+                return True, None, "Warning: Moderate confidence. Please verify image quality."
+
+        # All checks passed
+        warnings = []
+        if aspect_ratio < 0.75 or aspect_ratio > 1.35:
+            warnings.append(f"Unusual aspect ratio: {aspect_ratio:.2f}")
+        if width < 200 or height < 200:
+            warnings.append("Low resolution image")
+
+        warning_text = ". ".join(warnings) if warnings else None
+        return True, None, warning_text
+
+    except Exception as e:
+        logger.error(f"Validation error: {e}")
+        return True, None, f"Validation warning: {str(e)}"
+
 
 def login_required(f):
     @wraps(f)
@@ -375,6 +429,8 @@ def handle_connect(auth=None):  # ← Add auth=None parameter
         'user_type': user_type,
         'status': 'online'
     }, room=room_name)  # <- REMOVE broadcast=True
+
+
 @socketio.on('disconnect')
 def handle_disconnect():
     for key, sid in list(connected_users.items()):
@@ -383,12 +439,14 @@ def handle_disconnect():
             print(f"User disconnected: {key}")
             break
 
+
 @socketio.on('join_chat')
 def on_join(data):
     patient_id = data['patient_id']
     room = f"chat_{patient_id}"
     join_room(room)
     print(f"Joined room {room}")
+
 
 @socketio.on('send_message')
 def handle_send_message(data):
@@ -515,7 +573,6 @@ def handle_connect():
     }
 
     print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
-
 
     emit('connected', {'status': 'connected', 'user_type': user_type, 'user_id': user_id})
 
@@ -719,6 +776,557 @@ def mark_messages_read(patient_id, hospital_user_id, reader_type):
 
     conn.commit()
     conn.close()
+
+
+# ==============================================
+# NOTIFICATION ROUTES
+# ==============================================
+
+@app.route('/notifications', methods=['GET'])
+def get_notifications_api():
+    """Get all notifications for the current user"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, user_id, type, message, scan_id, is_read, created_at
+            FROM notifications
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+        ''', (user_id,))
+
+        notifications = []
+        for row in cursor.fetchall():
+            notifications.append({
+                'id': row[0],
+                'user_id': row[1],
+                'type': row[2],
+                'message': row[3],
+                'scan_id': row[4],
+                'read': bool(row[5]),
+                'created_at': row[6]
+            })
+
+        conn.close()
+        return jsonify({'notifications': notifications})
+
+    except Exception as e:
+        logging.error(f"Error fetching notifications: {e}")
+        return jsonify({'error': 'Failed to fetch notifications'}), 500
+
+
+@app.route('/notifications/<int:notification_id>/mark-read', methods=['POST'])
+def mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE notifications 
+            SET is_read = 1
+            WHERE id = ? AND user_id = ?
+        ''', (notification_id, user_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logging.error(f"Error marking notification as read: {e}")
+        return jsonify({'error': 'Failed to update notification'}), 500
+
+
+def create_notification_full(user_id, notif_type, message, scan_id=None, user_type='patient'):
+    """Helper function to create a notification"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Insert into the full notifications table with all required fields
+        cursor.execute('''
+            INSERT INTO notifications (
+                user_id, user_type, hospital_id, type, title, message, 
+                scan_id, is_read, priority, created_at
+            )
+            VALUES (?, ?, NULL, ?, ?, ?, ?, 0, 'normal', CURRENT_TIMESTAMP)
+        ''', (user_id, user_type, notif_type, 'Scan Analysis', message, scan_id))
+
+        notification_id = cursor.lastrowid
+        conn.commit()
+
+        # Get the created notification
+        cursor.execute('''
+            SELECT id, user_id, user_type, type, message, scan_id, is_read, created_at
+            FROM notifications
+            WHERE id = ?
+        ''', (notification_id,))
+
+        row = cursor.fetchone()
+        notification = {
+            'id': row[0],
+            'user_id': row[1],
+            'user_type': row[2],
+            'type': row[3],
+            'message': row[4],
+            'scan_id': row[5],
+            'read': bool(row[6]),
+            'created_at': row[7]
+        }
+
+        conn.close()
+
+        # Emit socket event to the specific user
+        socketio.emit('new_notification', notification, room=f'{user_type}_{user_id}')
+
+        return notification
+
+    except Exception as e:
+        logging.error(f"Error creating notification: {e}")
+        return None
+
+
+# ==============================================
+# CHAT/MESSAGING ROUTES
+# ==============================================
+
+@app.route('/messages/<int:patient_id>', methods=['GET'])
+def get_messages(patient_id):
+    """Get all messages between hospital and patient"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    hospital_user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, patient_id, hospital_user_id, sender_type, message, created_at, is_read
+            FROM messages
+            WHERE patient_id = ? AND hospital_user_id = ?
+            ORDER BY created_at ASC
+        ''', (patient_id, hospital_user_id))
+
+        messages = []
+        for row in cursor.fetchall():
+            messages.append({
+                'id': row[0],
+                'patient_id': row[1],
+                'hospital_user_id': row[2],
+                'sender_type': row[3],
+                'sender_id': row[1] if row[3] == 'patient' else row[2],  # For compatibility
+                'recipient_id': row[2] if row[3] == 'patient' else row[1],  # For compatibility
+                'message': row[4],
+                'attachment_url': None,
+                'created_at': row[5],
+                'read': bool(row[6])
+            })
+
+        # Mark messages from patient as read
+        cursor.execute('''
+            UPDATE messages 
+            SET is_read = 1
+            WHERE patient_id = ? AND hospital_user_id = ? AND sender_type = 'patient'
+        ''', (patient_id, hospital_user_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'messages': messages})
+
+    except Exception as e:
+        logging.error(f"Error fetching messages: {e}")
+        return jsonify({'error': 'Failed to fetch messages'}), 500
+
+
+@app.route('/send-message', methods=['POST'])
+def send_message():
+    """Send a message to a patient"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    hospital_user_id = session['user_id']
+    patient_id = request.form.get('recipient_id')  # Still accepting recipient_id for compatibility
+    message_text = request.form.get('message')
+    attachment = request.files.get('attachment')
+
+    if not patient_id or not message_text:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    attachment_url = None
+
+    # Handle file attachment
+    if attachment and attachment.filename:
+        filename = secure_filename(attachment.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(CHAT_UPLOAD_FOLDER, filename)
+
+        attachment.save(filepath)
+        attachment_url = f'/uploads/chat_attachments/{filename}'
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO messages (patient_id, hospital_user_id, sender_type, message, created_at, is_read)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 0)
+        ''', (patient_id, hospital_user_id, 'hospital', message_text))
+
+        message_id = cursor.lastrowid
+        conn.commit()
+
+        # Get the created message
+        cursor.execute('''
+            SELECT id, patient_id, hospital_user_id, sender_type, message, created_at, is_read
+            FROM messages
+            WHERE id = ?
+        ''', (message_id,))
+
+        row = cursor.fetchone()
+        new_message = {
+            'id': row[0],
+            'patient_id': row[1],
+            'hospital_user_id': row[2],
+            'sender_type': row[3],
+            'sender_id': row[2],  # hospital_user_id for compatibility
+            'recipient_id': row[1],  # patient_id for compatibility
+            'message': row[4],
+            'attachment_url': attachment_url,
+            'created_at': row[5],
+            'read': bool(row[6])
+        }
+
+        conn.close()
+
+        # Emit socket event
+        socketio.emit('receive_message', new_message,
+                      room=f'patient_{patient_id}')
+        socketio.emit('receive_message', new_message,
+                      room=f'hospital_{hospital_user_id}')
+
+        return jsonify({'success': True, 'message': new_message})
+
+    except Exception as e:
+        logging.error(f"Error sending message: {e}")
+        return jsonify({'error': 'Failed to send message'}), 500
+
+
+# ==============================================
+# GRAD-CAM ROUTES
+# ==============================================
+
+@app.route('/gradcam/<int:scan_id>', methods=['GET'])
+def get_gradcam(scan_id):
+    """Get Grad-CAM visualization for a scan"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get scan info
+        cursor.execute('''
+            SELECT gradcam_path, image_path 
+            FROM scans 
+            WHERE id = ?
+        ''', (scan_id,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({'error': 'Scan not found'}), 404
+
+        gradcam_path = row[0]
+
+        if gradcam_path and os.path.exists(gradcam_path):
+            return send_file(gradcam_path, mimetype='image/jpeg')
+        else:
+            return jsonify({'error': 'Grad-CAM not available'}), 404
+
+    except Exception as e:
+        logging.error(f"Error fetching Grad-CAM: {e}")
+        return jsonify({'error': 'Failed to fetch Grad-CAM'}), 500
+
+
+# ==============================================
+# PATIENT SCAN HISTORY ROUTES
+# ==============================================
+
+@app.route('/hospital/patient-scans/<int:patient_id>', methods=['GET'])
+def get_patient_scans(patient_id):
+    """Get all scans for a specific patient"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, patient_id, prediction, confidence, is_tumor, 
+                   probabilities, created_at, notes
+            FROM scans
+            WHERE patient_id = ?
+            ORDER BY created_at DESC
+        ''', (patient_id,))
+
+        scans = []
+        for row in cursor.fetchall():
+            probabilities = json.loads(row[5]) if row[5] else {}
+            scans.append({
+                'id': row[0],
+                'patient_id': row[1],
+                'prediction': row[2],
+                'confidence': row[3],
+                'is_tumor': bool(row[4]),
+                'probabilities': probabilities,
+                'created_at': row[6],
+                'notes': row[7]
+            })
+
+        conn.close()
+        return jsonify({'scans': scans})
+
+    except Exception as e:
+        logging.error(f"Error fetching patient scans: {e}")
+        return jsonify({'error': 'Failed to fetch scans'}), 500
+
+
+# ==============================================
+# SOCKET.IO EVENT HANDLERS
+# ==============================================
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    """Join a socket.io room for real-time communication"""
+    room = data.get('room')
+    if room:
+        join_room(room)
+        emit('joined', {'room': room}, room=room)
+
+
+@socketio.on('leave_room')
+def handle_leave_room(data):
+    """Leave a socket.io room"""
+    room = data.get('room')
+    if room:
+        leave_room(room)
+        emit('left', {'room': room}, room=room)
+
+
+@socketio.on('send_message')
+def handle_socket_message(data):
+    """Handle real-time message sending"""
+    room = data.get('room')
+    message = data.get('message')
+
+    if room and message:
+        emit('receive_message', message, room=room)
+
+
+@socketio.on('send_notification')
+def handle_socket_notification(data):
+    """Handle real-time notifications"""
+    recipient_id = data.get('recipient_id')
+    notification = data.get('notification')
+
+    if recipient_id and notification:
+        emit('new_notification', notification, room=f'user_{recipient_id}')
+
+
+# ==============================================
+# DATABASE SCHEMA UPDATES
+# ==============================================
+
+def update_database_schema():
+    """
+    Add new tables for enhanced features
+    Call this function once to update your database
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Notifications table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            scan_id INTEGER,
+            read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (scan_id) REFERENCES scans(id)
+        )
+    ''')
+
+    # Messages table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            recipient_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            attachment_url TEXT,
+            read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sender_id) REFERENCES users(id),
+            FOREIGN KEY (recipient_id) REFERENCES users(id)
+        )
+    ''')
+
+    # Add gradcam_path column to scans table if it doesn't exist
+    cursor.execute("PRAGMA table_info(scans)")
+    columns = [column[1] for column in cursor.fetchall()]
+
+    if 'gradcam_path' not in columns:
+        cursor.execute('''
+            ALTER TABLE scans
+            ADD COLUMN gradcam_path TEXT
+        ''')
+
+    if 'notes' not in columns:
+        cursor.execute('''
+            ALTER TABLE scans
+            ADD COLUMN notes TEXT
+        ''')
+
+    conn.commit()
+    conn.close()
+
+    print("Database schema updated successfully!")
+
+
+# Modified predict route to include Grad-CAM generation
+@app.route('/hospital/predict', methods=['POST'])
+def hospital_predict_enhanced(hospital_id=None):
+    """Enhanced prediction with Grad-CAM support"""
+    if 'user_id' not in session or session.get('user_type') != 'hospital':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided'}), 400
+
+    file = request.files['image']
+    patient_id = request.form.get('patient_id')
+    generate_gradcam = request.form.get('generate_gradcam', 'false').lower() == 'true'
+
+    if not patient_id:
+        return jsonify({'error': 'Patient ID required'}), 400
+
+    try:
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+
+        # Load and preprocess image
+        image = Image.open(filepath).convert('RGB')
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+
+        input_tensor = transform(image).unsqueeze(0).to(device)
+
+        # Make prediction
+        with torch.no_grad():
+            output = model(input_tensor)
+            probabilities = F.softmax(output, dim=1)[0]
+            predicted_idx = torch.argmax(probabilities).item()
+
+        class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
+        prediction = class_names[predicted_idx]
+        confidence = probabilities[predicted_idx].item() * 100
+        is_tumor = prediction != 'notumor'
+
+        probs_dict = {
+            'glioma': probabilities[0].item() * 100,
+            'meningioma': probabilities[1].item() * 100,
+            'notumor': probabilities[2].item() * 100,
+            'pituitary': probabilities[3].item() * 100
+        }
+
+        # Generate Grad-CAM if requested
+        gradcam_path = None
+        if generate_gradcam:
+            try:
+                from gradcam_utils import generate_gradcam_from_tensor
+                gradcam_img, _ = generate_gradcam_from_tensor(
+                    model, input_tensor, image, target_class=predicted_idx
+                )
+
+                gradcam_filename = f"gradcam_{timestamp}_{filename}"
+                gradcam_path = os.path.join(UPLOAD_FOLDER, gradcam_filename)
+                Image.fromarray(gradcam_img).save(gradcam_path)
+            except Exception as e:
+                logging.error(f"Grad-CAM generation failed: {e}")
+
+        # Get hospital user_id from session
+        hospital_user_id = session.get('user_id')
+
+        # Save to database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+    INSERT INTO scans (
+        patient_id, prediction, confidence, is_tumor, 
+        probabilities, image_path, gradcam_path, uploaded_by, hospital_id, scan_date, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+''', (
+            patient_id, prediction, confidence, is_tumor,
+            json.dumps(probs_dict), filepath, gradcam_path, hospital_user_id, 1
+        ))
+
+        scan_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Create notification using the simpler function
+        create_notification_full(
+            patient_id,
+            'alert' if is_tumor else 'success',
+            f'New scan analysis completed: {prediction} ({confidence:.1f}% confidence)',
+            scan_id
+        )
+
+        return jsonify({
+            'prediction': prediction,
+            'confidence': confidence,
+            'is_tumor': is_tumor,
+            'probabilities': probs_dict,
+            'scan_id': scan_id,
+            'gradcam_available': gradcam_path is not None
+        })
+
+    except Exception as e:
+        logging.error(f"Prediction error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 # ==============================================
@@ -1065,6 +1673,8 @@ def get_user_conversations():
     except Exception as e:
         logger.error(f"Error loading conversations: {e}")
         return jsonify({'error': str(e)}), 500
+
+
 # ==============================================
 # NOTIFICATION HELPER FUNCTIONS
 # ==============================================
@@ -1237,98 +1847,88 @@ def notify_hospital_users(hospital_id: int, notification_type: str, title: str, 
 # ==============================================
 # NOTIFICATION API ENDPOINTS
 # ==============================================
+# @app.route('/api/notifications', methods=['GET'])
+# @login_required
+# def get_notifications_api():
+# """Get notifications for current user"""
+# try:
+# user_id = session.get('user_id') or session.get('patient_id')
+# user_type = session.get('user_type') or 'patient'
 
-@app.route('/api/notifications', methods=['GET'])
-@login_required
-def get_notifications():
-    """Get notifications for current user"""
-    try:
-        user_id = session.get('user_id') or session.get('patient_id')
-        user_type = session.get('user_type') or 'patient'
+# Get query parameters
+# limit = request.args.get('limit', 50, type=int)
+# offset = request.args.get('offset', 0, type=int)
+# unread_only = request.args.get('unread_only', 'false').lower() == 'true'
 
-        # Get query parameters
-        limit = request.args.get('limit', 50, type=int)
-        offset = request.args.get('offset', 0, type=int)
-        unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+# conn = get_db()
+# c = conn.cursor()
 
-        conn = get_db()
-        c = conn.cursor()
+# Build query
+# query = """
+#   SELECT * FROM notifications
+#  WHERE user_id=? AND user_type=?
+# """
+# params = [user_id, user_type]
 
-        # Build query
-        query = """
-            SELECT * FROM notifications
-            WHERE user_id=? AND user_type=?
-        """
-        params = [user_id, user_type]
+# if unread_only:
+#   query += " AND is_read=0"
 
-        if unread_only:
-            query += " AND is_read=0"
+# query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+# params.extend([limit, offset])
 
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
+# c.execute(query, params)
+# notifications = [dict(row) for row in c.fetchall()]
 
-        c.execute(query, params)
-        notifications = [dict(row) for row in c.fetchall()]
+# Get unread count
+# c.execute("""
+##  SELECT COUNT(*) as count FROM notifications
+##WHERE user_id=? AND user_type=? AND is_read=0
+##""", (user_id, user_type))
 
-        # Get unread count
-        c.execute("""
-            SELECT COUNT(*) as count FROM notifications
-            WHERE user_id=? AND user_type=? AND is_read=0
-        """, (user_id, user_type))
+##unread_count = c.fetchone()['count']
 
-        unread_count = c.fetchone()['count']
+## conn.close()
 
-        conn.close()
+## return jsonify({
+##'notifications': notifications,
+##'unread_count': unread_count,
+##'total': len(notifications)
+## })
 
-        return jsonify({
-            'notifications': notifications,
-            'unread_count': unread_count,
-            'total': len(notifications)
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Error getting notifications: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/notifications/<int:notification_id>/read', methods=['PUT'])
-@login_required
-def mark_notification_read(notification_id):
-    """Mark a notification as read"""
-    try:
-        user_id = session.get('user_id') or session.get('patient_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Verify ownership
-        c.execute("""
-            SELECT id FROM notifications
-            WHERE id=? AND user_id=?
-        """, (notification_id, user_id))
-
-        if not c.fetchone():
-            conn.close()
-            return jsonify({'error': 'Notification not found'}), 404
-
-        # Mark as read
-        c.execute("""
-            UPDATE notifications
-            SET is_read=1, read_at=CURRENT_TIMESTAMP
-            WHERE id=?
-        """, (notification_id,))
-
-        conn.commit()
-        conn.close()
-
-        return jsonify({'message': 'Notification marked as read'})
-
-    except Exception as e:
-        logger.error(f"❌ Error marking notification read: {e}")
-        return jsonify({'error': str(e)}), 500
+##except Exception as e:
+## logger.error(f"❌ Error getting notifications: {e}")
+##return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/notifications/read-all', methods=['PUT'])
+# DUPLICATE - @app.route('/api/notifications/<int:notification_id>/read', methods=['PUT'])
+# DUPLICATE - @login_required
+# DUPLICATE - def mark_notification_read(notification_id):
+# DUPLICATE - """Mark a notification as read"""
+# DUPLICATE - try:
+# DUPLICATE - user_id = session.get('user_id') or session.get('patient_id')
+# DUPLICATE -         # DUPLICATE - conn = get_db()
+# DUPLICATE - c = conn.cursor()
+# DUPLICATE -         # Verify ownership
+# DUPLICATE - c.execute("""
+# DUPLICATE - SELECT id FROM notifications
+# DUPLICATE - WHERE id=? AND user_id=?
+# DUPLICATE - """, (notification_id, user_id))
+# DUPLICATE -         # DUPLICATE - if not c.fetchone():
+# DUPLICATE - conn.close()
+# DUPLICATE - return jsonify({'error': 'Notification not found'}), 404
+# DUPLICATE -         # Mark as read
+# DUPLICATE - c.execute("""
+# DUPLICATE - UPDATE notifications
+# DUPLICATE - SET is_read=1, read_at=CURRENT_TIMESTAMP
+# DUPLICATE - WHERE id=?
+# DUPLICATE - """, (notification_id,))
+# DUPLICATE -         # DUPLICATE - conn.commit()
+# DUPLICATE - conn.close()
+# DUPLICATE -         # DUPLICATE - return jsonify({'message': 'Notification marked as read'})
+# DUPLICATE -     # DUPLICATE - except Exception as e:
+# DUPLICATE - logger.error(f"❌ Error marking notification read: {e}")
+# DUPLICATE - return jsonify({'error': str(e)}), 500
+# DUPLICATE -  # DUPLICATE - @app.route('/api/notifications/read-all', methods=['PUT'])
 @login_required
 def mark_all_notifications_read():
     """Mark all notifications as read for current user"""
@@ -1494,6 +2094,7 @@ def get_chat_messages():
         logger.error(f"Error getting messages: {e}")
         return jsonify({'error': str(e)}), 500
 
+
 # ==============================================
 # INTEGRATE WITH EXISTING ROUTES
 # ==============================================
@@ -1504,25 +2105,38 @@ def get_chat_messages():
 def check_scan_limit(args):
     pass
 
-<<<<<<< HEAD
-@app.route("/hospital/predict", methods=["POST"])
-@hospital_required
-def predict_with_notifications():
-    """Predict with notifications and Softmax normalization"""
-    hospital_id = session["hospital_id"]
-    user_id = session["user_id"]
-=======
+
+# ============================================
+# FIND YOUR /hospital/predict ROUTE (around line 1390)
+# REPLACE THE ENTIRE FUNCTION with this:
+# ============================================
+
+# Replace your /hospital/predict endpoint in app.py with this fixed version
+# ==============================================
+# REPLACE YOUR EXISTING /hospital/predict ROUTE WITH THIS
+# Search for "@app.route("/hospital/predict", methods=["POST"])"
+# and replace the entire function with this fixed version
+# ==============================================
 
 @app.route("/hospital/predict", methods=["POST"])
 @hospital_required
-def predict_with_notifications():
-    """Predict with notifications"""
-    hospital_id = session["hospital_id"]
-    user_id = session["user_id"]
-    usage_info = getattr(request, 'usage_info', None)
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+@check_scan_limit
+def predict():
+    """Fixed prediction endpoint with proper notification handling"""
+
+    # Get hospital_id from session
+    hospital_id = session.get("hospital_id")
+    user_id = session.get("user_id")
+
+    # Verify hospital_id exists
+    if not hospital_id:
+        logger.error("❌ hospital_id not found in session")
+        return jsonify({
+            "error": "Session error: Hospital ID not found. Please log in again."
+        }), 401
 
     try:
+        # Validate image upload
         if "image" not in request.files:
             return jsonify({"error": "No image"}), 400
 
@@ -1530,29 +2144,44 @@ def predict_with_notifications():
         if not patient_id:
             return jsonify({"error": "Patient ID required"}), 400
 
-<<<<<<< HEAD
-        # 1. Process Image
+        # ============================================
+        # STEP 1: Read and open the image
+        # ============================================
         image_bytes = request.files["image"].read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        image_stream = io.BytesIO(image_bytes)
+        image_stream.seek(0)
+        image = Image.open(image_stream).convert("RGB")
 
-        # Define the variable as 'img_tensor'
-        img_tensor = transform(image).unsqueeze(0).to(device)
+        # ============================================
+        # STEP 2: VALIDATE IMAGE *BEFORE* PREDICTION
+        # ============================================
+        logger.info("🔍 Validating uploaded image...")
+        is_valid, error_msg, warning_msg = validate_brain_scan(image)
 
-        # 2. Prediction with Softmax
-        with torch.no_grad():
-            # Pass 'img_tensor' to the model
-            output = model(img_tensor)
-            # Normalizes output so the sum of all 4 classes is exactly 100%
-            probs = F.softmax(output, dim=1)[0]
-=======
-        image_bytes = request.files["image"].read()
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if not is_valid:
+            logger.warning(f"❌ Validation failed: {error_msg}")
+            return jsonify({
+                "error": "Invalid Image",
+                "message": error_msg,
+                "suggestion": "Please upload a grayscale brain MRI scan from medical imaging equipment."
+            }), 400
+
+        if warning_msg:
+            logger.info(f"⚠️ Warning: {warning_msg}")
+
+        logger.info("✅ Image validation passed")
+
+        # ============================================
+        # STEP 3: Process image and run prediction
+        # ============================================
+        image_stream.seek(0)
+        image = Image.open(image_stream).convert("RGB")
         tensor = transform(image).unsqueeze(0).to(device)
 
+        logger.info("🧠 Running model prediction...")
         with torch.no_grad():
             output = model(tensor)
-            probs = torch.exp(output)[0]
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+            probs = F.softmax(output, dim=1)[0]
             conf, pred = torch.max(probs, 0)
 
         pred_idx = int(pred.item())
@@ -1560,22 +2189,38 @@ def predict_with_notifications():
         prediction_label = class_names[pred_idx]
         is_tumor = prediction_label != "notumor"
 
-<<<<<<< HEAD
-        # 3. Create probability dictionary for the Frontend
-        # This maps the classes ['glioma', 'meningioma', 'notumor', 'pituitary']
-=======
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+        # Create probability dictionary
         probabilities = {
             class_names[i]: round(float(probs[i].item()) * 100, 2)
             for i in range(len(class_names))
         }
 
-<<<<<<< HEAD
-        # 4. Save to Database
-=======
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+        # ============================================
+        # STEP 4: Secondary validation with probabilities
+        # ============================================
+        is_valid_result, error_msg_result, warning_msg_result = validate_brain_scan(image, probabilities)
+
+        if not is_valid_result:
+            logger.warning(f"❌ Post-prediction validation failed: {error_msg_result}")
+            return jsonify({
+                "error": "Invalid Scan Result",
+                "message": error_msg_result,
+                "suggestion": "The AI model could not confidently classify this as a brain scan."
+            }), 400
+
+        # Combine warnings
+        if warning_msg_result:
+            warning_msg = f"{warning_msg}. {warning_msg_result}" if warning_msg else warning_msg_result
+
+        confidence_percent = round(conf_val * 100, 2)
+        logger.info(f"📊 Prediction: {prediction_label} ({confidence_percent}%)")
+
+        # ============================================
+        # STEP 5: Save to database WITH HOSPITAL_ID
+        # ============================================
         conn = get_db()
         c = conn.cursor()
+
         c.execute("""
             INSERT INTO mri_scans (
                 hospital_id, patient_id, uploaded_by, scan_image,
@@ -1583,127 +2228,65 @@ def predict_with_notifications():
                 notes, scan_date
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            hospital_id, patient_id, user_id,
+            hospital_id,
+            patient_id,
+            user_id,
             base64.b64encode(image_bytes).decode(),
-<<<<<<< HEAD
-            prediction_label, conf_val, is_tumor, json.dumps(probabilities),
-=======
-            prediction_label, conf_val, is_tumor, str(probabilities),
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+            prediction_label,
+            conf_val,
+            is_tumor,
+            json.dumps(probabilities),
             request.form.get("notes", ""),
             request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
         ))
         scan_id = c.lastrowid
 
-<<<<<<< HEAD
         # Get patient info
-        c.execute("SELECT patient_code FROM patients WHERE id=?", (patient_id,))
-        patient_row = c.fetchone()
-        conn.commit()
-        conn.close()
-
-        # 5. Notifications
-        increment_usage(hospital_id, 'scans', 1)
-        confidence_percent = round(conf_val * 100, 2)
-        patient_code = patient_row["patient_code"] if patient_row else "Unknown"
-
-        if is_tumor:
-            title, priority = '🔴 Tumor Detected', 'high'
-            message = f'{prediction_label.capitalize()} detected ({confidence_percent}%) for patient {patient_code}.'
-        else:
-            title, priority = '✅ Scan Analysis Complete', 'normal'
-            message = f'No tumor detected ({confidence_percent}%) for patient {patient_code}.'
-
-        create_notification(
-            user_id=user_id, user_type='hospital', notification_type='scan_result',
-            title=title, message=message, hospital_id=hospital_id,
-            scan_id=scan_id, patient_id=patient_id, priority=priority,
-            action_url=f'/scan/{scan_id}'
-        )
-
-        log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
-
-=======
-        # Get patient info for notification
         c.execute("SELECT full_name, patient_code FROM patients WHERE id=?", (patient_id,))
         patient = c.fetchone()
+        patient_code = patient["patient_code"] if patient else "Unknown"
 
         conn.commit()
         conn.close()
 
-        # Increment usage
+        # ============================================
+        # STEP 6: Update usage and notifications
+        # ============================================
         increment_usage(hospital_id, 'scans', 1)
 
-        # 🔔 CREATE NOTIFICATIONS
-        confidence_percent = round(conf_val * 100, 2)
-
-        # Determine notification type and priority
+        # 🔥 FIX: Properly formatted notification creation
         if is_tumor:
             if confidence_percent < 70:
-                notification_type = 'low_confidence'
-                title = '⚠️ Low Confidence Detection'
-                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}. Manual review recommended.'
-                priority = 'high'
+                notif_title = '⚠️ Low Confidence Detection'
+                notif_message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient_code}. Manual review recommended.'
+                notif_priority = 'high'
             else:
-                notification_type = 'prediction_complete'
-                title = '🔴 Tumor Detected'
-                message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient["patient_code"]}.'
-                priority = 'high'
+                notif_title = '🔴 Tumor Detected'
+                notif_message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient_code}.'
+                notif_priority = 'high'
         else:
-            notification_type = 'prediction_complete'
-            title = '✅ Scan Analysis Complete'
-            message = f'No tumor detected for patient {patient["patient_code"]} with {confidence_percent}% confidence.'
-            priority = 'normal'
+            notif_title = '✅ Scan Analysis Complete'
+            notif_message = f'No tumor detected for patient {patient_code} with {confidence_percent}% confidence.'
+            notif_priority = 'normal'
 
-        # Notify the user who uploaded
-        create_notification(
-            user_id=user_id,
-            user_type='hospital',
-            notification_type='scan_result',
-            title=title,
-            message=message,
-            hospital_id=hospital_id,
-            scan_id=scan_id,
-            patient_id=patient_id,
-            priority=priority,
-            action_url=f'/scan/{scan_id}'
-        )
-
-        # If tumor detected with high confidence, notify all hospital users
-        if is_tumor and confidence_percent >= 85:
-            notify_hospital_users(
-                hospital_id=hospital_id,
-                notification_type='urgent_alert',
-                title=f'🚨 Urgent: {prediction_label.capitalize()} Detected',
-                message=f'High confidence ({confidence_percent}%) tumor detection for patient {patient["patient_code"]}. Immediate attention required.',
-                priority='urgent',
-                exclude_user_id=user_id
-            )
-
-        # Notify patient if they have an account
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT id FROM patients WHERE id=? AND email IS NOT NULL", (patient_id,))
-        if c.fetchone():
+        # Create notification with ALL required parameters
+        try:
             create_notification(
-                user_id=patient_id,
-                user_type='patient',
+                user_id=user_id,
+                user_type='hospital',
                 notification_type='scan_result',
-                title='📋 Your MRI Scan Results',
-                message=f'Your brain MRI scan analysis is complete. {title}',
+                title=notif_title,
+                message=notif_message,
                 hospital_id=hospital_id,
                 scan_id=scan_id,
-                patient_id=patient_id,
-                priority='high',
-                action_url=f'/patient/scans/{scan_id}'
+                patient_id=int(patient_id),
+                priority=notif_priority,
+                action_url=f'/scan/{scan_id}'
             )
-        conn.close()
-
-        # Get updated usage
-        updated_usage = get_detailed_usage(hospital_id)
+        except Exception as notif_error:
+            logger.error(f"Failed to create notification: {notif_error}")
 
         log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
 
         return jsonify({
             "scan_id": scan_id,
@@ -1711,31 +2294,31 @@ def predict_with_notifications():
             "confidence": confidence_percent,
             "is_tumor": is_tumor,
             "probabilities": probabilities,
-<<<<<<< HEAD
-=======
-            "usage": updated_usage,
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
-            "notification_sent": True
+            "validation_warning": warning_msg
         })
 
     except Exception as e:
-        logger.error(f"Prediction error: {e}")
-<<<<<<< HEAD
-=======
+        logger.error(f"❌ Prediction error: {e}")
+        import traceback
+        traceback.print_exc()
 
-        # Send error notification
-        create_notification(
-            user_id=user_id,
-            user_type='hospital',
-            notification_type='error',
-            title='❌ Prediction Failed',
-            message=f'Failed to analyze MRI scan: {str(e)}',
-            hospital_id=hospital_id,
-            priority='high'
-        )
+        # Send error notification with ALL required parameters
+        try:
+            create_notification(
+                user_id=user_id,
+                user_type='hospital',
+                notification_type='error',
+                title='❌ Prediction Failed',
+                message=f'Failed to analyze MRI scan: {str(e)}',
+                hospital_id=hospital_id,
+                priority='high'
+            )
+        except Exception as notif_error:
+            logger.error(f"Failed to create error notification: {notif_error}")
 
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
 # ==============================================
@@ -1786,7 +2369,6 @@ def setup_notifications():
     print("✅ Notifications system initialized")
 
 
-
 def get_hospital_subscription(hospital_id):
     """Get active subscription for a hospital"""
     conn = get_db()
@@ -1803,7 +2385,6 @@ def get_hospital_subscription(hospital_id):
     sub = c.fetchone()
     conn.close()
     return dict(sub) if sub else None
-
 
 
 def get_or_create_stripe_customer(hospital_id):
@@ -1829,6 +2410,8 @@ def get_or_create_stripe_customer(hospital_id):
     conn.close()
 
     return customer.id
+
+
 # -----------------------------
 # STRIPE HELPERS
 # -----------------------------
@@ -1837,9 +2420,10 @@ def get_stripe_price_id(plan_id, billing_cycle):
     Map subscription plan IDs to Stripe price IDs.
     """
     price_mapping = {
-        1: { "monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY') },
-        2: { "monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY') },
-        3: { "monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY') },
+        1: {"monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY')},
+        2: {"monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY')},
+        3: {"monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
+            "yearly": os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY')},
     }
 
     plan_prices = price_mapping.get(plan_id)
@@ -1847,6 +2431,7 @@ def get_stripe_price_id(plan_id, billing_cycle):
         return None
 
     return plan_prices.get(billing_cycle)
+
 
 def get_current_usage(hospital_id):
     """Get current period usage for a hospital"""
@@ -2737,6 +3322,8 @@ def delete_patient_record(patient_id):
     except Exception as e:
         logger.error(f"Error deleting patient: {e}")
         return jsonify({'error': str(e)}), 500
+
+
 @app.route("/api/stripe/config", methods=["GET"])
 def stripe_config():
     return jsonify({"publishableKey": STRIPE_PUBLISHABLE_KEY})
@@ -2963,6 +3550,7 @@ def get_upgrade_options(current_plan_id):
     conn.close()
     return plans
 
+
 def requires_feature(feature_key):
     """Decorator to check feature access"""
 
@@ -3030,7 +3618,6 @@ class CNN_TUMOR(nn.Module):
         return F.log_softmax(X, dim=1)
 
 
-<<<<<<< HEAD
 class VGG19_BrainTumor(nn.Module):
     """VGG19-based model for brain tumor classification"""
 
@@ -3057,9 +3644,10 @@ class VGG19_BrainTumor(nn.Module):
 
     def forward(self, x):
         return self.vgg19(x)
+
+
 # Define class names and transforms
-=======
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+
 class_names = ["glioma", "meningioma", "notumor", "pituitary"]
 
 transform = transforms.Compose([
@@ -3068,7 +3656,81 @@ transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-<<<<<<< HEAD
+
+# ==============================================
+# IMAGE VALIDATION FUNCTION
+# ==============================================
+
+def validate_brain_scan(image, probabilities=None):
+    """
+    Validate if the uploaded image is likely a brain MRI scan.
+    Returns (is_valid, error_message, warning_message)
+    """
+    warnings = []
+
+    # Check 1: Image mode (brain MRIs are typically grayscale or converted from grayscale)
+    # Most brain MRIs are grayscale, but we convert to RGB for the model
+    # So we check if the image has very low color variation
+    if image.mode == 'RGB':
+        # Convert to numpy to check color variation
+        import numpy as np
+        img_array = np.array(image)
+
+        # Check if R, G, B channels are very similar (indicating grayscale-like image)
+        r_channel = img_array[:, :, 0]
+        g_channel = img_array[:, :, 1]
+        b_channel = img_array[:, :, 2]
+
+        # Calculate variance between channels
+        rg_diff = np.abs(r_channel.astype(float) - g_channel.astype(float)).mean()
+        rb_diff = np.abs(r_channel.astype(float) - b_channel.astype(float)).mean()
+        gb_diff = np.abs(g_channel.astype(float) - b_channel.astype(float)).mean()
+
+        avg_diff = (rg_diff + rb_diff + gb_diff) / 3
+
+        # If channels are very different, it's likely a color photo, not MRI
+        if avg_diff > 15:  # Threshold for "too colorful"
+            return False, "Invalid image type: Brain MRI scans should be grayscale medical images, not color photographs.", None
+
+    # Check 2: Image dimensions (brain scans typically have certain aspect ratios)
+    width, height = image.size
+    aspect_ratio = width / height if height > 0 else 0
+
+    # Brain MRI scans are usually square or close to square (0.8 to 1.2 ratio)
+    if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+        warnings.append(f"Unusual aspect ratio ({aspect_ratio:.2f}). Brain scans are typically more square-shaped.")
+
+    # Check 3: Image size (too small might not be a real scan)
+    if width < 100 or height < 100:
+        return False, "Image too small: Please upload a high-quality brain MRI scan (minimum 100x100 pixels).", None
+
+    # Check 4: Confidence threshold (if probabilities provided)
+    if probabilities:
+        max_confidence = max(probabilities.values())
+
+        # If confidence is very low, image likely not a brain scan
+        if max_confidence < 50:
+            return False, "Low confidence detected: This image does not appear to be a brain MRI scan. Please upload a valid medical brain scan.", None
+
+        # If confidence is moderate, show warning
+        if max_confidence < 70:
+            warnings.append(
+                f"Moderate confidence ({max_confidence:.1f}%). Please verify this is a clear brain MRI scan.")
+
+        # Check if predictions are too evenly distributed (another sign of invalid input)
+        prob_values = list(probabilities.values())
+        if len(prob_values) == 4:
+            # If all probabilities are within 15% of each other, model is "confused"
+            prob_range = max(prob_values) - min(prob_values)
+            if prob_range < 15:
+                warnings.append(
+                    "Model uncertain: Predictions are evenly distributed. Image may not be a clear brain scan.")
+
+    # Return result
+    warning_msg = " ".join(warnings) if warnings else None
+    return True, None, warning_msg
+
+
 # Load the model
 try:
     logger.info("Loading model...")
@@ -3103,17 +3765,10 @@ except Exception as e:
     import traceback
 
     traceback.print_exc()
-=======
-try:
-    logger.info("Loading model...")
-    model = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-    model.to(device)
-    model.eval()
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Error loading model: {e}")
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
-    raise
+
+
+# Model already loaded above (lines 125-165)
+# No need to reload here
 
 
 # ==============================================
@@ -3188,8 +3843,6 @@ def admin_login():
             "type": "admin"
         }
     })
-
-
 
 
 @app.route("/admin/hospitals", methods=["GET", "POST"])
@@ -3389,6 +4042,8 @@ def create_checkout_session():
         conn.close()
         print(f"UNEXPECTED ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
 @app.route("/admin/revenue", methods=["GET"])
 @admin_required
 def admin_revenue_analytics():
@@ -3450,32 +4105,47 @@ def admin_revenue_analytics():
 # HOSPITAL USER ROUTES
 # ==============================================
 
+# Replace your /hospital/login endpoint with this fixed version
+
 @app.route("/hospital/login", methods=["POST"])
 def hospital_login():
+    """Fixed hospital login with proper session setup"""
     data = request.json
     username = data.get("username")
     password = data.get("password")
 
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+
     conn = get_db()
     c = conn.cursor()
+
     c.execute("""
-        SELECT hu.*, h.hospital_name, h.hospital_code
+        SELECT hu.*, h.hospital_name, h.hospital_code, h.id as hospital_id
         FROM hospital_users hu
         JOIN hospitals h ON hu.hospital_id = h.id
         WHERE hu.username=? AND hu.status='active' AND h.status='active'
     """, (username,))
+
     user = c.fetchone()
     conn.close()
 
     if not user or not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
+    # ✅ CRITICAL FIX: Set ALL required session variables
+    session.clear()  # Clear any old session data
     session["user_id"] = user["id"]
     session["user_type"] = "hospital"
-    session["hospital_id"] = user["hospital_id"]
+    session["hospital_id"] = user["hospital_id"]  # ⚠️ MUST BE SET
     session["username"] = user["username"]
+    session.permanent = True  # Make session persist
 
+    # Log the login
     log_activity("hospital", user["id"], "login", hospital_id=user["hospital_id"])
+
+    # Debug log
+    logger.info(f"✅ Hospital login successful: user_id={user['id']}, hospital_id={user['hospital_id']}")
 
     return jsonify({
         "user": {
@@ -3483,7 +4153,7 @@ def hospital_login():
             "username": user["username"],
             "email": user["email"],
             "full_name": user["full_name"],
-            "hospital_id": user["hospital_id"],
+            "hospital_id": user["hospital_id"],  # ✅ Include in response
             "hospital_name": user["hospital_name"],
             "hospital_code": user["hospital_code"],
             "role": user["role"],
@@ -3619,6 +4289,7 @@ def claim_free_scan():
         "message": "Free scan claimed! 1 additional scan available.",
         "usage": get_detailed_usage(hospital_id)
     })
+
 
 @app.route("/hospital/subscription/upgrade", methods=["POST"])
 @hospital_required
@@ -3869,14 +4540,9 @@ def hospital_history():
 
 @app.route("/hospital/predict", methods=["POST"])
 @hospital_required
-@check_scan_limit  # Add usage check
+@check_scan_limit
 def predict():
-    """Predict with usage limit enforcement"""
     hospital_id = session["hospital_id"]
-
-    # Usage info already checked by decorator
-    usage_info = getattr(request, 'usage_info', None)
-
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image"}), 400
@@ -3885,29 +4551,38 @@ def predict():
         if not patient_id:
             return jsonify({"error": "Patient ID required"}), 400
 
+        # 1. Read and process the image
         image_bytes = request.files["image"].read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         tensor = transform(image).unsqueeze(0).to(device)
 
+        # 2. Run the AI Prediction
         with torch.no_grad():
             output = model(tensor)
-<<<<<<< HEAD
             probs = F.softmax(output, dim=1)[0]
-=======
-            probs = torch.exp(output)[0]
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
             conf, pred = torch.max(probs, 0)
 
-        pred_idx = int(pred.item())
-        conf_val = float(conf.item())
-        prediction_label = class_names[pred_idx]
-        is_tumor = prediction_label != "notumor"
-
+        # 3. Format the results
         probabilities = {
             class_names[i]: round(float(probs[i].item()) * 100, 2)
             for i in range(len(class_names))
         }
+        prediction_label = class_names[int(pred.item())]
+        conf_val = float(conf.item())
 
+        # 4. VALIDATION: Check if AI confidence is too low (Non-Brain Image)
+        # We pass 'image' and the 'probabilities' we just calculated
+        is_valid, error_msg, warning_msg = validate_brain_scan(image, probabilities)
+
+        if not is_valid:
+            return jsonify({
+                "error": "Invalid Scan Result",
+                "message": error_msg,
+                "suggestion": "The AI does not recognize this as a brain MRI scan."
+            }), 400
+
+        # 5. Save to Database (Only if validation passed)
+        is_tumor = prediction_label != "notumor"
         conn = get_db()
         c = conn.cursor()
         c.execute("""
@@ -3927,21 +4602,16 @@ def predict():
         conn.commit()
         conn.close()
 
-        # Increment usage
+        # 6. Send response back to Frontend
         increment_usage(hospital_id, 'scans', 1)
-
-        # Get updated usage
-        updated_usage = get_detailed_usage(hospital_id)
-
         log_activity("hospital", session["user_id"], "prediction", hospital_id=hospital_id)
 
         return jsonify({
             "scan_id": scan_id,
             "prediction": prediction_label,
             "confidence": round(conf_val * 100, 2),
-            "is_tumor": is_tumor,
             "probabilities": probabilities,
-            "usage": updated_usage  # Return updated usage info
+            "validation_warning": warning_msg  # <--- This triggers the yellow warning in UI
         })
 
     except Exception as e:
@@ -4135,35 +4805,28 @@ def patient_login():
     })
 
 
-@app.route("/patient/scans", methods=["GET"])
-@patient_required
-def get_patient_scans():
-    """Get patient's scans"""
-    patient_id = session.get("patient_id")
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("""
-        SELECT s.*, h.hospital_name, hu.full_name as doctor_name
-        FROM mri_scans s
-        JOIN hospitals h ON s.hospital_id = h.id
-        LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
-        WHERE s.patient_id=?
-        ORDER BY s.created_at DESC
-    """, (patient_id,))
-
-    scans = [dict(row) for row in c.fetchall()]
-    conn.close()
-
-    return jsonify({"scans": scans})
-
-
-# ==============================================
+# DUPLICATE - @app.route("/patient/scans", methods=["GET"])
+# DUPLICATE - @patient_required
+# DUPLICATE - def get_patient_scans():
+# DUPLICATE - """Get patient's scans"""
+# DUPLICATE - patient_id = session.get("patient_id")
+# DUPLICATE -     # DUPLICATE - conn = get_db()
+# DUPLICATE - c = conn.cursor()
+# DUPLICATE -     # DUPLICATE - c.execute("""
+# DUPLICATE - SELECT s.*, h.hospital_name, hu.full_name as doctor_name
+# DUPLICATE - FROM mri_scans s
+# DUPLICATE - JOIN hospitals h ON s.hospital_id = h.id
+# DUPLICATE - LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+# DUPLICATE - WHERE s.patient_id=?
+# DUPLICATE - ORDER BY s.created_at DESC
+# DUPLICATE - """, (patient_id,))
+# DUPLICATE -     # DUPLICATE - scans = [dict(row) for row in c.fetchall()]
+# DUPLICATE - conn.close()
+# DUPLICATE -     # DUPLICATE - return jsonify({"scans": scans})
+# DUPLICATE -  # DUPLICATE - # ==============================================
 # PROFILE PICTURE ROUTES
 # ==============================================
-
-@app.route("/patient/profile-picture", methods=["POST"])
+# DUPLICATE - @app.route("/patient/profile-picture", methods=["POST"])
 @patient_required
 def upload_profile_picture():
     """Upload profile picture"""
@@ -4298,6 +4961,8 @@ def me():
             "hospital_id": session.get("hospital_id")
         }
     })
+
+
 @app.route("/stripe/webhook", methods=["POST"])
 def stripe_webhook():
     payload = request.data
@@ -4640,8 +5305,6 @@ def create_notification(user_id, user_type, notification_type, title, message,
         return None
 
 
-
-
 # ==============================================
 # SOCKETIO EVENTS FOR CHAT
 # ==============================================
@@ -4775,7 +5438,205 @@ def handle_mark_read(data):
 
     except Exception as e:
         logger.error(f"Error marking messages as read: {e}")
-<<<<<<< HEAD
+
+
+# ==============================================
+# WEBRTC SIGNALING FOR AUDIO/VIDEO CALLS
+# ==============================================
+
+@socketio.on('call_user')
+def handle_call_user(data):
+    """Initiate a call to another user"""
+    try:
+        caller_id = data.get('caller_id')
+        caller_type = data.get('caller_type')  # 'patient' or 'hospital'
+        callee_id = data.get('callee_id')
+        callee_type = data.get('callee_type')
+        call_type = data.get('call_type', 'video')  # 'audio' or 'video'
+        offer = data.get('offer')
+
+        # Create unique call room
+        call_room = f"call_{caller_id}_{callee_id}_{datetime.now().timestamp()}"
+
+        # Notify the callee about incoming call
+        callee_room = f"{callee_type}_{callee_id}"
+        emit('incoming_call', {
+            'caller_id': caller_id,
+            'caller_type': caller_type,
+            'call_type': call_type,
+            'call_room': call_room,
+            'offer': offer
+        }, room=callee_room)
+
+        logger.info(f"📞 Call initiated: {caller_type}_{caller_id} -> {callee_type}_{callee_id}")
+
+    except Exception as e:
+        logger.error(f"Error initiating call: {e}")
+        emit('call_error', {'error': str(e)})
+
+
+@socketio.on('answer_call')
+def handle_answer_call(data):
+    """Answer an incoming call"""
+    try:
+        caller_id = data.get('caller_id')
+        caller_type = data.get('caller_type')
+        callee_id = data.get('callee_id')
+        call_room = data.get('call_room')
+        answer = data.get('answer')
+
+        # Join the call room
+        join_room(call_room)
+
+        # Send answer back to caller
+        caller_room = f"{caller_type}_{caller_id}"
+        emit('call_answered', {
+            'callee_id': callee_id,
+            'answer': answer,
+            'call_room': call_room
+        }, room=caller_room)
+
+        logger.info(f"✅ Call answered: {callee_id} -> {caller_id}")
+
+    except Exception as e:
+        logger.error(f"Error answering call: {e}")
+        emit('call_error', {'error': str(e)})
+
+
+@socketio.on('reject_call')
+def handle_reject_call(data):
+    """Reject an incoming call"""
+    try:
+        caller_id = data.get('caller_id')
+        caller_type = data.get('caller_type')
+        callee_id = data.get('callee_id')
+
+        # Notify caller that call was rejected
+        caller_room = f"{caller_type}_{caller_id}"
+        emit('call_rejected', {
+            'callee_id': callee_id
+        }, room=caller_room)
+
+        logger.info(f"❌ Call rejected: {callee_id} rejected {caller_id}")
+
+    except Exception as e:
+        logger.error(f"Error rejecting call: {e}")
+
+
+@socketio.on('ice_candidate')
+def handle_ice_candidate(data):
+    """Exchange ICE candidates for WebRTC connection"""
+    try:
+        call_room = data.get('call_room')
+        candidate = data.get('candidate')
+        sender_id = data.get('sender_id')
+
+        # Broadcast ICE candidate to other peer in the call room
+        emit('ice_candidate', {
+            'candidate': candidate,
+            'sender_id': sender_id
+        }, room=call_room, include_self=False)
+
+    except Exception as e:
+        logger.error(f"Error handling ICE candidate: {e}")
+
+
+@socketio.on('join_call')
+def handle_join_call(data):
+    """Join a call room"""
+    try:
+        call_room = data.get('call_room')
+        user_id = data.get('user_id')
+        user_type = data.get('user_type')
+
+        join_room(call_room)
+
+        # Notify others in the call
+        emit('user_joined_call', {
+            'user_id': user_id,
+            'user_type': user_type
+        }, room=call_room, include_self=False)
+
+        logger.info(f"👤 User joined call: {user_type}_{user_id} in {call_room}")
+
+    except Exception as e:
+        logger.error(f"Error joining call: {e}")
+
+
+@socketio.on('leave_call')
+def handle_leave_call(data):
+    """Leave a call room"""
+    try:
+        call_room = data.get('call_room')
+        user_id = data.get('user_id')
+        user_type = data.get('user_type')
+
+        # Notify others that user left
+        emit('user_left_call', {
+            'user_id': user_id,
+            'user_type': user_type
+        }, room=call_room, include_self=False)
+
+        leave_room(call_room)
+
+        logger.info(f"👋 User left call: {user_type}_{user_id} from {call_room}")
+
+    except Exception as e:
+        logger.error(f"Error leaving call: {e}")
+
+
+@socketio.on('end_call')
+def handle_end_call(data):
+    """End an active call"""
+    try:
+        call_room = data.get('call_room')
+        user_id = data.get('user_id')
+
+        # Notify all participants that call ended
+        emit('call_ended', {
+            'ended_by': user_id
+        }, room=call_room)
+
+        logger.info(f"📴 Call ended by {user_id} in {call_room}")
+
+    except Exception as e:
+        logger.error(f"Error ending call: {e}")
+
+
+@socketio.on('toggle_audio')
+def handle_toggle_audio(data):
+    """Toggle audio mute/unmute"""
+    try:
+        call_room = data.get('call_room')
+        user_id = data.get('user_id')
+        audio_enabled = data.get('audio_enabled')
+
+        # Notify other participants
+        emit('peer_audio_toggled', {
+            'user_id': user_id,
+            'audio_enabled': audio_enabled
+        }, room=call_room, include_self=False)
+
+    except Exception as e:
+        logger.error(f"Error toggling audio: {e}")
+
+
+@socketio.on('toggle_video')
+def handle_toggle_video(data):
+    """Toggle video on/off"""
+    try:
+        call_room = data.get('call_room')
+        user_id = data.get('user_id')
+        video_enabled = data.get('video_enabled')
+
+        # Notify other participants
+        emit('peer_video_toggled', {
+            'user_id': user_id,
+            'video_enabled': video_enabled
+        }, room=call_room, include_self=False)
+
+    except Exception as e:
+        logger.error(f"Error toggling video: {e}")
 
         @app.route('/analyze', methods=['POST'])
         @hospital_required  # This ensures only logged-in hospitals can use it
@@ -4783,12 +5644,24 @@ def handle_mark_read(data):
             try:
                 if 'image' not in request.files:
                     return jsonify({"error": "No image uploaded"}), 400
-
                 file = request.files['image']
                 patient_id = request.form.get('patient_id')
 
                 # 1. Load and Transform Image
-                img = Image.open(io.BytesIO(file.read())).convert('RGB')
+                image_bytes = file.read()
+                image_stream = io.BytesIO(image_bytes)
+                image_stream.seek(0)  # Rewind to start
+                img = Image.open(image_stream).convert('RGB')
+
+                # VALIDATION: Check if this is actually a brain scan
+                is_valid, error_msg, warning_msg = validate_brain_scan(img)
+                if not is_valid:
+                    return jsonify({
+                        "error": "Invalid Image",
+                        "message": error_msg,
+                        "suggestion": "Please upload a grayscale brain MRI scan."
+                    }), 400
+
                 transform = transforms.Compose([
                     transforms.Resize((224, 224)),
                     transforms.ToTensor(),
@@ -4815,18 +5688,27 @@ def handle_mark_read(data):
                 prediction = classes[pred_idx]
                 confidence = prob_results[prediction]
 
+                # VALIDATION: Check confidence after prediction
+                is_valid_result, error_msg_result, warning_msg_result = validate_brain_scan(img, prob_results)
+                if not is_valid_result:
+                    return jsonify({
+                        "error": "Invalid Scan Result",
+                        "message": error_msg_result
+                    }), 400
+
                 return jsonify({
                     "status": "success",
                     "prediction": prediction,
                     "confidence": confidence,
-                    "probabilities": prob_results
+                    "probabilities": prob_results,
+                    "validation_warning": warning_msg_result  # Include warning
                 })
 
             except Exception as e:
                 logging.error(f"Analysis error: {str(e)}")
                 return jsonify({"error": "Internal server error during analysis"}), 500
-=======
->>>>>>> 25cee4587776c53dfb2b0f21018e1885f1f153c1
+
+
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================
