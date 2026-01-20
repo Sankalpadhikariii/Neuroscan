@@ -977,7 +977,7 @@ function AddUserModal({ userType, subscriptionPlans, hospitals, onClose, onSucce
     contact_person: '',
     phone: '',
     address: '',
-    subscription_plan: 'free',
+    subscription_plan: '',
     
     // Patient fields
     full_name: '',
@@ -1160,6 +1160,7 @@ function AddUserModal({ userType, subscriptionPlans, hospitals, onClose, onSucce
                 required
                 value={formData.subscription_plan}
                 onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
+                placeholder={subscriptionPlans.length === 0 ? "Loading plans..." : "Select a subscription plan"}
                 options={subscriptionPlans.map(plan => ({
                   value: plan.name,
                   label: `${plan.display_name} - $${plan.price_monthly}/month`
@@ -1360,11 +1361,12 @@ function EditUserModal({ user, subscriptionPlans, hospitals, onClose, onSuccess,
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
-          {user.userType === 'hospital' && subscriptionPlans.length > 0 && (
+          {user.userType === 'hospital' && (
             <FormSelect
               label="Subscription Plan"
-              value={formData.subscription_plan || 'free'}
+              value={formData.subscription_plan || ''}
               onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
+              placeholder={subscriptionPlans.length === 0 ? "Loading plans..." : "Select a subscription plan"}
               options={subscriptionPlans.map(plan => ({
                 value: plan.name,
                 label: `${plan.display_name} - $${plan.price_monthly}/month`
@@ -1582,7 +1584,7 @@ function FormField({ label, type = 'text', required = false, value, onChange, pl
   );
 }
 
-function FormSelect({ label, required = false, value, onChange, options }) {
+function FormSelect({ label, required = false, value, onChange, options, placeholder = "Select an option" }) {
   return (
     <div style={{ marginBottom: '16px' }}>
       <label style={{
@@ -1609,6 +1611,7 @@ function FormSelect({ label, required = false, value, onChange, options }) {
           background: 'white'
         }}
       >
+        <option value="" disabled>{placeholder}</option>
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
