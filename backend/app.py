@@ -60,7 +60,12 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 
-MODEL_PATH = "/app/models/vgg19.pth"
+# Use Windows path for local development, Linux for Docker
+import platform
+if platform.system() == "Windows":
+    MODEL_PATH = Path(__file__).resolve().parent / "models" / "vgg19.pth"
+else:
+    MODEL_PATH = Path("/app/models/vgg19.pth")
 
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
@@ -189,20 +194,145 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 
 
-
 def init_database():
     """Create all base tables if they don't exist"""
     conn = get_db()
     c = conn.cursor()
 
-    c.execute("CREATE TABLE IF NOT EXISTS users (...)")
-    c.execute("CREATE TABLE IF NOT EXISTS hospitals (...)")
-    c.execute("CREATE TABLE IF NOT EXISTS patients (...)")
-    c.execute("CREATE TABLE IF NOT EXISTS predictions (...)")
-    c.execute("CREATE TABLE IF NOT EXISTS patient_access_codes (...)")
+    logger.info("🔧 Initializing database tables...")
+
+    # Users table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'doctor',
+            full_name TEXT,
+            phone TEXT,
+            specialization TEXT,
+            license_number TEXT,
+            profile_picture TEXT,
+            is_active INTEGER DEFAULT 1,
+            is_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            reset_token TEXT,
+            reset_token_expiry TIMESTAMP,
+            last_login TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Hospitals table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS hospitals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            address TEXT,
+            city TEXT,
+            state TEXT,
+            country TEXT,
+            postal_code TEXT,
+            phone TEXT,
+            website TEXT,
+            registration_number TEXT,
+            license_number TEXT,
+            admin_name TEXT,
+            admin_email TEXT,
+            is_active INTEGER DEFAULT 1,
+            is_verified INTEGER DEFAULT 0,
+            subscription_tier TEXT DEFAULT 'free',
+            subscription_status TEXT DEFAULT 'active',
+            stripe_customer_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Patients table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS patients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            age INTEGER,
+            date_of_birth DATE,
+            gender TEXT,
+            blood_type TEXT,
+            contact TEXT,
+            email TEXT,
+            address TEXT,
+            emergency_contact TEXT,
+            emergency_phone TEXT,
+            medical_history TEXT,
+            allergies TEXT,
+            current_medications TEXT,
+            hospital_id INTEGER,
+            doctor_id INTEGER,
+            access_code TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE SET NULL,
+            FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    """)
+
+    # Predictions table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            patient_id INTEGER,
+            hospital_id INTEGER,
+            image_path TEXT NOT NULL,
+            image_hash TEXT,
+            prediction TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            probabilities TEXT,
+            model_version TEXT,
+            processing_time REAL,
+            notes TEXT,
+            is_verified INTEGER DEFAULT 0,
+            verified_by INTEGER,
+            verified_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE SET NULL,
+            FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+    """)
+
+    # Patient access codes table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS patient_access_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            access_code TEXT UNIQUE NOT NULL,
+            verification_code TEXT,
+            verification_code_expiry TIMESTAMP,
+            is_verified INTEGER DEFAULT 0,
+            verified_at TIMESTAMP,
+            expires_at TIMESTAMP,
+            last_accessed TIMESTAMP,
+            access_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Create indexes for performance
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_patients_hospital ON patients(hospital_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_predictions_patient ON predictions(patient_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_access_codes_code ON patient_access_codes(access_code)")
 
     conn.commit()
     conn.close()
+    logger.info("✅ Base tables created/verified")
 # Add this function to app.py and call it at startup
 
 def migrate_database_schema():
@@ -3235,38 +3365,61 @@ def generate_pdf_endpoint():
 
         # Get hospital info from session
         hospital_id = session.get('hospital_id')
+        user_id = session.get('user_id')
+
+        # Read file image as base64
+        file.seek(0)
+        image_bytes = file.read()
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+        # Get hospital and patient data
+        conn = get_db()
+        c = conn.cursor()
+
+        # Get hospital info
+        hospital_data = {}
+        if hospital_id:
+            c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id=?", (hospital_id,))
+            hospital_row = c.fetchone()
+            if hospital_row:
+                hospital_data = {
+                    'name': hospital_row['hospital_name'],
+                    'code': hospital_row['hospital_code'],
+                    'doctor_name': 'N/A'
+                }
+
+        # Get doctor name
+        if user_id:
+            c.execute("SELECT full_name FROM hospital_users WHERE id=?", (user_id,))
+            doctor_row = c.fetchone()
+            if doctor_row:
+                hospital_data['doctor_name'] = doctor_row['full_name']
+
+        # Get patient info
+        c.execute("SELECT * FROM patients WHERE id=?", (patient_id,))
+        patient_row = c.fetchone()
+        patient_data = {}
+        if patient_row:
+            patient_data = {
+                'name': patient_row['full_name'],
+                'id': patient_row['patient_code'],
+                'email': patient_row['email'] or 'N/A',
+                'phone': patient_row['phone'] or 'N/A',
+                'date_of_birth': patient_row['date_of_birth'] or 'N/A',
+                'gender': patient_row['gender'] or 'N/A'
+            }
+
+        conn.close()
 
         # Prepare scan data
         scan_data = {
             'prediction': prediction,
             'confidence': conf_value,
             'probabilities': probs,
-            'is_tumor': prediction.lower() != 'notumor',
             'scan_id': scan_id,
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': datetime.now().strftime('%B %d, %Y'),
+            'scan_image': image_base64
         }
-
-        # Prepare patient data
-        patient_data = {
-            'name': patient_name,
-            'id': patient_id,
-            'date_analyzed': datetime.now().strftime('%Y-%m-%d')
-        }
-
-        # Prepare hospital data
-        hospital_data = {}
-        if hospital_id:
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT name, address, phone FROM hospitals WHERE id=?", (hospital_id,))
-            hospital_row = c.fetchone()
-            conn.close()
-            if hospital_row:
-                hospital_data = {
-                    'name': hospital_row['name'],
-                    'address': hospital_row['address'],
-                    'phone': hospital_row['phone']
-                }
 
         # Generate PDF
         pdf_buffer = generate_pdf_report(scan_data, patient_data, hospital_data)
@@ -3281,9 +3434,9 @@ def generate_pdf_endpoint():
 
     except Exception as e:
         logger.error(f"PDF generation error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Failed to generate PDF: {str(e)}'}), 500
-
-
 # ==============================================
 # 5. SUBSCRIPTION LIMITS ENDPOINT (for FeatureGate)
 # ==============================================
@@ -4206,48 +4359,43 @@ def requires_feature(feature_key):
 # ==============================================
 # CNN MODEL SETUP
 # ==============================================
-
+# Lightweight CNN for tumor detection (VGG19-based)
+# ==============================================
+# ✅ CORRECTED CNN MODEL - MATCHES CHECKPOINT
+# ==============================================
 class CNN_TUMOR(nn.Module):
-    def __init__(self, params=None):
+    def __init__(self):
         super(CNN_TUMOR, self).__init__()
-        if params is None:
-            params = {
-                "shape_in": (3, 224, 224),
-                "initial_filters": 16,
-                "num_fc1": 64,
-                "num_classes": 4,
-                "dropout_rate": 0.25
-            }
-        Cin, Hin, Win = params["shape_in"]
-        init_f = params["initial_filters"]
-        num_fc1 = params["num_fc1"]
-        num_classes = params["num_classes"]
-        self.dropout_rate = params["dropout_rate"]
 
-        self.conv1 = nn.Conv2d(Cin, init_f, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(init_f, 2 * init_f, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(2 * init_f, 4 * init_f, kernel_size=3, padding=1)
-        self.conv4 = nn.Conv2d(4 * init_f, 8 * init_f, kernel_size=3, padding=1)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
-        self.num_flatten = 7 * 7 * 8 * init_f
-        self.fc1 = nn.Linear(self.num_flatten, num_fc1)
-        self.fc2 = nn.Linear(num_fc1, num_classes)
+        # Use pretrained VGG19
+        vgg = models.vgg19(pretrained=False)
 
-    def forward(self, X):
-        X = F.relu(self.conv1(X))
-        X = F.max_pool2d(X, kernel_size=2, stride=2)
-        X = F.relu(self.conv2(X))
-        X = F.max_pool2d(X, kernel_size=2, stride=2)
-        X = F.relu(self.conv3(X))
-        X = F.max_pool2d(X, kernel_size=2, stride=2)
-        X = F.relu(self.conv4(X))
-        X = F.max_pool2d(X, kernel_size=2, stride=2)
-        X = self.adaptive_pool(X)
-        X = X.view(-1, self.num_flatten)
-        X = F.relu(self.fc1(X))
-        X = F.dropout(X, p=self.dropout_rate, training=self.training)
-        X = self.fc2(X)
-        return F.log_softmax(X, dim=1)
+        # Extract features
+        self.features = vgg.features
+
+        # Adaptive pooling
+        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+
+        # ✅ CORRECTED CLASSIFIER - MATCHES YOUR CHECKPOINT
+        self.classifier = nn.Sequential(
+            nn.Linear(512 * 7 * 7, 4096),   # Layer 0
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(4096, 1024),           # Layer 3 ✅ (was 4096 → 4096)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(1024, 256),            # Layer 6 ✅ (was 4096 → 4)
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, 4)                # Layer 9 - Final output (4 classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
 
 
 class VGG19_BrainTumor(nn.Module):
@@ -4364,37 +4512,59 @@ def validate_brain_scan(image, probabilities=None):
 
 
 # Load the model
+# Load the model
 try:
     logger.info("Loading model...")
-    checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
-    # Use lightweight CNN architecture that matches stored checkpoints
-    model = get_model()
-
-    # Load the state dict from checkpoint
-    if isinstance(checkpoint, dict):
-        state_dict = checkpoint.get('model_state_dict') or checkpoint.get('state_dict') or checkpoint
-        model.load_state_dict(state_dict)
-        logger.info("Loaded CNN_TUMOR weights from checkpoint")
+    if not MODEL_PATH.exists():
+        logger.error(f"❌ Model not found at {MODEL_PATH}")
+        model = None
     else:
-        # It's already a model object
-        model = checkpoint
-        logger.info("Checkpoint provided a model instance directly")
+        checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
-    model.to(device)
-    model.eval()
-    logger.info("✅ Model loaded successfully and moved to device")
+        # Initialize model with CORRECTED architecture
+        model = CNN_TUMOR()
+
+        # Get the actual state dict
+        if isinstance(checkpoint, dict):
+            state_dict = checkpoint.get('model_state_dict') or checkpoint.get('state_dict') or checkpoint
+        else:
+            state_dict = checkpoint
+
+        # Remove "vgg19." prefix if present
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith('vgg19.'):
+                new_key = key.replace('vgg19.', '', 1)
+                new_state_dict[new_key] = value
+            else:
+                new_state_dict[key] = value
+
+        # ✅ Load with strict=False to allow minor mismatches
+        missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
+
+        if missing_keys:
+            logger.warning(f"⚠️ Missing keys: {missing_keys}")
+        if unexpected_keys:
+            logger.warning(f"⚠️ Unexpected keys: {unexpected_keys}")
+
+        # Move to device and set eval mode
+        model.to(device)
+        model.eval()
+        logger.info(f"✅ Model loaded successfully from {MODEL_PATH}")
 
 except Exception as e:
-    logger.error(f"❌ Error loading model: {e}")
+    logger.error(f"❌ Model loading error: {e}")
     import traceback
 
     traceback.print_exc()
+    model = None
 
-
-# Model already loaded above (lines 125-165)
-# No need to reload here
-
+# ✅ CRITICAL: Check if model loaded successfully
+if model is None:
+    logger.error("❌ CRITICAL: Model failed to load! Predictions will not work.")
+else:
+    logger.info(f"✅ Model ready on {device}")
 
 # ==============================================
 # PUBLIC SUBSCRIPTION ROUTES
@@ -5588,11 +5758,14 @@ def me():
             JOIN hospitals h ON p.hospital_id = h.id
             WHERE p.id=?
         """, (patient_id,))
-        patient = c.fetchone()
+        patient_row = c.fetchone()
         conn.close()
 
-        if not patient:
+        if not patient_row:
             return jsonify({"error": "Patient not found"}), 404
+
+        # ✅ CONVERT TO DICT FIRST
+        patient = dict(patient_row)
 
         profile_picture_url = None
         if patient.get("profile_picture") and patient.get("profile_picture_mime"):
