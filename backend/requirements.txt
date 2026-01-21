@@ -2,10 +2,12 @@
 Flask==3.0.0
 Flask-CORS==4.0.0
 Flask-Limiter==3.5.0
+Flask-SocketIO==5.3.5
+python-socketio==5.10.0
 gunicorn==21.2.0
 Werkzeug==3.0.1
 
-# PyTorch (CPU-only - much smaller!)
+# PyTorch (CPU-only)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.1.0+cpu
 torchvision==0.16.0+cpu
@@ -29,3 +31,8 @@ requests==2.31.0
 
 # Payment
 stripe==7.8.0
+
+# Optional (if needed)
+# flask-bcrypt==1.0.1          # Password hashing
+# flask-jwt-extended==4.5.3    # JWT authentication
+# flask-mail==0.9.1            # Email support
