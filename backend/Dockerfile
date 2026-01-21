@@ -32,4 +32,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=90s \
   CMD python -c "import requests; requests.get('http://localhost:5000/health', timeout=5)"
 
 # Run with gunicorn (single worker for free tier)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "300", "--max-requests", "1000", "--preload", "app:app"]
+# Run with eventlet for WebSocket support
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--worker-class", "eventlet", "--workers", "1", "--timeout", "300", "app:app"]

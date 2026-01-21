@@ -72,7 +72,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 
-MODEL_PATH = Path(__file__).resolve().parent / "weights_60epochs.pt"
+MODEL_PATH = Path(__file__).resolve().parent / "vgg19_final_20260110_154609.pth"
 
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
