@@ -1364,7 +1364,6 @@ function EditUserModal({ user, subscriptionPlans, hospitals, onClose, onSuccess,
           {user.userType === 'hospital' && (
             <FormSelect
               label="Subscription Plan"
-<<<<<<< HEAD
               value={formData.subscription_plan_name || formData.subscription_plan || 'free'}
               onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
               options={[
@@ -1374,15 +1373,7 @@ function EditUserModal({ user, subscriptionPlans, hospitals, onClose, onSuccess,
                   label: `${plan.display_name} - $${plan.price_monthly}/month`
                 }))
               ]}
-=======
-              value={formData.subscription_plan || ''}
-              onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
               placeholder={subscriptionPlans.length === 0 ? "Loading plans..." : "Select a subscription plan"}
-              options={subscriptionPlans.map(plan => ({
-                value: plan.name,
-                label: `${plan.display_name} - $${plan.price_monthly}/month`
-              }))}
->>>>>>> 60e9c6c55f4a0825e4e279be9d2e0cd535cc68f5
             />
           )}
 
