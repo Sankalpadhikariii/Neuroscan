@@ -9,3 +9,5 @@ backend/*.sqbpro
 *.log
 *.tmp
 *.bak
+.vercel
+.png

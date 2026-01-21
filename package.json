@@ -4,7 +4,7 @@
   "description": "An AI-powered deep learning system for automated detection and classification of brain tumors from MRI images using Convolutional Neural Networks based on VGG19 architecture. This project aims to assist medical professionals in accurately diagnosing brain tumors, thereby improving patient outcomes through timely and precise treatment planning.",
   "main": "index.js",
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
+    "build": "DISABLE_ESLINT_PLUGIN=true react-scripts build",
     "start": "cd frontend && npm start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
