@@ -9,12 +9,11 @@ import string
 from typing import Optional, List, Dict
 from pathlib import Path
 
-<<<<<<< HEAD
+
 import matplotlib
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
 import socketio
-=======
->>>>>>> 60e9c6c55f4a0825e4e279be9d2e0cd535cc68f5
+
 from werkzeug.utils import secure_filename
 import mimetypes
 from datetime import datetime, timedelta
@@ -130,6 +129,7 @@ ALLOWED_ORIGINS = [
     "http://localhost:3001",
     "http://127.0.0.1:3000",
     "http://192.168.1.70:3000"
+    "https://neuroscannn-c7nmwfbc7-sankalpadhikariiis-projects.vercel.app"
 ]
 
 # âœ… APPLY CORS TO ALL ROUTES WITH EXPLICIT SETTINGS
@@ -7907,6 +7907,15 @@ def get_tumor_progression(patient_id):
     except Exception as e:
         logger.error(f"❌ Progression tracking error: {e}")
         return jsonify({"error": str(e)}), 500
+
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        """Health check endpoint for Render"""
+        return jsonify({
+            'status': 'healthy',
+            'message': 'NeuroScan backend is running',
+            'timestamp': datetime.now().isoformat()
+        }), 200
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================
