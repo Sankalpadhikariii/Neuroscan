@@ -1363,13 +1363,45 @@ function EditUserModal({ user, subscriptionPlans, hospitals, onClose, onSuccess,
           {user.userType === 'hospital' && subscriptionPlans.length > 0 && (
             <FormSelect
               label="Subscription Plan"
-              value={formData.subscription_plan || 'free'}
+              value={formData.subscription_plan_name || formData.subscription_plan || 'free'}
               onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
-              options={subscriptionPlans.map(plan => ({
-                value: plan.name,
-                label: `${plan.display_name} - $${plan.price_monthly}/month`
-              }))}
+              options={[
+                { value: 'free', label: 'Free - No charge' },
+                ...subscriptionPlans.map(plan => ({
+                  value: plan.name,
+                  label: `${plan.display_name} - $${plan.price_monthly}/month`
+                }))
+              ]}
             />
+          )}
+
+          {user.userType === 'hospital' && (
+            <>
+              <FormField
+                label="Hospital Name"
+                type="text"
+                value={formData.hospital_name || ''}
+                onChange={(e) => setFormData({ ...formData, hospital_name: e.target.value })}
+              />
+              <FormField
+                label="Contact Person"
+                type="text"
+                value={formData.contact_person || ''}
+                onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+              />
+              <FormField
+                label="Phone"
+                type="tel"
+                value={formData.phone || ''}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+              <FormField
+                label="Address"
+                type="text"
+                value={formData.address || ''}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              />
+            </>
           )}
 
           <FormField
@@ -1377,6 +1409,14 @@ function EditUserModal({ user, subscriptionPlans, hospitals, onClose, onSuccess,
             type="email"
             value={formData.email || ''}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          />
+
+          <FormField
+            label="New Password (leave blank to keep current)"
+            type="password"
+            value={formData.password || ''}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            placeholder="Enter new password or leave blank"
           />
 
           <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>

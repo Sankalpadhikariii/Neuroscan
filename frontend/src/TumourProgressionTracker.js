@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Info, Calendar } from 'lucide-react';
+import { FeatureGate } from './FeatureGate';
 
-export default function TumorProgressionTracker({ scans, darkMode }) {
+function TumorTracker({ scans, darkMode }) {
   const [selectedScanIndex, setSelectedScanIndex] = useState(scans.length - 1);
 
   if (!scans || scans.length < 2) return null;
@@ -494,5 +495,13 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function TumorProgressionTracker({ scans, darkMode }) {
+  return (
+    <FeatureGate feature="tumor_tracking" darkMode={darkMode}>
+      <TumorTracker scans={scans} darkMode={darkMode} />
+    </FeatureGate>
   );
 }

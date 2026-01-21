@@ -1,7 +1,9 @@
 import React from 'react';
 import { X, Bell, AlertTriangle, CheckCircle, Info, Trash2 } from 'lucide-react';
 
-export default function NotificationCenter({ notifications, onClose, onMarkRead, darkMode }) {
+const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+
+export default function NotificationCenter({ notifications, onClose, onMarkRead, onDelete, onClearAll, darkMode }) {
   const bgColor = darkMode ? '#1e293b' : '#ffffff';
   const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
   const textSecondary = darkMode ? '#94a3b8' : '#64748b';
@@ -32,6 +34,81 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
         return '#fee2e2';
       default:
         return '#e0e7ff';
+    }
+  };
+
+  const handleDelete = async (notificationId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications/${notificationId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      if (res.ok) {
+        onDelete && onDelete(notificationId);
+      } else {
+        console.error('Failed to delete notification');
+      }
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications/read-all`, {
+        method: 'PUT',
+        credentials: 'include'
+      });
+      
+      if (res.ok) {
+        // Mark all notifications as read in UI
+        notifications.forEach(n => {
+          if (!n.is_read && onMarkRead) {
+            onMarkRead(n.id);
+          }
+        });
+      } else {
+        console.error('Failed to mark all notifications as read');
+      }
+    } catch (err) {
+      console.error('Error marking all notifications as read:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (window.confirm('Are you sure you want to delete all notifications?')) {
+      try {
+        const res = await fetch(`${API_BASE}/api/notifications/clear-all`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        
+        if (res.ok) {
+          onClearAll && onClearAll();
+        } else {
+          console.error('Failed to clear notifications');
+        }
+      } catch (err) {
+        console.error('Error clearing notifications:', err);
+      }
+    }
+  };
+
+  const handleMarkRead = async (notificationId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications/${notificationId}/read`, {
+        method: 'PUT',
+        credentials: 'include'
+      });
+      
+      if (res.ok) {
+        onMarkRead && onMarkRead(notificationId);
+      } else {
+        console.error('Failed to mark notification as read');
+      }
+    } catch (err) {
+      console.error('Error marking notification as read:', err);
     }
   };
 
@@ -104,20 +181,24 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
             {notifications.map((notif, idx) => (
               <div
                 key={notif.id || idx}
-                onClick={() => !notif.read && onMarkRead(notif.id)}
                 style={{
                   padding: '16px',
-                  background: notif.read 
+                  background: notif.is_read 
                     ? (darkMode ? '#0f172a' : '#f8fafc')
                     : getNotificationColor(notif.type),
                   borderRadius: '12px',
                   border: `1px solid ${borderColor}`,
-                  cursor: notif.read ? 'default' : 'pointer',
+                  cursor: notif.is_read ? 'default' : 'pointer',
                   transition: 'all 0.2s',
-                  position: 'relative'
+                  position: 'relative',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '12px'
                 }}
+                onClick={() => !notif.is_read && handleMarkRead(notif.id)}
               >
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'start' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'start', flex: 1, minWidth: 0 }}>
                   <div style={{ flexShrink: 0, marginTop: '2px' }}>
                     {getNotificationIcon(notif.type)}
                   </div>
@@ -126,7 +207,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                     <p style={{ 
                       margin: '0 0 6px 0',
                       fontSize: '14px',
-                      fontWeight: notif.read ? '400' : '600',
+                      fontWeight: notif.is_read ? '400' : '600',
                       color: textPrimary,
                       lineHeight: '1.5'
                     }}>
@@ -138,7 +219,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                       fontSize: '12px',
                       color: textSecondary
                     }}>
-                      {formatTimestamp(notif.timestamp || notif.created_at)}
+                      {formatTimestamp(notif.created_at)}
                     </p>
 
                     {notif.scan_id && (
@@ -160,7 +241,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                     )}
                   </div>
 
-                  {!notif.read && (
+                  {!notif.is_read && (
                     <div style={{
                       width: '8px',
                       height: '8px',
@@ -171,6 +252,32 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                     }} />
                   )}
                 </div>
+
+                {/* Delete button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(notif.id);
+                  }}
+                  style={{
+                    padding: '6px 8px',
+                    background: 'transparent',
+                    color: textSecondary,
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'color 0.2s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
+                  onMouseOut={(e) => e.currentTarget.style.color = textSecondary}
+                  title="Delete notification"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             ))}
           </div>
@@ -186,9 +293,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
           gap: '8px'
         }}>
           <button
-            onClick={() => {
-              notifications.forEach(n => !n.read && onMarkRead(n.id));
-            }}
+            onClick={handleMarkAllRead}
             style={{
               flex: 1,
               padding: '10px',
@@ -198,12 +303,16 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '14px',
-              fontWeight: '500'
+              fontWeight: '500',
+              transition: 'background 0.2s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = '#4f46e5'}
+            onMouseOut={(e) => e.currentTarget.style.background = '#6366f1'}
           >
             Mark all as read
           </button>
           <button
+            onClick={handleClearAll}
             style={{
               padding: '10px',
               background: darkMode ? '#334155' : '#f1f5f9',
@@ -213,8 +322,12 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              transition: 'background 0.2s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = darkMode ? '#475569' : '#e2e8f0'}
+            onMouseOut={(e) => e.currentTarget.style.background = darkMode ? '#334155' : '#f1f5f9'}
+            title="Delete all notifications"
           >
             <Trash2 size={18} />
           </button>

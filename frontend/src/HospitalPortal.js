@@ -1,1212 +1,1022 @@
-import React, { useState, useEffect, useRef } from "react";
-import {
-  Upload, Brain, LogOut, Users, FileText, Plus, Loader, FileDown,
-  AlertCircle, BarChart3, Settings, CheckCircle, X, MessageCircle,
-  Download, CreditCard, Zap, Send, Paperclip, Bell, TrendingUp,
-  Eye, AlertTriangle, Image as ImageIcon, Video, Phone
-} from "lucide-react";
-import { io } from "socket.io-client";
-import EnhancedChat from "./EnhancedChat";
-import NotificationCentre from "./NotificationCentre";
-import GradCamvisualization from "./GradCamvisualization";
-import TumourProgressionTracker from "./TumourProgressionTracker";
-import VideoCall from './Videocall';
+import React, { useState, useEffect } from 'react';
+import { Moon, Sun, Crown, Settings, Upload, Brain, Users, BarChart3, LogOut, FileText } from 'lucide-react';
+import ChatbotToggle from './ChatbotToggle';
 
-const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
-const socket = io(API_BASE, { withCredentials: true });
+const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
-export default function HospitalPortalEnhanced({ user, onLogout }) {
-  const [darkMode, setDarkMode] = useState(
-    localStorage.getItem("hospitalTheme") === "dark"
-  );
+export default function HospitalPortal({ user, onLogout }) {
+  // Load dark mode from localStorage on mount
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('hospitalTheme');
+    return saved === 'dark';
+  });
 
-  const [view, setView] = useState("scan");
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [subscription, setSubscription] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState([]);
-  const [selectedPatient, setSelectedPatient] = useState(null);
-
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [prediction, setPrediction] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
+  const [dashboard, setDashboard] = useState({ stats: {}, recent_scans: [] });
   const [usage, setUsage] = useState(null);
-  const [showPatientInfoModal, setShowPatientInfoModal] = useState(false);
-  
-  // New states for enhanced features
-  const [showChat, setShowChat] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [gradcamData, setGradcamData] = useState(null);
-  const [validationWarning, setValidationWarning] = useState(null);
-  const [patientScans, setPatientScans] = useState([]);
-  
-  // Video call states
-  const [showVideoCall, setShowVideoCall] = useState(false);
-  const [callType, setCallType] = useState('video');
-
-  const fileInputRef = useRef(null);
+  const [lastUploadResult, setLastUploadResult] = useState(null);
 
   useEffect(() => {
+    loadSubscription();
+    loadDashboard();
     loadPatients();
-    loadUsageStatus();
-    loadNotifications();
-    setupSocketListeners();
-
-    return () => {
-      socket.off('new_notification');
-      socket.off('new_message');
-      socket.off('patient_update');
-    };
+    loadUsage();
+    
+    // Poll usage every 30 seconds to keep it updated
+    const usageInterval = setInterval(loadUsage, 30000);
+    
+    return () => clearInterval(usageInterval);
   }, []);
 
-  useEffect(() => {
-    if (selectedPatient) {
-      loadPatientScans(selectedPatient.id);
-    }
-  }, [selectedPatient]);
-
-  function setupSocketListeners() {
-    socket.on('new_notification', (notification) => {
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
-      showToast(notification.message, 'info');
-    });
-
-    socket.on('new_message', (message) => {
-      if (message.sender_id !== user.id) {
-        setUnreadCount(prev => prev + 1);
-        showToast('New message received', 'info');
+  async function loadUsage() {
+    try {
+      const res = await fetch(`${API_BASE}/hospital/usage-status`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('📊 Usage data received:', data);
+        console.log('📊 Usage percentage:', data.usage_percentage);
+        console.log('📊 Scans used:', data.scans_used);
+        console.log('📊 Max scans:', data.max_scans);
+        
+        // If backend returns percentage as 0-1 instead of 0-100, multiply by 100
+        if (data.usage_percentage && data.usage_percentage < 1 && data.usage_percentage > 0) {
+          data.usage_percentage = data.usage_percentage * 100;
+        }
+        
+        setUsage(data);
+      } else {
+        console.error('Failed to load usage, status:', res.status);
       }
-    });
+    } catch (err) {
+      console.error('Failed to load usage:', err);
+    }
+  }
 
-    socket.on('patient_update', (data) => {
-      loadPatients();
-      showToast('Patient information updated', 'success');
-    });
+  async function loadDashboard() {
+    try {
+      const res = await fetch(`${API_BASE}/hospital/dashboard`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDashboard(data);
+      } else {
+        console.error('Dashboard error:', res.status);
+        setDashboard({ stats: {}, recent_scans: [] });
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard:', err);
+      setDashboard({ stats: {}, recent_scans: [] });
+    }
   }
 
   async function loadPatients() {
     try {
-      const res = await fetch(`${API_BASE}/hospital/patients`, { credentials: "include" });
-      const data = await res.json();
-      setPatients(data.patients || []);
+      const res = await fetch(`${API_BASE}/hospital/patients`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPatients(data.patients || []);
+      }
     } catch (err) {
-      console.error('Error loading patients:', err);
+      console.error('Failed to load patients:', err);
     }
   }
 
-  async function loadUsageStatus() {
+  // Persist dark mode to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('hospitalTheme', darkMode ? 'dark' : 'light');
+    // Also apply to document for global styling
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  async function loadSubscription() {
     try {
-      const res = await fetch(`${API_BASE}/hospital/usage-status`, { credentials: "include" });
+      const res = await fetch(`${API_BASE}/hospital/subscription`, {
+        credentials: 'include'
+      });
       if (res.ok) {
         const data = await res.json();
-        setUsage(data);
+        setSubscription(data.subscription);
       }
     } catch (err) {
-      console.error('Error loading usage:', err);
+      console.error('Failed to load subscription:', err);
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function loadNotifications() {
+  async function handleUpgradeClick() {
+    // Redirect to subscription dashboard
+    window.location.href = '/subscription';
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: darkMode ? '#0f172a' : '#f8fafc',
+    }}>
+      {/* Top Navigation Bar */}
+      <div style={{
+        background: darkMode ? '#1e293b' : '#ffffff',
+        borderBottom: `1px solid ${darkMode ? '#334155' : '#e2e8f0'}`,
+        padding: '16px 40px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: darkMode ? '#f1f5f9' : '#0f172a' }}>
+            NeuroScan Hospital Portal
+          </h1>
+          
+          {/* Plan Usage Indicator */}
+          {usage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div>
+                <div style={{ 
+                  color: darkMode ? '#94a3b8' : '#64748b', 
+                  fontSize: '12px', 
+                  fontWeight: '600',
+                  marginBottom: '4px'
+                }}>
+                  Plan Usage
+                </div>
+                <div style={{
+                  width: '120px',
+                  height: '8px',
+                  background: darkMode ? '#334155' : '#e2e8f0',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  {usage.max_scans === 'unlimited' ? (
+                    <div style={{
+                      width: '100%',
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                      opacity: 0.3
+                    }} />
+                  ) : (
+                    <div style={{
+                      width: `${Math.min(
+                        usage.usage_percentage || 
+                        (usage.scans_used && usage.max_scans && usage.max_scans !== 'unlimited' 
+                          ? (usage.scans_used / usage.max_scans) * 100 
+                          : 0) || 0, 
+                        100
+                      )}%`,
+                      height: '100%',
+                      background: (usage.usage_percentage || 0) > 90 ? '#ef4444' : (usage.usage_percentage || 0) > 75 ? '#f59e0b' : '#10b981',
+                      transition: 'width 0.3s'
+                    }} />
+                  )}
+                </div>
+              </div>
+              <div style={{
+                color: darkMode ? '#f1f5f9' : '#0f172a',
+                fontSize: '14px',
+                fontWeight: '600',
+                minWidth: '60px'
+              }}>
+                {usage.max_scans === 'unlimited' ? (
+                  '∞'
+                ) : (
+                  `${Math.round(
+                    usage.usage_percentage || 
+                    (usage.scans_used && usage.max_scans && usage.max_scans !== 'unlimited'
+                      ? (usage.scans_used / usage.max_scans) * 100 
+                      : 0) || 0
+                  )}%`
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onLogout}
+          style={{
+            padding: '10px 16px',
+            background: '#ef4444',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}
+        >
+          <LogOut size={18} />
+          Logout
+        </button>
+      </div>
+
+      {/* Tab Navigation */}
+      <div style={{
+        background: darkMode ? '#0f172a' : '#f8fafc',
+        borderBottom: `1px solid ${darkMode ? '#334155' : '#e2e8f0'}`,
+        padding: '0 40px',
+        display: 'flex',
+        gap: '0'
+      }}>
+        {[
+          { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+          { id: 'patients', label: 'Patients', icon: Users },
+          { id: 'upload', label: 'Upload Scan', icon: Brain },
+          { id: 'settings', label: 'Settings', icon: Settings }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: '16px 24px',
+                background: 'none',
+                border: 'none',
+                borderBottom: isActive ? '3px solid #667eea' : '3px solid transparent',
+                color: isActive 
+                  ? (darkMode ? '#f1f5f9' : '#0f172a')
+                  : (darkMode ? '#94a3b8' : '#64748b'),
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '14px',
+                fontWeight: isActive ? '600' : '500',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Icon size={18} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content Area */}
+      <div style={{ padding: '40px', maxWidth: '1200px', margin: '0 auto' }}>
+        {activeTab === 'dashboard' && <DashboardTab dashboard={dashboard} subscription={subscription} darkMode={darkMode} />}
+        {activeTab === 'patients' && <PatientsTab patients={patients} darkMode={darkMode} setPatients={setPatients} />}
+        {activeTab === 'upload' && <UploadTab darkMode={darkMode} lastResult={lastUploadResult} onUploadSuccess={(result) => {
+          setLastUploadResult(result);
+          loadDashboard();
+          loadUsage();
+          loadPatients();
+        }} />}
+        {activeTab === 'settings' && <SettingsTab subscription={subscription} darkMode={darkMode} setDarkMode={setDarkMode} />}
+      </div>
+      <ChatbotToggle theme={darkMode ? 'dark' : 'light'} user={user} />
+    </div>
+  );
+}
+
+function DashboardTab({ dashboard, subscription, darkMode }) {
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+
+  if (!dashboard || !dashboard.stats) {
+    return <div style={{ color: textSecondary }}>Loading dashboard...</div>;
+  }
+
+  const stats = dashboard.stats;
+
+  return (
+    <div>
+      <h2 style={{ color: textPrimary, marginBottom: '24px' }}>Dashboard</h2>
+      
+      {/* Stats Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>Total Patients</div>
+          <div style={{ color: textPrimary, fontSize: '36px', fontWeight: 'bold', marginTop: '8px' }}>{stats.total_patients || 0}</div>
+        </div>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>Total Scans</div>
+          <div style={{ color: textPrimary, fontSize: '36px', fontWeight: 'bold', marginTop: '8px' }}>{stats.total_scans || 0}</div>
+        </div>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>Tumors Detected</div>
+          <div style={{ color: '#ef4444', fontSize: '36px', fontWeight: 'bold', marginTop: '8px' }}>{stats.tumor_detected || 0}</div>
+        </div>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>This Month</div>
+          <div style={{ color: textPrimary, fontSize: '36px', fontWeight: 'bold', marginTop: '8px' }}>{stats.scans_this_month || 0}</div>
+        </div>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>Active Chats</div>
+          <div style={{ color: '#667eea', fontSize: '36px', fontWeight: 'bold', marginTop: '8px' }}>{stats.active_chats || 0}</div>
+        </div>
+        <div style={{ background: bgColor, padding: '20px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+          <div style={{ color: textSecondary, fontSize: '12px', textTransform: 'uppercase', fontWeight: '600' }}>Plan</div>
+          <div style={{ color: textPrimary, fontSize: '20px', fontWeight: 'bold', marginTop: '8px', textTransform: 'capitalize' }}>{subscription?.plan_name || 'N/A'}</div>
+        </div>
+      </div>
+
+      {/* Recent Scans */}
+      {dashboard.recent_scans && dashboard.recent_scans.length > 0 && (
+        <div>
+          <h3 style={{ color: textPrimary, marginBottom: '16px' }}>Recent Scans</h3>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {dashboard.recent_scans.map((scan, idx) => (
+              <div key={idx} style={{ background: bgColor, padding: '16px', borderRadius: '12px', border: `1px solid ${borderColor}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: textPrimary, fontWeight: '600' }}>Patient: {scan.patient_name}</div>
+                    <div style={{ color: textSecondary, fontSize: '12px', marginTop: '4px' }}>
+                      Type: {scan.scan_type} | Date: {new Date(scan.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div style={{ color: scan.is_tumor ? '#ef4444' : '#10b981', fontWeight: '600' }}>
+                    {scan.is_tumor ? 'TUMOR DETECTED' : 'Normal'}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PatientsTab({ patients, darkMode, setPatients }) {
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+  const [showAddForm, setShowAddForm] = React.useState(false);
+  const [formData, setFormData] = React.useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    date_of_birth: '',
+    gender: 'Male',
+    address: '',
+    emergency_contact: '',
+    emergency_phone: ''
+  });
+  const [loading, setLoading] = React.useState(false);
+  const [patientsList, setPatientsList] = React.useState(patients);
+  const [chatOpen, setChatOpen] = React.useState(false);
+  const [videoOpen, setVideoOpen] = React.useState(false);
+  const [scansOpen, setScansOpen] = React.useState(false);
+  const [selectedPatient, setSelectedPatient] = React.useState(null);
+  const [patientScans, setPatientScans] = React.useState([]);
+
+  async function handleAddPatient(e) {
+    e.preventDefault();
+    setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/notifications`, { credentials: "include" });
+      console.log('📤 Sending patient data:', formData);
+      const res = await fetch(`${API_BASE}/hospital/patients`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const responseText = await res.text();
+      console.log('Response status:', res.status);
+      console.log('Response text:', responseText);
       if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.notifications.filter(n => !n.read).length);
+        alert('Patient added successfully!');
+        setShowAddForm(false);
+        setFormData({
+          full_name: '', email: '', phone: '', date_of_birth: '',
+          gender: 'Male', address: '', emergency_contact: '', emergency_phone: ''
+        });
+        // Reload patients
+        const list = await fetch(`${API_BASE}/hospital/patients`, { credentials: 'include' });
+        const data = await list.json();
+        setPatientsList(data.patients || []);
+      } else {
+        alert('Failed to add patient: ' + responseText);
       }
     } catch (err) {
-      console.error('Error loading notifications:', err);
+      console.error('Error adding patient:', err);
+      alert('Error: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function loadPatientScans(patientId) {
     try {
-      const res = await fetch(`${API_BASE}/hospital/patient-scans/${patientId}`, { 
-        credentials: "include" 
+      const res = await fetch(`${API_BASE}/hospital/patients/${patientId}/scans`, {
+        credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
         setPatientScans(data.scans || []);
       }
     } catch (err) {
-      console.error('Error loading patient scans:', err);
+      console.error('Error loading scans:', err);
     }
   }
 
-  function validateMRIImage(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const reader = new FileReader();
-
-      reader.onload = (e) => {
-        img.onload = () => {
-          // Basic MRI validation checks
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          ctx.drawImage(img, 0, 0);
-
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
-
-          // Check if image is grayscale (typical for MRI)
-          let isGrayscale = true;
-          let hasContrast = false;
-          let minIntensity = 255;
-          let maxIntensity = 0;
-
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-
-            // Check if RGB values are similar (grayscale characteristic)
-            if (Math.abs(r - g) > 10 || Math.abs(g - b) > 10 || Math.abs(r - b) > 10) {
-              isGrayscale = false;
-            }
-
-            minIntensity = Math.min(minIntensity, r);
-            maxIntensity = Math.max(maxIntensity, r);
-          }
-
-          hasContrast = (maxIntensity - minIntensity) > 50;
-
-          const warnings = [];
-          if (!isGrayscale) {
-            warnings.push("Image appears to be in color. MRI scans are typically grayscale.");
-          }
-          if (!hasContrast) {
-            warnings.push("Image has low contrast. This may not be a valid medical scan.");
-          }
-          if (img.width < 128 || img.height < 128) {
-            warnings.push("Image resolution is too low for accurate analysis.");
-          }
-
-          resolve({
-            isValid: warnings.length === 0,
-            warnings: warnings,
-            confidence: warnings.length === 0 ? 'high' : warnings.length === 1 ? 'medium' : 'low'
-          });
-        };
-
-        img.onerror = () => {
-          reject(new Error('Failed to load image'));
-        };
-
-        img.src = e.target.result;
-      };
-
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-
-      reader.readAsDataURL(file);
-    });
+  function openChatModal(patient) {
+    setSelectedPatient(patient);
+    setChatOpen(true);
   }
 
-  async function handleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    setPrediction(null);
-    setError(null);
-    setValidationWarning(null);
-    setGradcamData(null);
-
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!validTypes.includes(file.type)) {
-      setError('Invalid file type. Please upload a JPEG or PNG image.');
-      setValidationWarning({
-        type: 'error',
-        message: 'Only JPEG and PNG images are accepted for MRI analysis.'
-      });
-      return;
-    }
-
-    setSelectedFile(file);
-    const previewUrl = URL.createObjectURL(file);
-    setPreview(previewUrl);
-
-    // Validate if it's an MRI image
-    try {
-      const validation = await validateMRIImage(file);
-      
-      if (!validation.isValid) {
-        setValidationWarning({
-          type: 'warning',
-          message: 'Image validation warnings detected:',
-          warnings: validation.warnings,
-          confidence: validation.confidence
-        });
-        
-        // Send notification
-        const notif = {
-          type: 'warning',
-          message: `Uploaded image may not be a valid MRI scan: ${validation.warnings.join(', ')}`,
-          timestamp: new Date().toISOString()
-        };
-        setNotifications(prev => [notif, ...prev]);
-        setUnreadCount(prev => prev + 1);
-      } else {
-        showToast('Valid MRI image detected', 'success');
-      }
-    } catch (err) {
-      console.error('Validation error:', err);
-      setValidationWarning({
-        type: 'warning',
-        message: 'Could not validate image format. Proceed with caution.',
-        warnings: ['Image validation failed']
-      });
-    }
+  function openVideoModal(patient) {
+    setSelectedPatient(patient);
+    setVideoOpen(true);
   }
 
-  async function performAnalysis() {
-    if (!selectedFile) {
-      setError('Please select an image file');
-      return;
-    }
-
-    if (!selectedPatient?.id) {
-      setError('Please select a patient before analyzing');
-      return;
-    }
-
-    if (validationWarning && validationWarning.type === 'error') {
-      setError('Cannot analyze: Invalid image format');
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    setPrediction(null);
-
-    const formData = new FormData();
-    formData.append("image", selectedFile);
-    formData.append("patient_id", selectedPatient.id.toString());
-    formData.append("generate_gradcam", "true");
-
-    try {
-      const res = await fetch(`${API_BASE}/hospital/predict`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `Server error`);
-      }
-
-      const data = await res.json();
-      
-      if (data.error) {
-        setError(data.message || data.error);
-        setPrediction(null);
-      } else {
-        setPrediction(data);
-        
-        // Load Grad-CAM if available
-        if (data.gradcam_available) {
-          loadGradCAM(data.scan_id);
-        }
-
-        // Refresh patient scans to show progression
-        await loadPatientScans(selectedPatient.id);
-        
-        // Send notification
-        const notif = {
-          type: data.is_tumor ? 'alert' : 'success',
-          message: `New scan analyzed for ${selectedPatient.full_name}: ${data.prediction}`,
-          timestamp: new Date().toISOString(),
-          scan_id: data.scan_id
-        };
-        socket.emit('send_notification', {
-          recipient_id: selectedPatient.id,
-          notification: notif
-        });
-
-        showToast('Analysis completed successfully', 'success');
-      }
-      
-      await loadUsageStatus();
-    } catch (err) {
-      console.error('Analysis failed:', err);
-      setError(err.message || 'Failed to perform analysis.');
-      setPrediction(null);
-    } finally {
-      setLoading(false);
-    }
+  function openScansModal(patient) {
+    setSelectedPatient(patient);
+    loadPatientScans(patient.id);
+    setScansOpen(true);
   }
-
-  async function loadGradCAM(scanId) {
-    try {
-      const res = await fetch(`${API_BASE}/gradcam/${scanId}`, {
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        setGradcamData(url);
-      }
-    } catch (err) {
-      console.error('Failed to load Grad-CAM:', err);
-    }
-  }
-
-  async function downloadPDF(scanId) {
-    try {
-      const res = await fetch(`${API_BASE}/generate-report/${scanId}`, {
-        credentials: 'include'
-      });
-      
-      if (!res.ok) throw new Error('Failed to generate report');
-      
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `NeuroScan_Report_${scanId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      showToast('Report downloaded successfully', 'success');
-    } catch (err) {
-      console.error('PDF download failed:', err);
-      setError('Failed to download PDF report');
-    }
-  }
-
-  function handleAnalyzeClick() {
-    if (!selectedFile) {
-      setError('Please select an image file first');
-      return;
-    }
-    
-    if (!selectedPatient) {
-      setShowPatientInfoModal(true);
-      return;
-    }
-    
-    performAnalysis();
-  }
-
-  async function handlePatientInfoSubmit(formData) {
-    setShowPatientInfoModal(false);
-
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const payload = formData === null ? {
-        full_name: `Anonymous Scan ${new Date().toISOString()}`,
-        email: '',
-        phone: ''
-      } : {
-        full_name: formData.patient_name || `Patient ${new Date().toISOString()}`,
-        email: formData.email || '',
-        phone: formData.phone || ''
-      };
-
-      const res = await fetch(`${API_BASE}/hospital/patients`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        throw new Error(`Failed to create patient`);
-      }
-
-      const data = await res.json();
-      const patient = data.patient;
-      
-      if (patient && patient.id) {
-        setSelectedPatient(patient);
-        await loadPatients();
-        await performAnalysisWithPatient(patient.id);
-      }
-    } catch (err) {
-      console.error('Patient creation failed:', err);
-      setError('Unable to create patient for scan.');
-      setLoading(false);
-    }
-  }
-
-  async function performAnalysisWithPatient(patientId) {
-    if (!selectedFile || !patientId) return;
-    
-    setLoading(true);
-    setError(null);
-    setPrediction(null);
-
-    const formData = new FormData();
-    formData.append("image", selectedFile);
-    formData.append("patient_id", patientId.toString());
-    formData.append("generate_gradcam", "true");
-
-    try {
-      const res = await fetch(`${API_BASE}/hospital/predict`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error);
-      }
-
-      const data = await res.json();
-      
-      if (data.error) {
-        setError(data.message || data.error);
-      } else {
-        setPrediction(data);
-        
-        if (data.gradcam_available) {
-          loadGradCAM(data.scan_id);
-        }
-
-        await loadPatientScans(patientId);
-      }
-      
-      await loadUsageStatus();
-    } catch (err) {
-      console.error('Analysis failed:', err);
-      setError(err.message || 'Failed to perform analysis.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function showToast(message, type = 'info') {
-    // Simple toast notification (you can replace with a proper toast library)
-    const toast = document.createElement('div');
-    toast.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 16px 24px;
-      background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#6366f1'};
-      color: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 10000;
-      animation: slideIn 0.3s ease;
-    `;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease';
-      setTimeout(() => document.body.removeChild(toast), 300);
-    }, 3000);
-  }
-
-  function startVideoCall() {
-    if (!selectedPatient) {
-      showToast('Please select a patient first', 'error');
-      return;
-    }
-    setCallType('video');
-    setShowVideoCall(true);
-  }
-
-  function startAudioCall() {
-    if (!selectedPatient) {
-      showToast('Please select a patient first', 'error');
-      return;
-    }
-    setCallType('audio');
-    setShowVideoCall(true);
-  }
-
-  const bgColor = darkMode ? '#0f172a' : '#f8fafc';
-  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
-  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
 
   return (
-    <div className={darkMode ? "dark" : ""}>
-      <div style={{ display: "flex", minHeight: "100vh", background: bgColor }}>
-        {/* Sidebar */}
-        <aside style={{ 
-          width: 260, 
-          background: darkMode ? '#1e293b' : 'white', 
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          borderRight: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`
-        }}>
-          <div style={{ marginBottom: '32px' }}>
-            <h1 style={{ 
-              fontSize: '24px', 
-              fontWeight: 'bold', 
-              color: '#6366f1',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <Brain size={28} /> NeuroScan
-            </h1>
-            <p style={{ fontSize: '14px', color: textSecondary, marginTop: '4px' }}>
-              Hospital Portal
-            </p>
-          </div>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h2 style={{ color: textPrimary, margin: 0 }}>Patients ({patientsList?.length || 0})</h2>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          style={{
+            padding: '10px 20px',
+            background: '#667eea',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '600'
+          }}
+        >
+          {showAddForm ? 'Cancel' : '+ Add Patient'}
+        </button>
+      </div>
 
-          {/* Notification Bell */}
-          <div style={{ 
-            position: 'relative', 
-            marginBottom: '20px',
-            display: 'flex',
-            justifyContent: 'flex-end'
-          }}>
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
+      {/* Add Patient Form */}
+      {showAddForm && (
+        <div style={{
+          background: bgColor,
+          padding: '24px',
+          borderRadius: '12px',
+          border: `1px solid ${borderColor}`,
+          marginBottom: '24px'
+        }}>
+          <h3 style={{ color: textPrimary, marginTop: 0 }}>Add New Patient</h3>
+          <form onSubmit={handleAddPatient} style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+              <input
+                type="text"
+                placeholder="Full Name"
+                value={formData.full_name}
+                onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+                required
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              />
+              <input
+                type="tel"
+                placeholder="Phone"
+                value={formData.phone}
+                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              />
+              <input
+                type="date"
+                placeholder="Date of Birth"
+                value={formData.date_of_birth}
+                onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              />
+              <select
+                value={formData.gender}
+                onChange={(e) => setFormData({...formData, gender: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              >
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <input
+              type="text"
+              placeholder="Address"
+              value={formData.address}
+              onChange={(e) => setFormData({...formData, address: e.target.value})}
               style={{
                 padding: '10px',
-                background: darkMode ? '#334155' : '#f1f5f9',
+                border: `1px solid ${borderColor}`,
+                borderRadius: '6px',
+                background: darkMode ? '#0f172a' : '#ffffff',
+                color: textPrimary
+              }}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+              <input
+                type="text"
+                placeholder="Emergency Contact Name"
+                value={formData.emergency_contact}
+                onChange={(e) => setFormData({...formData, emergency_contact: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              />
+              <input
+                type="tel"
+                placeholder="Emergency Phone"
+                value={formData.emergency_phone}
+                onChange={(e) => setFormData({...formData, emergency_phone: e.target.value})}
+                style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  background: darkMode ? '#0f172a' : '#ffffff',
+                  color: textPrimary
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                padding: '12px',
+                background: '#667eea',
+                color: 'white',
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                position: 'relative'
+                fontWeight: '600',
+                opacity: loading ? 0.7 : 1
               }}
             >
-              <Bell size={20} color={textPrimary} />
-              {unreadCount > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '-5px',
-                  right: '-5px',
-                  background: '#ef4444',
-                  color: 'white',
-                  borderRadius: '50%',
-                  width: '20px',
-                  height: '20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '11px',
-                  fontWeight: 'bold'
-                }}>
-                  {unreadCount}
-                </span>
-              )}
+              {loading ? 'Adding...' : 'Add Patient'}
             </button>
+          </form>
+        </div>
+      )}
+
+      {/* Patients List */}
+      {patientsList && patientsList.length > 0 ? (
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {patientsList.map((patient) => (
+            <div key={patient.id} style={{
+              background: bgColor,
+              padding: '20px',
+              borderRadius: '12px',
+              border: `1px solid ${borderColor}`
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ color: textPrimary, fontWeight: '600', fontSize: '16px' }}>
+                    {patient.full_name}
+                  </div>
+                  <div style={{ color: textSecondary, fontSize: '12px', marginTop: '4px' }}>
+                    Code: {patient.patient_code} | Phone: {patient.phone}
+                  </div>
+                  <div style={{ color: textSecondary, fontSize: '12px' }}>
+                    Email: {patient.email} | DOB: {patient.date_of_birth}
+                  </div>
+                  <div style={{ color: textSecondary, fontSize: '12px' }}>
+                    Scans: {patient.scan_count || 0} | Doctor: {patient.doctor_name || 'Unassigned'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => openChatModal(patient)}
+                    style={{
+                      padding: '8px 16px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    💬 Chat
+                  </button>
+                  <button
+                    onClick={() => openVideoModal(patient)}
+                    style={{
+                      padding: '8px 16px',
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    📹 Video Call
+                  </button>
+                  <button
+                    onClick={() => openScansModal(patient)}
+                    style={{
+                      padding: '8px 16px',
+                      background: '#f59e0b',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    🧠 Scans
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: textSecondary, textAlign: 'center', padding: '40px' }}>
+          No patients yet. Add one to get started!
+        </div>
+      )}
+
+      {/* Chat Modal */}
+      {chatOpen && selectedPatient && (
+        <ChatModal
+          patient={selectedPatient}
+          darkMode={darkMode}
+          onClose={() => {
+            setChatOpen(false);
+            setSelectedPatient(null);
+          }}
+        />
+      )}
+
+      {/* Video Call Modal */}
+      {videoOpen && selectedPatient && (
+        <VideoCallModal
+          patient={selectedPatient}
+          darkMode={darkMode}
+          onClose={() => {
+            setVideoOpen(false);
+            setSelectedPatient(null);
+          }}
+        />
+      )}
+
+      {/* Scans History Modal */}
+      {scansOpen && selectedPatient && (
+        <ScansHistoryModal
+          patient={selectedPatient}
+          scans={patientScans}
+          darkMode={darkMode}
+          onClose={() => {
+            setScansOpen(false);
+            setSelectedPatient(null);
+            setPatientScans([]);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function UploadTab({ darkMode, lastResult, onUploadSuccess }) {
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+  const [file, setFile] = React.useState(null);
+  const [patientId, setPatientId] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [patients, setPatients] = React.useState([]);
+
+  // Load patients on mount
+  React.useEffect(() => {
+    loadPatients();
+  }, []);
+
+  async function loadPatients() {
+    try {
+      const res = await fetch(`${API_BASE}/hospital/patients`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setPatients(data.patients || []);
+      }
+    } catch (err) {
+      console.error('Error loading patients:', err);
+    }
+  }
+
+  async function handleUpload(e) {
+    e.preventDefault();
+    if (!file || !patientId) {
+      alert('Please select a patient and file');
+      return;
+    }
+
+    setLoading(true);
+    
+    // Use FormData and append 'image' field (not 'file')
+    const uploadFormData = new FormData();
+    uploadFormData.append('image', file);
+    uploadFormData.append('patient_id', patientId);
+
+    try {
+      const res = await fetch(`${API_BASE}/hospital/predict`, {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        onUploadSuccess(result);
+        alert('Scan uploaded and analyzed successfully!');
+        setFile(null);
+        setPatientId('');
+      } else {
+        const error = await res.json();
+        alert('Upload failed: ' + (error.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ color: textPrimary, marginBottom: '24px' }}>Upload Brain Scan</h2>
+      <form onSubmit={handleUpload} style={{ maxWidth: '500px' }}>
+        <div style={{
+          background: bgColor,
+          padding: '24px',
+          borderRadius: '12px',
+          border: `1px solid ${borderColor}`,
+          marginBottom: '20px'
+        }}>
+          {/* Patient Selection */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ color: textPrimary, fontWeight: '600', display: 'block', marginBottom: '8px' }}>
+              Select Patient *
+            </label>
+            <select
+              value={patientId}
+              onChange={(e) => setPatientId(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                border: `1px solid ${borderColor}`,
+                borderRadius: '6px',
+                background: darkMode ? '#0f172a' : '#ffffff',
+                color: textPrimary,
+                boxSizing: 'border-box'
+              }}
+              required
+            >
+              <option value="">Choose a patient...</option>
+              {patients.map(p => (
+                <option key={p.id} value={p.id}>{p.full_name} ({p.patient_code})</option>
+              ))}
+            </select>
           </div>
 
-          {/* Business Model Banner */}
-          {usage && (
-            <div style={{
-              padding: '16px',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              borderRadius: '12px',
-              marginBottom: '24px',
-              color: 'white'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <Zap size={18} />
-                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600' }}>
-                  {usage.plan_type === 'free' ? 'Free Plan' : 
-                   usage.plan_type === 'basic' ? 'Basic Plan' :
-                   usage.plan_type === 'premium' ? 'Premium Plan' : 
-                   'Enterprise Plan'}
-                </h3>
-              </div>
-              <p style={{ margin: '4px 0', fontSize: '12px', opacity: 0.9 }}>
-                {usage.scans_used || 0} / {usage.scan_limit === -1 ? '∞' : usage.scan_limit} scans used
-              </p>
-              {usage.scan_limit !== -1 && (
-                <div style={{
-                  width: '100%',
-                  height: '4px',
-                  background: 'rgba(255,255,255,0.3)',
-                  borderRadius: '2px',
-                  marginTop: '8px',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{
-                    width: `${Math.min((usage.scans_used / usage.scan_limit) * 100, 100)}%`,
-                    height: '100%',
-                    background: 'white',
-                    borderRadius: '2px',
-                    transition: 'width 0.3s ease'
-                  }} />
-                </div>
-              )}
-            </div>
-          )}
-
-          <nav style={{ flex: 1 }}>
-            <NavItem 
-              icon={<Upload size={20} />} 
-              label="New Scan" 
-              active={view === "scan"}
-              onClick={() => setView("scan")}
-            />
-            <NavItem 
-              icon={<Users size={20} />} 
-              label="Patients" 
-              active={view === "patients"}
-              onClick={() => setView("patients")}
-            />
-            <NavItem 
-              icon={<MessageCircle size={20} />} 
-              label="Chat" 
-              active={view === "chat"}
-              onClick={() => setView("chat")}
-              badge={showChat && unreadCount > 0 ? unreadCount : null}
-            />
-            <NavItem 
-              icon={<BarChart3 size={20} />} 
-              label="Analytics" 
-              active={view === "analytics"}
-              onClick={() => setView("analytics")}
-            />
-            <NavItem 
-              icon={<Settings size={20} />} 
-              label="Settings" 
-              active={view === "settings"}
-              onClick={() => setView("settings")}
-            />
-          </nav>
-
-          <button
-            onClick={onLogout}
-            style={{
-              width: '100%',
-              padding: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              background: '#ef4444',
-              color: 'white',
-              border: 'none',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              transition: 'all 0.2s'
+          {/* File Upload Area */}
+          <div style={{
+            border: `2px dashed ${borderColor}`,
+            borderRadius: '8px',
+            padding: '30px',
+            textAlign: 'center',
+            marginBottom: '20px',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.currentTarget.style.background = darkMode ? '#334155' : '#f0f4f8';
+            }}
+            onDragLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer.files[0]) {
+                setFile(e.dataTransfer.files[0]);
+              }
             }}
           >
-            <LogOut size={20} />
-            Logout
-          </button>
-        </aside>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+              id="fileInput"
+            />
+            <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block' }}>
+              <div style={{ fontSize: '48px', marginBottom: '12px' }}>🧠</div>
+              <p style={{ color: textPrimary, fontWeight: '600', margin: '0 0 4px 0' }}>
+                Click to upload or drag and drop
+              </p>
+              <p style={{ color: textSecondary, fontSize: '12px', margin: '0' }}>
+                PNG, JPG, DICOM up to 50MB
+              </p>
+            </label>
+          </div>
 
-        {/* Main Content */}
-        <main style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
-          {/* Quick Action Bar for Selected Patient */}
-          {selectedPatient && (
+          {file && (
             <div style={{
-              marginBottom: '24px',
-              padding: '20px',
-              background: darkMode ? '#1e293b' : '#ffffff',
-              borderRadius: '16px',
-              border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              boxShadow: darkMode ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.05)'
+              background: darkMode ? '#0f172a' : '#f0f4f8',
+              padding: '12px',
+              borderRadius: '6px',
+              marginBottom: '20px',
+              color: textPrimary
             }}>
-              <div>
-                <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '600', color: textPrimary }}>
-                  Current Patient: {selectedPatient.full_name}
-                </h3>
-                <p style={{ margin: 0, fontSize: '14px', color: textSecondary }}>
-                  {selectedPatient.email} • ID: {selectedPatient.id}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  onClick={startVideoCall}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#059669'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#10b981'}
-                >
-                  <Video size={18} />
-                  Video Call
-                </button>
-
-                <button
-                  onClick={startAudioCall}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#2563eb'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#3b82f6'}
-                >
-                  <Phone size={18} />
-                  Audio Call
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowChat(true);
-                    setView('chat');
-                  }}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#6366f1',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#4f46e5'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#6366f1'}
-                >
-                  <MessageCircle size={18} />
-                  Message
-                </button>
-              </div>
+              ✓ Selected: <strong>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} MB)
             </div>
           )}
 
-          {/* Scan View */}
-          {view === "scan" && (
-            <div>
-              <h2 style={{ 
-                fontSize: '32px', 
-                fontWeight: 'bold', 
-                marginBottom: '24px',
-                color: textPrimary 
-              }}>
-                Brain Tumor Analysis
-              </h2>
+          <button
+            type="submit"
+            disabled={loading || !file || !patientId}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: loading ? '#94a3b8' : '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            {loading ? 'Uploading & Analyzing...' : 'Upload Scan'}
+          </button>
+        </div>
+      </form>
 
-              {/* Patient Selection */}
-              {patients.length > 0 && (
-                <div style={{ marginBottom: '24px' }}>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '8px',
-                    fontWeight: '600',
-                    color: textPrimary 
-                  }}>
-                    Select Patient
-                  </label>
-                  <select
-                    value={selectedPatient?.id || ''}
-                    onChange={(e) => {
-                      const patient = patients.find(p => p.id === parseInt(e.target.value));
-                      setSelectedPatient(patient);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`,
-                      background: darkMode ? '#1e293b' : 'white',
-                      color: textPrimary
-                    }}
-                  >
-                    <option value="">-- Select a patient --</option>
-                    {patients.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} - {p.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+      {/* Result Display */}
+      {lastResult && (
+        <div style={{
+          background: bgColor,
+          padding: '24px',
+          borderRadius: '12px',
+          border: `3px solid ${lastResult.is_tumor ? '#ef4444' : '#10b981'}`,
+          marginBottom: '20px'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ color: textPrimary, margin: 0, fontSize: '20px' }}>
+              Analysis Result
+            </h3>
+            <div style={{
+              display: 'inline-block',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              background: lastResult.is_tumor ? '#fee2e2' : '#f0fdf4',
+              color: lastResult.is_tumor ? '#dc2626' : '#16a34a',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}>
+              {lastResult.is_tumor ? '⚠️ TUMOR DETECTED' : '✓ NORMAL'}
+            </div>
+          </div>
 
-              {/* Validation Warning */}
-              {validationWarning && (
-                <div style={{
-                  padding: '16px',
-                  background: validationWarning.type === 'error' ? '#fee2e2' : '#fef3c7',
-                  border: `1px solid ${validationWarning.type === 'error' ? '#ef4444' : '#f59e0b'}`,
-                  borderRadius: '8px',
-                  marginBottom: '24px',
-                  display: 'flex',
-                  gap: '12px'
-                }}>
-                  <AlertTriangle 
-                    size={24} 
-                    color={validationWarning.type === 'error' ? '#dc2626' : '#d97706'} 
-                  />
-                  <div style={{ flex: 1 }}>
-                    <p style={{ 
-                      margin: '0 0 8px 0', 
-                      fontWeight: '600',
-                      color: validationWarning.type === 'error' ? '#dc2626' : '#92400e'
-                    }}>
-                      {validationWarning.message}
-                    </p>
-                    {validationWarning.warnings && (
-                      <ul style={{ 
-                        margin: 0, 
-                        paddingLeft: '20px',
-                        color: validationWarning.type === 'error' ? '#dc2626' : '#92400e'
-                      }}>
-                        {validationWarning.warnings.map((w, i) => (
-                          <li key={i} style={{ fontSize: '14px' }}>{w}</li>
-                        ))}
-                      </ul>
-                    )}
-                    <p style={{ 
-                      margin: '8px 0 0 0', 
-                      fontSize: '13px',
-                      fontStyle: 'italic',
-                      color: validationWarning.type === 'error' ? '#dc2626' : '#92400e'
-                    }}>
-                      Validation confidence: {validationWarning.confidence || 'unknown'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Upload Area */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  border: `2px dashed ${darkMode ? '#475569' : '#cbd5e1'}`,
-                  borderRadius: '16px',
-                  padding: '60px 40px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  background: darkMode ? '#1e293b' : 'white',
-                  transition: 'all 0.3s',
-                  marginBottom: '24px'
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.style.borderColor = '#6366f1';
-                  e.currentTarget.style.background = darkMode ? '#334155' : '#f1f5f9';
-                }}
-                onDragLeave={(e) => {
-                  e.currentTarget.style.borderColor = darkMode ? '#475569' : '#cbd5e1';
-                  e.currentTarget.style.background = darkMode ? '#1e293b' : 'white';
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.style.borderColor = darkMode ? '#475569' : '#cbd5e1';
-                  e.currentTarget.style.background = darkMode ? '#1e293b' : 'white';
-                  const file = e.dataTransfer.files[0];
-                  if (file) {
-                    handleFile({ target: { files: [file] } });
-                  }
-                }}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFile}
-                  style={{ display: 'none' }}
-                />
-                <Upload size={48} color={darkMode ? '#94a3b8' : '#64748b'} style={{ margin: '0 auto 16px' }} />
-                <p style={{ 
-                  fontSize: '18px', 
-                  fontWeight: '600', 
-                  marginBottom: '8px',
-                  color: textPrimary 
-                }}>
-                  Upload MRI Scan
-                </p>
-                <p style={{ fontSize: '14px', color: textSecondary }}>
-                  Click or drag & drop an MRI image (JPEG, PNG)
-                </p>
+          {/* Prediction and Confidence */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+            marginBottom: '20px'
+          }}>
+            <div style={{
+              background: darkMode ? '#0f172a' : '#f8fafc',
+              padding: '16px',
+              borderRadius: '8px'
+            }}>
+              <div style={{ color: textSecondary, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                PREDICTION
               </div>
+              <div style={{ color: textPrimary, fontSize: '20px', fontWeight: 'bold', textTransform: 'capitalize' }}>
+                {lastResult.prediction}
+              </div>
+            </div>
+            <div style={{
+              background: darkMode ? '#0f172a' : '#f8fafc',
+              padding: '16px',
+              borderRadius: '8px'
+            }}>
+              <div style={{ color: textSecondary, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                CONFIDENCE
+              </div>
+              <div style={{ color: textPrimary, fontSize: '20px', fontWeight: 'bold' }}>
+                {typeof lastResult.confidence === 'number' && lastResult.confidence < 1 ? (lastResult.confidence * 100).toFixed(1) : lastResult.confidence.toFixed(1)}%
+              </div>
+            </div>
+            <div style={{
+              background: darkMode ? '#0f172a' : '#f8fafc',
+              padding: '16px',
+              borderRadius: '8px'
+            }}>
+              <div style={{ color: textSecondary, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>
+                SCAN ID
+              </div>
+              <div style={{ color: '#667eea', fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
+                {lastResult.scan_id}
+              </div>
+            </div>
+          </div>
 
-              {/* Preview and Analysis */}
-              {preview && (
-                <div style={{
-                  background: darkMode ? '#1e293b' : 'white',
-                  borderRadius: '16px',
-                  padding: '24px',
-                  marginBottom: '24px',
-                  border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`
-                }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: gradcamData ? '1fr 1fr' : '1fr', gap: '24px' }}>
-                    <div>
-                      <h4 style={{ 
-                        margin: '0 0 16px 0', 
-                        fontWeight: '600',
-                        color: textPrimary,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}>
-                        <ImageIcon size={20} />
-                        Original MRI Scan
-                      </h4>
-                      <img
-                        src={preview}
-                        alt="MRI Preview"
-                        style={{
-                          width: '100%',
-                          height: 'auto',
-                          borderRadius: '12px',
-                          border: `2px solid ${darkMode ? '#334155' : '#e5e7eb'}`
-                        }}
-                      />
+          {/* Probability Distribution */}
+          {lastResult.probabilities && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ color: textPrimary, fontWeight: '600', marginBottom: '12px', fontSize: '14px' }}>
+                Probability Distribution
+              </div>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {Object.entries(lastResult.probabilities).map(([name, prob]) => (
+                  <div key={name}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginBottom: '4px',
+                      fontSize: '12px'
+                    }}>
+                      <span style={{ color: textPrimary, fontWeight: '500', textTransform: 'capitalize' }}>
+                        {name}
+                      </span>
+                      <span style={{ color: textSecondary, fontWeight: '600' }}>
+                        {(prob).toFixed(1)}%
+                      </span>
                     </div>
-
-                    {gradcamData && (
-                      <div>
-                        <h4 style={{ 
-                          margin: '0 0 16px 0', 
-                          fontWeight: '600',
-                          color: textPrimary,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}>
-                          <Eye size={20} />
-                          Grad-CAM Visualization
-                        </h4>
-                        <img
-                          src={gradcamData}
-                          alt="Grad-CAM"
-                          style={{
-                            width: '100%',
-                            height: 'auto',
-                            borderRadius: '12px',
-                            border: `2px solid ${darkMode ? '#334155' : '#e5e7eb'}`
-                          }}
-                        />
-                        <p style={{ 
-                          marginTop: '12px', 
-                          fontSize: '13px', 
-                          color: textSecondary,
-                          fontStyle: 'italic'
-                        }}>
-                          Heat map showing regions of interest identified by the AI model
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div style={{
-                  padding: '16px',
-                  background: '#fee2e2',
-                  border: '1px solid #ef4444',
-                  borderRadius: '8px',
-                  marginBottom: '16px',
-                  display: 'flex',
-                  gap: '12px',
-                  alignItems: 'center'
-                }}>
-                  <AlertCircle size={20} color="#dc2626" />
-                  <p style={{ margin: 0, color: '#dc2626' }}>{error}</p>
-                </div>
-              )}
-
-              <button
-                onClick={handleAnalyzeClick}
-                disabled={!selectedFile || loading}
-                style={{
-                  width: '100%',
-                  padding: '16px',
-                  background: loading ? '#94a3b8' : '#6366f1',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {loading ? (
-                  <>
-                    <Loader className="animate-spin" size={24} />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Brain size={24} />
-                    Analyze Scan
-                  </>
-                )}
-              </button>
-
-              {prediction && (
-                <div style={{ marginTop: '24px' }}>
-                  <FixedAnalysisResults 
-                    prediction={prediction} 
-                    darkMode={darkMode}
-                    onDownloadPDF={() => downloadPDF(prediction.scan_id)}
-                  />
-                </div>
-              )}
-
-              {/* Tumor Progression Tracker */}
-              {selectedPatient && patientScans.length > 1 && (
-                <div style={{ marginTop: '32px' }}>
-                  <TumourProgressionTracker 
-                    scans={patientScans}
-                    darkMode={darkMode}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Patients View */}
-          {view === "patients" && (
-            <div>
-              <h2 style={{ 
-                fontSize: '32px', 
-                fontWeight: 'bold', 
-                marginBottom: '24px',
-                color: textPrimary 
-              }}>
-                Patient Management
-              </h2>
-              
-              <div style={{ display: 'grid', gap: '16px' }}>
-                {patients.map(patient => (
-                  <div
-                    key={patient.id}
-                    style={{
-                      padding: '20px',
-                      background: darkMode ? '#1e293b' : 'white',
-                      borderRadius: '12px',
-                      border: `1px solid ${darkMode ? '#334155' : '#e5e7eb'}`,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onClick={() => {
-                      setSelectedPatient(patient);
-                      setView('scan');
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                      <div style={{ flex: 1 }}>
-                        <h3 style={{ margin: '0 0 8px 0', color: textPrimary }}>
-                          {patient.full_name}
-                        </h3>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '14px', color: textSecondary }}>
-                          {patient.email}
-                        </p>
-                        <p style={{ margin: 0, fontSize: '14px', color: textSecondary }}>
-                          {patient.phone}
-                        </p>
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            startVideoCall();
-                          }}
-                          style={{
-                            padding: '8px',
-                            background: '#10b981',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'all 0.2s'
-                          }}
-                          title="Video Call"
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#059669'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#10b981'}
-                        >
-                          <Video size={18} />
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            setShowChat(true);
-                            setView('chat');
-                          }}
-                          style={{
-                            padding: '8px',
-                            background: '#6366f1',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'all 0.2s'
-                          }}
-                          title="Message"
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#4f46e5'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#6366f1'}
-                        >
-                          <MessageCircle size={18} />
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            setView('scan');
-                          }}
-                          style={{
-                            padding: '8px 16px',
-                            background: '#8b5cf6',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#7c3aed'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#8b5cf6'}
-                        >
-                          View Details
-                        </button>
-                      </div>
+                    <div style={{
+                      width: '100%',
+                      height: '8px',
+                      background: darkMode ? '#334155' : '#e2e8f0',
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        width: `${prob * 100}%`,
+                        height: '100%',
+                        background: name === 'notumor' ? '#10b981' : '#ef4444',
+                        transition: 'width 0.3s'
+                      }} />
                     </div>
                   </div>
                 ))}
@@ -1214,129 +1024,120 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
             </div>
           )}
 
-          {/* Chat View */}
-          {view === "chat" && (
-            <EnhancedChat
-              user={user}
-              selectedPatient={selectedPatient}
-              patients={patients}
-              onSelectPatient={setSelectedPatient}
-              darkMode={darkMode}
-              socket={socket}
-            />
+          {/* Usage Status */}
+          {lastResult.usage && (
+            <div style={{
+              background: darkMode ? '#0f172a' : '#f8fafc',
+              padding: '16px',
+              borderRadius: '8px',
+              marginBottom: '16px'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px'
+              }}>
+                <div style={{ color: textPrimary, fontWeight: '600', fontSize: '14px' }}>
+                  Plan Usage
+                </div>
+                <div style={{ color: textPrimary, fontWeight: '600' }}>
+                  {lastResult.usage.scans_used}/{lastResult.usage.max_scans} scans
+                </div>
+              </div>
+              <div style={{
+                width: '100%',
+                height: '12px',
+                background: darkMode ? '#334155' : '#e2e8f0',
+                borderRadius: '6px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: `${lastResult.usage.percentage}%`,
+                  height: '100%',
+                  background: lastResult.usage.percentage > 90 ? '#ef4444' : 
+                              lastResult.usage.percentage > 75 ? '#f59e0b' : '#10b981',
+                  transition: 'width 0.3s'
+                }} />
+              </div>
+              {lastResult.usage.warning && (
+                <div style={{
+                  color: '#f59e0b',
+                  fontSize: '12px',
+                  marginTop: '8px',
+                  fontWeight: '600'
+                }}>
+                  ⚠️ {lastResult.usage.warning}
+                </div>
+              )}
+            </div>
           )}
-        </main>
-      </div>
 
-      {/* Notifications Panel */}
-      {showNotifications && (
-        <NotificationCentre
-          notifications={notifications}
-          onClose={() => setShowNotifications(false)}
-          onMarkRead={(id) => {
-            setNotifications(prev => 
-              prev.map(n => n.id === id ? { ...n, read: true } : n)
-            );
-            setUnreadCount(prev => Math.max(0, prev - 1));
-          }}
-          darkMode={darkMode}
-        />
+          <button
+            onClick={() => {
+              setFile(null);
+              setPatientId('');
+              window.location.reload();
+            }}
+            style={{
+              width: '100%',
+              padding: '10px',
+              background: '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            Upload Another Scan
+          </button>
+        </div>
       )}
 
-      {/* Video Call Modal */}
-      {showVideoCall && selectedPatient && (
-        <VideoCall
-          currentUserId={user?.id}
-          currentUserType="hospital"
-          remoteUserId={selectedPatient.id}
-          remoteUserType="patient"
-          onClose={() => setShowVideoCall(false)}
-          darkMode={darkMode}
-          audioOnly={callType === 'audio'}
-        />
+      {patients.length === 0 && (
+        <div style={{
+          background: bgColor,
+          padding: '20px',
+          borderRadius: '12px',
+          border: `1px solid ${borderColor}`,
+          color: textSecondary,
+          textAlign: 'center'
+        }}>
+          No patients available. Please add a patient first in the Patients section.
+        </div>
       )}
-
-      {showPatientInfoModal && (
-        <SimplePatientInfoModal
-          onClose={() => setShowPatientInfoModal(false)}
-          onSubmit={handlePatientInfoSubmit}
-          darkMode={darkMode}
-        />
-      )}
-
-      <style>{`
-        .dark { background-color: #0f172a; color: #e5e7eb; }
-        .dark input, .dark textarea, .dark select {
-          background-color: #1e293b;
-          color: #e5e7eb;
-          border: 1px solid #334155;
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes slideOut {
-          from { transform: translateX(0); opacity: 1; }
-          to { transform: translateX(100%); opacity: 0; }
-        }
-        .animate-spin { animation: spin 1s linear infinite; }
-      `}</style>
     </div>
   );
 }
 
-function NavItem({ icon, label, active, onClick, badge }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: '100%',
-        padding: '14px 16px',
-        marginBottom: '6px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '14px',
-        background: active ? '#6366f1' : 'transparent',
-        color: active ? 'white' : '#64748b',
-        border: 'none',
-        borderRadius: '12px',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        position: 'relative'
-      }}
-    >
-      {icon}
-      <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
-      {badge && (
-        <span style={{
-          background: '#ef4444',
-          color: 'white',
-          borderRadius: '50%',
-          width: '20px',
-          height: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '11px',
-          fontWeight: 'bold'
-        }}>
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-}
+function ChatModal({ patient, darkMode, onClose }) {
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+  const [messages, setMessages] = React.useState([]);
+  const [input, setInput] = React.useState('');
 
-function SimplePatientInfoModal({ onClose, onSubmit, darkMode }) {
-  const [formData, setFormData] = useState({
-    patient_name: '',
-    email: '',
-    phone: ''
-  });
+  function handleSendMessage() {
+    if (!input.trim()) return;
+    setMessages([...messages, {
+      id: Date.now(),
+      sender: 'hospital',
+      text: input,
+      timestamp: new Date()
+    }]);
+    setInput('');
+    setTimeout(() => {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'patient',
+        text: 'Thanks for reaching out!',
+        timestamp: new Date()
+      }]);
+    }, 1000);
+  }
 
   return (
     <div style={{
@@ -1352,70 +1153,104 @@ function SimplePatientInfoModal({ onClose, onSubmit, darkMode }) {
       zIndex: 1000
     }}>
       <div style={{
-        background: darkMode ? '#1e293b' : 'white',
-        borderRadius: '12px',
-        padding: '24px',
+        background: bgColor,
+        borderRadius: '16px',
+        width: '90%',
         maxWidth: '500px',
-        width: '90%'
+        maxHeight: '600px',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
       }}>
-        <h3 style={{ margin: '0 0 20px 0' }}>Patient Information</h3>
-        
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', marginBottom: '8px' }}>Patient Name</label>
-          <input
-            type="text"
-            value={formData.patient_name}
-            onChange={(e) => setFormData({...formData, patient_name: e.target.value})}
-            style={{
-              width: '100%',
-              padding: '10px',
-              borderRadius: '8px',
-              border: '1px solid #e5e7eb'
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-          <button
-            onClick={() => onSubmit(null)}
-            style={{
-              flex: 1,
-              padding: '12px',
-              background: '#6366f1',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer'
-            }}
-          >
-            Skip
-          </button>
-          <button
-            onClick={() => onSubmit(formData)}
-            style={{
-              flex: 1,
-              padding: '12px',
-              background: '#10b981',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer'
-            }}
-          >
-            Save
-          </button>
+        <div style={{
+          padding: '20px',
+          borderBottom: `1px solid ${borderColor}`,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <h3 style={{ color: textPrimary, margin: '0 0 4px 0' }}>Chat with {patient.full_name}</h3>
+            <div style={{ color: textSecondary, fontSize: '12px' }}>Patient ID: {patient.patient_code}</div>
+          </div>
           <button
             onClick={onClose}
             style={{
-              padding: '12px 20px',
-              background: '#ef4444',
-              color: 'white',
+              background: 'none',
               border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer'
+              fontSize: '24px',
+              cursor: 'pointer',
+              color: textSecondary
             }}
           >
-            Cancel
+            ×
+          </button>
+        </div>
+
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px'
+        }}>
+          {messages.length === 0 ? (
+            <div style={{ color: textSecondary, textAlign: 'center' }}>No messages yet. Start the conversation!</div>
+          ) : (
+            messages.map(msg => (
+              <div
+                key={msg.id}
+                style={{
+                  alignSelf: msg.sender === 'hospital' ? 'flex-end' : 'flex-start',
+                  background: msg.sender === 'hospital' ? '#667eea' : (darkMode ? '#334155' : '#e2e8f0'),
+                  color: msg.sender === 'hospital' ? 'white' : textPrimary,
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  maxWidth: '80%',
+                  wordWrap: 'break-word'
+                }}
+              >
+                {msg.text}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{
+          padding: '16px',
+          borderTop: `1px solid ${borderColor}`,
+          display: 'flex',
+          gap: '8px'
+        }}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            placeholder="Type a message..."
+            style={{
+              flex: 1,
+              padding: '10px',
+              border: `1px solid ${borderColor}`,
+              borderRadius: '6px',
+              background: darkMode ? '#0f172a' : '#ffffff',
+              color: textPrimary
+            }}
+          />
+          <button
+            onClick={handleSendMessage}
+            style={{
+              padding: '10px 16px',
+              background: '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            Send
           </button>
         </div>
       </div>
@@ -1423,114 +1258,499 @@ function SimplePatientInfoModal({ onClose, onSubmit, darkMode }) {
   );
 }
 
-function FixedAnalysisResults({ prediction, darkMode, onDownloadPDF }) {
-  if (!prediction) return null;
+function VideoCallModal({ patient, darkMode, onClose }) {
+  const [callActive, setCallActive] = React.useState(false);
+  const [callDuration, setCallDuration] = React.useState(0);
 
-  const colors = {
-    glioma: '#ef4444',
-    meningioma: '#f59e0b',
-    pituitary: '#8b5cf6',
-    notumor: '#10b981'
+  React.useEffect(() => {
+    let interval;
+    if (callActive) {
+      interval = setInterval(() => setCallDuration(d => d + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [callActive]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  const labels = {
-    glioma: 'Glioma',
-    meningioma: 'Meningioma',
-    pituitary: 'Pituitary Tumor',
-    notumor: 'No Tumor Detected'
-  };
-
-  const predictionType = (prediction.prediction || 'notumor').toLowerCase();
-  const confidence = parseFloat(prediction.confidence) || 0;
-  const probabilities = prediction.probabilities || {};
 
   return (
     <div style={{
-      padding: '24px',
-      background: darkMode ? '#0f172a' : '#f8fafc',
-      borderRadius: '12px',
-      border: `2px solid ${colors[predictionType]}`
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: callActive ? '#000' : (darkMode ? '#0f172a' : '#f8fafc'),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
-        {prediction.is_tumor ? (
-          <AlertCircle size={32} color={colors[predictionType]} />
-        ) : (
-          <CheckCircle size={32} color={colors[predictionType]} />
+      <div style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '20px'
+      }}>
+        {callActive && (
+          <div style={{
+            fontSize: '48px',
+            fontWeight: 'bold',
+            color: '#fff'
+          }}>
+            {formatTime(callDuration)}
+          </div>
         )}
-        <div style={{ flex: 1 }}>
-          <h3 style={{ margin: '0 0 4px 0', fontSize: '24px', color: colors[predictionType] }}>
-            {labels[predictionType]}
-          </h3>
-          <p style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>
-            Confidence: {confidence.toFixed(2)}%
-          </p>
+
+        <div style={{
+          textAlign: 'center',
+          color: callActive ? '#fff' : (darkMode ? '#f1f5f9' : '#0f172a')
+        }}>
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📹</div>
+          <h2 style={{ margin: 0, marginBottom: '8px' }}>{patient.full_name}</h2>
+          <p style={{ margin: 0, fontSize: '14px', opacity: 0.7 }}>{callActive ? 'Call in progress' : 'Ready to call'}</p>
         </div>
-        
-        <button
-          onClick={onDownloadPDF}
-          style={{
-            padding: '12px 20px',
-            background: colors[predictionType],
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
+
+        <div style={{ display: 'flex', gap: '16px' }}>
+          {!callActive && (
+            <button
+              onClick={() => setCallActive(true)}
+              style={{
+                padding: '16px 32px',
+                background: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50%',
+                width: '80px',
+                height: '80px',
+                cursor: 'pointer',
+                fontSize: '32px'
+              }}
+            >
+              ▶
+            </button>
+          )}
+          {callActive && (
+            <button
+              style={{
+                padding: '16px 32px',
+                background: '#94a3b8',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50%',
+                width: '80px',
+                height: '80px',
+                cursor: 'pointer',
+                fontSize: '24px'
+              }}
+              title="Mute"
+            >
+              🔇
+            </button>
+          )}
+          <button
+            onClick={() => {
+              if (callActive) {
+                alert(`Call ended. Duration: ${formatTime(callDuration)}`);
+              }
+              onClose();
+            }}
+            style={{
+              padding: '16px 32px',
+              background: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '50%',
+              width: '80px',
+              height: '80px',
+              cursor: 'pointer',
+              fontSize: '32px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScansHistoryModal({ patient, scans, darkMode, onClose }) {
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        background: bgColor,
+        borderRadius: '16px',
+        width: '90%',
+        maxWidth: '700px',
+        maxHeight: '600px',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+      }}>
+        <div style={{
+          padding: '20px',
+          borderBottom: `1px solid ${borderColor}`,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h3 style={{ color: textPrimary, margin: 0 }}>Scan History - {patient.full_name}</h3>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '24px',
+              cursor: 'pointer',
+              color: textSecondary
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '20px'
+        }}>
+          {scans && scans.length > 0 ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {scans.map((scan) => (
+                <div
+                  key={scan.id}
+                  style={{
+                    background: darkMode ? '#0f172a' : '#f8fafc',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    border: `1px solid ${borderColor}`,
+                    borderLeft: `4px solid ${scan.is_tumor ? '#ef4444' : '#10b981'}`
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                    <div>
+                      <div style={{ color: textPrimary, fontWeight: '600' }}>
+                        {scan.prediction}
+                      </div>
+                      <div style={{ color: textSecondary, fontSize: '12px', marginTop: '4px' }}>
+                        Date: {new Date(scan.created_at).toLocaleDateString()} | Type: {scan.scan_type}
+                      </div>
+                      <div style={{ color: textSecondary, fontSize: '12px' }}>
+                        Confidence: {scan.confidence}%
+                      </div>
+                    </div>
+                    <div style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      background: scan.is_tumor ? '#fee2e2' : '#f0fdf4',
+                      color: scan.is_tumor ? '#dc2626' : '#16a34a',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}>
+                      {scan.is_tumor ? '⚠️ Tumor' : '✓ Normal'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: textSecondary, textAlign: 'center', padding: '40px' }}>
+              No scans yet for this patient
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab({ subscription, darkMode, setDarkMode }) {
+  const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
+  const textSecondary = darkMode ? '#94a3b8' : '#64748b';
+  const bgColor = darkMode ? '#1e293b' : '#ffffff';
+  const borderColor = darkMode ? '#334155' : '#e2e8f0';
+  const [upgrading, setUpgrading] = React.useState(false);
+
+  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+
+  async function handleUpgrade() {
+    setUpgrading(true);
+    try {
+      // Determine the next plan based on current plan
+      let targetPlan = 'premium';
+      let targetPlanId = 2; // Default to pro/premium
+      
+      if (subscription.plan_name === 'free' || subscription.plan_name === 'basic') {
+        targetPlan = 'pro';
+        targetPlanId = 2;
+      } else if (subscription.plan_name === 'pro' || subscription.plan_name === 'premium') {
+        targetPlan = 'enterprise';
+        targetPlanId = 3;
+      }
+
+      const response = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan_id: targetPlanId,
+          plan_name: targetPlan,
+          billing_cycle: 'monthly'
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.checkout_url || data.url) {
+        window.location.href = data.checkout_url || data.url;
+      } else {
+        alert('Stripe Error: ' + (data.error || 'Could not create checkout session'));
+      }
+    } catch (err) {
+      console.error('Upgrade error:', err);
+      alert('Could not connect to payment service. Please try again later.');
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ color: textPrimary, marginBottom: '24px' }}>Settings</h2>
+
+      {subscription && (
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '16px',
+          padding: '32px',
+          color: 'white',
+          marginBottom: '24px',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            position: 'absolute',
+            top: '-50px',
+            right: '-50px',
+            width: '200px',
+            height: '200px',
+            background: 'rgba(255,255,255,0.1)',
+            borderRadius: '50%'
+          }} />
+
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              marginBottom: '24px'
+            }}>
+              <div>
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'rgba(255,255,255,0.2)',
+                  padding: '6px 16px',
+                  borderRadius: '20px',
+                  marginBottom: '12px',
+                  fontSize: '13px',
+                  fontWeight: '600'
+                }}>
+                  <Crown size={16} />
+                  Current Plan
+                </div>
+                <h2 style={{
+                  fontSize: '36px',
+                  fontWeight: 'bold',
+                  margin: '0 0 8px 0'
+                }}>
+                  {subscription.display_name || subscription.plan_name}
+                </h2>
+                <p style={{
+                  fontSize: '18px',
+                  opacity: 0.9,
+                  margin: 0
+                }}>
+                  ${subscription.price_monthly}/{subscription.billing_cycle === 'yearly' ? 'year' : 'month'}
+                </p>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '16px',
+              marginBottom: '24px'
+            }}>
+              <div>
+                <div style={{ fontSize: '13px', opacity: 0.8, marginBottom: '4px' }}>
+                  Status
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: '600' }}>
+                  {subscription.status === 'active' ? '✓ Active' : subscription.status}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', opacity: 0.8, marginBottom: '4px' }}>
+                  Billing Cycle
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: '600', textTransform: 'capitalize' }}>
+                  {subscription.billing_cycle}
+                </div>
+              </div>
+            </div>
+
+            {/* Upgrade Button - Only show if not on Enterprise plan */}
+            {subscription.plan_name !== 'enterprise' && (
+              <button
+                onClick={handleUpgrade}
+                disabled={upgrading}
+                style={{
+                  width: '100%',
+                  padding: '14px 24px',
+                  background: 'rgba(255,255,255,0.95)',
+                  color: '#667eea',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontWeight: '700',
+                  fontSize: '16px',
+                  cursor: upgrading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  transition: 'all 0.2s',
+                  opacity: upgrading ? 0.7 : 1,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                }}
+                onMouseEnter={(e) => {
+                  if (!upgrading) {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                }}
+              >
+                {upgrading ? (
+                  <>
+                    <div style={{
+                      width: '20px',
+                      height: '20px',
+                      border: '3px solid #667eea',
+                      borderTopColor: 'transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 0.8s linear infinite'
+                    }} />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Crown size={20} />
+                    <span>
+                      Upgrade to {
+                        subscription.plan_name === 'free' || subscription.plan_name === 'basic' 
+                          ? 'Pro' 
+                          : 'Enterprise'
+                      }
+                    </span>
+                    <span style={{ marginLeft: 'auto' }}>→</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gap: '20px'
+      }}>
+        <div style={{
+          background: bgColor,
+          borderRadius: '16px',
+          border: `1px solid ${borderColor}`,
+          padding: '24px',
+          boxShadow: darkMode 
+            ? '0 4px 12px rgba(0,0,0,0.2)' 
+            : '0 4px 12px rgba(0,0,0,0.05)'
+        }}>
+          <h3 style={{
+            margin: '0 0 16px 0',
+            fontSize: '18px',
+            fontWeight: '600',
+            color: textPrimary,
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            fontWeight: '600'
-          }}
-        >
-          <Download size={18} />
-          Download PDF
-        </button>
-      </div>
-
-      <div style={{
-        padding: '16px',
-        background: darkMode ? '#1e293b' : 'white',
-        borderRadius: '8px',
-        marginTop: '16px'
-      }}>
-        <h4 style={{ margin: '0 0 12px 0' }}>All Probabilities:</h4>
-        {Object.entries(probabilities).map(([key, value]) => (
-          <div key={key} style={{ marginBottom: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '14px' }}>{labels[key] || key}</span>
-              <span style={{ fontSize: '14px', fontWeight: '600', color: colors[key] }}>
-                {parseFloat(value).toFixed(2)}%
-              </span>
-            </div>
-            <div style={{
+            gap: '8px'
+          }}>
+            {darkMode ? <Moon size={20} /> : <Sun size={20} />}
+            Appearance
+          </h3>
+          <p style={{
+            margin: '0 0 16px 0',
+            fontSize: '14px',
+            color: textSecondary
+          }}>
+            Current theme: <strong style={{ color: textPrimary }}>
+              {darkMode ? 'Dark Mode' : 'Light Mode'}
+            </strong>
+          </p>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            style={{
               width: '100%',
-              height: '6px',
-              background: darkMode ? '#0f172a' : '#f1f5f9',
-              borderRadius: '3px',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                width: `${value}%`,
-                height: '100%',
-                background: colors[key],
-                borderRadius: '3px',
-                transition: 'width 0.5s ease'
-              }} />
-            </div>
-          </div>
-        ))}
+              padding: '12px',
+              background: darkMode 
+                ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                : 'linear-gradient(135deg, #f59e0b 0%, #f97316 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '600'
+            }}
+          >
+            Switch to {darkMode ? 'Light' : 'Dark'} Mode
+          </button>
+        </div>
       </div>
 
-      <div style={{
-        marginTop: '16px',
-        padding: '12px',
-        background: darkMode ? '#451a03' : '#fef3c7',
-        borderRadius: '8px',
-        border: `1px solid ${darkMode ? '#78350f' : '#fbbf24'}`,
-        fontSize: '13px',
-        color: darkMode ? '#fde68a' : '#78350f'
-      }}>
-        <strong>Note:</strong> This analysis is AI-generated and should be verified by a qualified medical professional.
-      </div>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

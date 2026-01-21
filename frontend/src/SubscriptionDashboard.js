@@ -49,23 +49,28 @@ export default function SubscriptionDashboard({ darkMode = false }) {
 
   async function handleUpgrade(planId, billingCycle) {
     try {
-      const res = await fetch(`${API_BASE}/hospital/subscription/upgrade`, {
+      // Call Stripe checkout session endpoint instead
+      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ plan_id: planId, billing_cycle: billingCycle })
+        body: JSON.stringify({ 
+          plan_id: planId, 
+          billing_cycle: billingCycle 
+        })
       });
 
-      if (res.ok) {
-        alert('Subscription upgraded successfully!');
-        setShowUpgradeModal(false);
-        loadSubscriptionInfo();
+      const data = await res.json();
+
+      if (res.ok && data.url) {
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to upgrade');
+        alert(data.error || 'Failed to start checkout. Please try again.');
       }
     } catch (err) {
-      alert('Error upgrading subscription');
+      console.error('Checkout error:', err);
+      alert('Error starting checkout. Please try again.');
     }
   }
 

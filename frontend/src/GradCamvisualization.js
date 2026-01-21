@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Info, Download, Maximize2 } from 'lucide-react';
+import { Eye, Info, Download, Maximize2, AlertCircle } from 'lucide-react';
 
 export default function GradCAMVisualization({ scanId, darkMode }) {
   const [gradcamUrl, setGradcamUrl] = useState(null);
@@ -25,17 +25,37 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
       setLoading(true);
       setError(null);
       
+      console.log(`Fetching Grad-CAM for scan ID: ${scanId}`);
+      
       const res = await fetch(`${API_BASE}/gradcam/${scanId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Accept': 'image/jpeg, image/png, image/*, application/json'
+        }
       });
 
+      console.log('Grad-CAM response status:', res.status);
+
       if (!res.ok) {
-        throw new Error('Failed to load Grad-CAM visualization');
+        if (res.status === 404) {
+          throw new Error('Grad-CAM visualization not available for this scan');
+        }
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Failed to load Grad-CAM`);
+      }
+
+      // Check content type
+      const contentType = res.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+      
+      if (!contentType || !contentType.includes('image')) {
+        throw new Error('Invalid response: expected image but got ' + contentType);
       }
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setGradcamUrl(url);
+      console.log('Grad-CAM loaded successfully');
     } catch (err) {
       console.error('Grad-CAM loading error:', err);
       setError(err.message);
@@ -43,6 +63,15 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
       setLoading(false);
     }
   }
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (gradcamUrl) {
+        URL.revokeObjectURL(gradcamUrl);
+      }
+    };
+  }, [gradcamUrl]);
 
   async function downloadGradCAM() {
     if (!gradcamUrl) return;
@@ -56,6 +85,7 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
       document.body.removeChild(a);
     } catch (err) {
       console.error('Download failed:', err);
+      alert('Failed to download Grad-CAM visualization');
     }
   }
 
@@ -78,6 +108,12 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
           animation: 'spin 1s linear infinite'
         }} />
         <p style={{ color: textSecondary }}>Generating Grad-CAM visualization...</p>
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -86,14 +122,42 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
     return (
       <div style={{
         padding: '24px',
-        background: bgColor,
+        background: darkMode ? '#1e293b' : '#fef2f2',
         borderRadius: '12px',
-        border: `1px solid ${borderColor}`,
-        textAlign: 'center',
-        color: textSecondary
+        border: `1px solid ${darkMode ? borderColor : '#fecaca'}`,
+        textAlign: 'center'
       }}>
-        <p>Unable to load Grad-CAM visualization</p>
-        <p style={{ fontSize: '14px', marginTop: '8px' }}>{error}</p>
+        <AlertCircle size={48} color="#ef4444" style={{ marginBottom: '16px' }} />
+        <h4 style={{ 
+          margin: '0 0 8px 0',
+          color: darkMode ? textPrimary : '#dc2626',
+          fontSize: '16px',
+          fontWeight: '600'
+        }}>
+          Grad-CAM Not Available
+        </h4>
+        <p style={{ 
+          margin: '0 0 16px 0',
+          fontSize: '14px', 
+          color: darkMode ? textSecondary : '#991b1b'
+        }}>
+          {error}
+        </p>
+        <button
+          onClick={loadGradCAM}
+          style={{
+            padding: '8px 16px',
+            background: '#6366f1',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500'
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -145,8 +209,11 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
                 alignItems: 'center',
                 gap: '6px',
                 fontSize: '14px',
-                fontWeight: '500'
+                fontWeight: '500',
+                transition: 'background 0.2s'
               }}
+              onMouseOver={(e) => e.currentTarget.style.background = darkMode ? '#475569' : '#e2e8f0'}
+              onMouseOut={(e) => e.currentTarget.style.background = darkMode ? '#334155' : '#f1f5f9'}
             >
               <Maximize2 size={16} />
               Fullscreen
@@ -164,8 +231,11 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
                 alignItems: 'center',
                 gap: '6px',
                 fontSize: '14px',
-                fontWeight: '500'
+                fontWeight: '500',
+                transition: 'background 0.2s'
               }}
+              onMouseOver={(e) => e.currentTarget.style.background = '#4f46e5'}
+              onMouseOut={(e) => e.currentTarget.style.background = '#6366f1'}
             >
               <Download size={16} />
               Download
@@ -221,6 +291,10 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
               width: '100%',
               height: 'auto',
               display: 'block'
+            }}
+            onError={() => {
+              setError('Failed to load Grad-CAM image');
+              setGradcamUrl(null);
             }}
           />
         </div>
@@ -293,13 +367,6 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
           />
         </div>
       )}
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </>
   );
 }

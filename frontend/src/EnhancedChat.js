@@ -3,8 +3,9 @@ import {
   Send, Paperclip, X, Image as ImageIcon, FileText, 
   Download, Check, CheckCheck, Search, Phone, Video 
 } from 'lucide-react';
+import { FeatureGate, UpgradePrompt } from './FeatureGate';
 
-export default function EnhancedChatPanel({ 
+function EnhancedChat({ 
   user, 
   selectedPatient, 
   patients,
@@ -559,5 +560,31 @@ export default function EnhancedChatPanel({
         )}
       </div>
     </div>
+  );
+}
+
+export default function EnhancedChatPanel({
+  user,
+  selectedPatient,
+  patients,
+  onSelectPatient,
+  darkMode,
+  socket
+}) {
+  return (
+    <FeatureGate
+      feature="ai_chat"
+      darkMode={darkMode}
+      fallback={<UpgradePrompt feature="ai_chat" darkMode={darkMode} inline={true} />}
+    >
+      <EnhancedChat
+        user={user}
+        selectedPatient={selectedPatient}
+        patients={patients}
+        onSelectPatient={onSelectPatient}
+        darkMode={darkMode}
+        socket={socket}
+      />
+    </FeatureGate>
   );
 }

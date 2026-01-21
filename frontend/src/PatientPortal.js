@@ -27,8 +27,6 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const [notifications, setNotifications] = useState([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationsError, setNotificationsError] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
 
   // Toast/Notification states
   const [showToast, setShowToast] = useState(false);
@@ -39,12 +37,17 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
 
   const socketRef = useRef();
 
-  // Load doctor info
+  // ✅ FIXED: Load doctor info with proper credentials
   async function loadDoctorInfo() {
     try {
       const res = await fetch(`${API_BASE}/api/chat/conversations`, {
-        credentials: 'include'
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
+      
       if (res.ok) {
         const data = await res.json();
         if (data.conversations && data.conversations.length > 0) {
@@ -56,50 +59,69 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
           });
           setUnreadMessages(conv.unread_count || 0);
         }
+      } else {
+        console.error('Failed to load doctor info:', res.status);
       }
     } catch (err) {
       console.error('Error loading doctor info:', err);
     }
   }
 
-  // Load patient data
+  // ✅ FIXED: Load patient data with proper credentials
   async function loadPatientData() {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/patient/scans`, {
+        method: 'GET',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json' 
+        }
       });
-      if (!res.ok) throw new Error('Failed to load scans');
+      
+      if (!res.ok) {
+        throw new Error(`Failed to load scans: ${res.status}`);
+      }
+      
       const data = await res.json();
       setScans(data.scans || []);
     } catch (err) {
-      console.error(err);
+      console.error('Error loading patient data:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  // Load notifications
+  // ✅ FIXED: Load notifications with proper credentials
   async function loadNotifications() {
     setLoadingNotifications(true);
     setNotificationsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/notifications`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load notifications');
+      const res = await fetch(`${API_BASE}/notifications`, { 
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Failed to load notifications: ${res.status}`);
+      }
+      
       const data = await res.json();
       setNotifications(data.notifications || []);
     } catch (err) {
-      console.error(err);
+      console.error('Error loading notifications:', err);
       setNotificationsError(err.message);
     } finally {
       setLoadingNotifications(false);
     }
   }
 
-  // Placeholder functions for fetchNotifications and fetchUnreadCount
+  // Refresh functions
   const fetchNotifications = async () => {
     await loadNotifications();
   };
@@ -108,50 +130,68 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
     await loadDoctorInfo();
   };
 
-  // Send message
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
-    const messageData = {
-      sender: patient?.full_name || 'Patient',
-      text: newMessage.trim(),
-      timestamp: new Date().toISOString(),
-    };
-    socketRef.current.emit('send_message', messageData);
-    setMessages(prev => [...prev, messageData]);
-    setNewMessage('');
-  };
-
-  // Main useEffect for initialization
+  // ✅ FIXED: Main useEffect for initialization
   useEffect(() => {
+    // Only load if patient data exists
+    if (!patient || !patient.id) {
+      console.warn('No patient data available');
+      return;
+    }
+
+    console.log('🔄 Loading patient portal data for:', patient.full_name);
+    
     loadPatientData();
     loadNotifications();
     loadDoctorInfo();
     setProfilePicture(patient?.profile_picture || null);
 
     // Initialize socket connection
-    socketRef.current = io(API_BASE);
-
-    socketRef.current.on('receive_message', (message) => {
-      setMessages(prev => [...prev, message]);
+    socketRef.current = io(API_BASE, { 
+      withCredentials: true,
+      transports: ['websocket', 'polling']
     });
 
-    return () => {
-      socketRef.current.disconnect();
-    };
-  }, [patient]);
+    // Join patient room
+    socketRef.current.emit('join_room', { 
+      room: `patient_${patient.id}` 
+    });
 
-  // Socket for real-time notifications
+    // Handle incoming messages
+    socketRef.current.on('receive_message', (message) => {
+      console.log('📨 Received message:', message);
+      // This will be handled by EnhancedChat component
+    });
+
+    // Cleanup
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [patient?.id]); // Only re-run if patient ID changes
+
+  // ✅ FIXED: Socket for real-time notifications
   useEffect(() => {
-    const socket = io(API_BASE, { withCredentials: true });
+    if (!patient || !patient.id) return;
+
+    const socket = io(API_BASE, { 
+      withCredentials: true,
+      transports: ['websocket', 'polling']
+    });
     
+    // Join notification room
+    socket.emit('join_room', { 
+      room: `patient_${patient.id}` 
+    });
+
     socket.on('notification', (data) => {
       console.log('🔔 Real-time notification:', data);
       
       // Show toast
       setToastData({
-        type: data.type,
-        title: data.title,
-        message: data.message
+        type: data.type || 'info',
+        title: data.title || 'Notification',
+        message: data.message || ''
       });
       setShowToast(true);
       setTimeout(() => setShowToast(false), 5000);
@@ -161,8 +201,16 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
       fetchUnreadCount();
     });
 
+    socket.on('connect', () => {
+      console.log('✅ Socket connected');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Socket disconnected');
+    });
+
     return () => socket.disconnect();
-  }, []);
+  }, [patient?.id]);
 
   const patientName = patient?.full_name || 'Patient';
   const patientInitial = patientName.charAt(0).toUpperCase();
@@ -191,6 +239,9 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
             )}
           </div>
           <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700' }}>{patientName}</h3>
+          <p style={{ margin: 0, fontSize: '14px', opacity: 0.9 }}>
+            {patient?.patient_code || 'N/A'}
+          </p>
         </div>
 
         {/* Nav */}
@@ -211,7 +262,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
 
         {/* Logout */}
         <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
-          <button onClick={onLogout} style={{ width: '100%', padding: '14px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+          <button onClick={onLogout} style={{ width: '100%', padding: '14px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', fontSize: '14px', fontWeight: '600', transition: 'all 0.2s' }}>
             <LogOut size={20} /> Logout
           </button>
         </div>
@@ -225,20 +276,39 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
           {view === 'appointments' && 'Appointments'}
           {view === 'profile' && 'Profile'}
           {view === 'notifications' && 'Notifications'}
-          {view === 'chat' && 'Chat'}
+          {view === 'chat' && 'Chat with Doctor'}
         </h2>
 
         {/* Render views */}
-        {view === 'overview' && <Overview />}
+        {view === 'overview' && <Overview patient={patient} scans={scans} />}
         {view === 'scans' && <Scans scans={scans} loading={loading} error={error} darkMode={darkMode} />}
         {view === 'appointments' && <Appointments />}
         {view === 'profile' && <Profile patient={patient} onProfileUpdate={onProfileUpdate} />}
-        {view === 'notifications' && <Notifications notifications={notifications} loading={loadingNotifications} error={notificationsError} />}
+        {view === 'notifications' && (
+          <Notifications 
+            notifications={notifications} 
+            loading={loadingNotifications} 
+            error={notificationsError}
+            onRefresh={loadNotifications}
+          />
+        )}
         {view === 'chat' && doctorInfo && (
           <div>
-            <h3 style={{ marginBottom: '20px', color: '#475569' }}>
-              Chat with {doctorInfo.name}
-            </h3>
+            <div style={{
+              background: 'white',
+              padding: '16px 20px',
+              borderRadius: '12px',
+              marginBottom: '20px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <p style={{ 
+                margin: 0, 
+                color: '#64748b',
+                fontSize: '14px'
+              }}>
+                Chatting with <strong style={{ color: '#1e293b' }}>{doctorInfo.name}</strong>
+              </p>
+            </div>
             
             <EnhancedChat
               patientId={patient.id}
@@ -253,14 +323,28 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         {view === 'chat' && !doctorInfo && (
           <div style={{
             textAlign: 'center',
-            padding: '60px 20px'
+            padding: '60px 20px',
+            background: 'white',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0'
           }}>
-            <p style={{ color: textSecondary }}>
-              No doctor assigned yet. Chat will be available once your doctor contacts you.
+            <MessageCircle size={48} color="#cbd5e1" style={{ marginBottom: '16px' }} />
+            <p style={{ 
+              color: textSecondary,
+              fontSize: '16px',
+              margin: '0 0 8px 0'
+            }}>
+              No doctor assigned yet
+            </p>
+            <p style={{ 
+              color: '#94a3b8',
+              fontSize: '14px',
+              margin: 0
+            }}>
+              Chat will be available once your doctor contacts you
             </p>
           </div>
         )}
-        {showImageUpload && <ImageUploadModal />}
       </main>
 
       {/* Toast Notification */}
@@ -272,12 +356,28 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
           background: 'white',
           padding: '16px 20px',
           borderRadius: '12px',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+          border: '1px solid #e2e8f0',
           zIndex: 1000,
-          minWidth: '300px'
+          minWidth: '300px',
+          maxWidth: '400px',
+          animation: 'slideIn 0.3s ease-out'
         }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{toastData.title}</div>
-          <div style={{ color: textSecondary, fontSize: '14px' }}>{toastData.message}</div>
+          <div style={{ 
+            fontWeight: '600', 
+            marginBottom: '4px',
+            color: '#1e293b',
+            fontSize: '15px'
+          }}>
+            {toastData.title}
+          </div>
+          <div style={{ 
+            color: textSecondary, 
+            fontSize: '14px',
+            lineHeight: '1.5'
+          }}>
+            {toastData.message}
+          </div>
         </div>
       )}
     </div>
@@ -303,7 +403,19 @@ function NavItem({ icon, label, active, onClick, badge }) {
         borderRadius: '12px', 
         cursor: 'pointer', 
         position: 'relative',
-        transition: 'all 0.2s'
+        transition: 'all 0.2s',
+        fontSize: '14px',
+        fontWeight: active ? '600' : '500'
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = '#f1f5f9';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = 'transparent';
+        }
       }}
     >
       {icon}
@@ -312,11 +424,11 @@ function NavItem({ icon, label, active, onClick, badge }) {
         <span style={{ 
           background: '#ef4444', 
           color: 'white', 
-          fontSize: '12px', 
-          fontWeight: 'bold', 
-          padding: '2px 8px', 
+          fontSize: '11px', 
+          fontWeight: '700', 
+          padding: '2px 7px', 
           borderRadius: '999px', 
-          minWidth: '20px',
+          minWidth: '18px',
           textAlign: 'center'
         }}>
           {badge > 99 ? '99+' : badge}
@@ -326,14 +438,115 @@ function NavItem({ icon, label, active, onClick, badge }) {
   );
 }
 
-// Skeleton placeholders
-function Overview() { 
+// ✅ FIXED: Overview component with patient stats
+function Overview({ patient, scans }) { 
+  const totalScans = scans.length;
+  const tumorScans = scans.filter(s => s.is_tumor).length;
+  const recentScan = scans[0];
+
   return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <h3>Welcome to your dashboard</h3>
-      <p>Overview content will be displayed here</p>
+    <div style={{ display: 'grid', gap: '20px' }}>
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+        <StatCard 
+          label="Total Scans" 
+          value={totalScans}
+          icon={<FileText size={24} />}
+          color="#6366f1"
+        />
+        <StatCard 
+          label="Tumor Detected" 
+          value={tumorScans}
+          icon={<Brain size={24} />}
+          color="#ef4444"
+        />
+        <StatCard 
+          label="Hospital" 
+          value={patient?.hospital_name || 'N/A'}
+          icon={<Activity size={24} />}
+          color="#10b981"
+          isText
+        />
+      </div>
+
+      {/* Recent Scan */}
+      {recentScan && (
+        <div style={{ 
+          padding: '24px', 
+          background: 'white', 
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+            Most Recent Scan
+          </h3>
+          <ScanHistoryCard scan={recentScan} darkMode={false} />
+        </div>
+      )}
+
+      {/* Welcome Message */}
+      <div style={{ 
+        padding: '24px', 
+        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+        borderRadius: '12px',
+        color: 'white'
+      }}>
+        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700' }}>
+          Welcome back, {patient?.full_name}!
+        </h3>
+        <p style={{ margin: 0, opacity: 0.9, fontSize: '14px' }}>
+          Your health journey is important to us. Check your scan results and stay in touch with your doctor through the chat feature.
+        </p>
+      </div>
     </div>
   ); 
+}
+
+function StatCard({ label, value, icon, color, isText }) {
+  return (
+    <div style={{
+      padding: '20px',
+      background: 'white',
+      borderRadius: '12px',
+      border: '1px solid #e2e8f0',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '16px'
+    }}>
+      <div style={{
+        width: '48px',
+        height: '48px',
+        borderRadius: '12px',
+        background: `${color}15`,
+        color: color,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1 }}>
+        <p style={{ 
+          margin: '0 0 4px 0', 
+          fontSize: '12px', 
+          color: '#64748b',
+          fontWeight: '500',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px'
+        }}>
+          {label}
+        </p>
+        <p style={{ 
+          margin: 0, 
+          fontSize: isText ? '16px' : '24px', 
+          fontWeight: '700',
+          color: '#1e293b'
+        }}>
+          {value}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function Scans({ scans, loading, error, darkMode }) { 
@@ -376,20 +589,22 @@ function Scans({ scans, loading, error, darkMode }) {
           textAlign: 'center',
           padding: '60px 20px',
           background: darkMode ? '#1e293b' : 'white',
-          borderRadius: '12px'
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
         }}>
           <Brain size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
           <p style={{ 
             color: '#6b7280',
             fontSize: '16px',
-            margin: 0
+            margin: '0 0 8px 0',
+            fontWeight: '500'
           }}>
             No scans available yet
           </p>
           <p style={{ 
             color: '#94a3b8',
             fontSize: '14px',
-            margin: '8px 0 0 0'
+            margin: 0
           }}>
             Your scan history will appear here once your doctor performs analyses
           </p>
@@ -411,71 +626,308 @@ function Scans({ scans, loading, error, darkMode }) {
 
 function Appointments() { 
   return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <p>Appointments content will be displayed here</p>
+    <div style={{ 
+      padding: '40px', 
+      background: 'white', 
+      borderRadius: '12px',
+      border: '1px solid #e2e8f0',
+      textAlign: 'center'
+    }}>
+      <Calendar size={48} color="#cbd5e1" style={{ marginBottom: '16px' }} />
+      <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>Appointments</h3>
+      <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
+        Appointment scheduling feature coming soon
+      </p>
     </div>
   ); 
 }
 
 function Profile({ patient, onProfileUpdate }) { 
   return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <h3>Profile Information</h3>
-      <p><strong>Name:</strong> {patient?.full_name || 'N/A'}</p>
-      <p><strong>Email:</strong> {patient?.email || 'N/A'}</p>
-      {/* Add more profile fields and edit functionality here */}
+    <div style={{ 
+      padding: '24px', 
+      background: 'white', 
+      borderRadius: '12px',
+      border: '1px solid #e2e8f0'
+    }}>
+      <h3 style={{ 
+        margin: '0 0 20px 0', 
+        fontSize: '18px', 
+        fontWeight: '600',
+        color: '#1e293b'
+      }}>
+        Profile Information
+      </h3>
+      
+      <div style={{ display: 'grid', gap: '16px' }}>
+        <ProfileField label="Full Name" value={patient?.full_name} />
+        <ProfileField label="Patient Code" value={patient?.patient_code} />
+        <ProfileField label="Email" value={patient?.email} />
+        <ProfileField label="Phone" value={patient?.phone} />
+        <ProfileField label="Date of Birth" value={patient?.date_of_birth} />
+        <ProfileField label="Gender" value={patient?.gender} />
+        <ProfileField label="Hospital" value={patient?.hospital_name} />
+      </div>
     </div>
   ); 
 }
 
-function Notifications({ notifications, loading, error }) { 
-  if (loading) return <div>Loading notifications...</div>;
-  if (error) return <div style={{ color: '#ef4444' }}>Error: {error}</div>;
+function ProfileField({ label, value }) {
+  return (
+    <div style={{
+      padding: '12px',
+      background: '#f8fafc',
+      borderRadius: '8px'
+    }}>
+      <p style={{ 
+        margin: '0 0 4px 0', 
+        fontSize: '12px', 
+        color: '#64748b',
+        fontWeight: '500'
+      }}>
+        {label}
+      </p>
+      <p style={{ 
+        margin: 0, 
+        fontSize: '14px', 
+        color: '#1e293b',
+        fontWeight: '500'
+      }}>
+        {value || 'N/A'}
+      </p>
+    </div>
+  );
+}
+
+// ✅ FIXED: Notifications component
+function Notifications({ notifications, loading, error, onRefresh }) { 
+  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+
+  const handleDelete = async (notificationId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications/${notificationId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (res.ok) {
+        onRefresh();
+      } else {
+        console.error('Failed to delete notification');
+      }
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/notifications/mark-all-read`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (err) {
+      console.error('Error marking all as read:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (window.confirm('Are you sure you want to delete all notifications?')) {
+      try {
+        const res = await fetch(`${API_BASE}/api/notifications/clear-all`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (res.ok) {
+          onRefresh();
+        } else {
+          console.error('Failed to clear notifications');
+        }
+      } catch (err) {
+        console.error('Error clearing notifications:', err);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div style={{ 
+          width: '40px', 
+          height: '40px', 
+          border: '4px solid #e5e7eb',
+          borderTopColor: '#6366f1',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          margin: '0 auto 16px'
+        }} />
+        <p style={{ color: '#6b7280' }}>Loading notifications...</p>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div style={{ 
+        padding: '20px',
+        background: '#fef2f2',
+        border: '1px solid #fecaca',
+        borderRadius: '12px',
+        color: '#dc2626',
+        textAlign: 'center'
+      }}>
+        <p style={{ margin: 0, fontWeight: '500' }}>Error: {error}</p>
+      </div>
+    );
+  }
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
   
   return (
     <div>
-      {notifications.length === 0 ? (
-        <p>No notifications</p>
-      ) : (
-        <div style={{ display: 'grid', gap: '12px' }}>
-          {notifications.map((notif, idx) => (
-            <div 
-              key={idx} 
-              style={{ 
-                padding: '16px', 
-                background: notif.is_read ? 'white' : '#f0f9ff', 
-                borderRadius: '12px', 
-                border: '1px solid #e2e8f0' 
+      {/* Actions Bar */}
+      {notifications.length > 0 && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          padding: '16px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
+            {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up!'}
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllRead}
+                style={{
+                  padding: '8px 14px',
+                  background: '#f0f9ff',
+                  color: '#0284c7',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '500'
+                }}
+              >
+                Mark all as read
+              </button>
+            )}
+            <button
+              onClick={handleClearAll}
+              style={{
+                padding: '8px 14px',
+                background: '#fef2f2',
+                color: '#dc2626',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: '500'
               }}
             >
-              <p style={{ fontWeight: notif.is_read ? 'normal' : 'bold' }}>
-                {notif.message || 'Notification'}
-              </p>
+              Clear all
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications List */}
+      {notifications.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '60px 20px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <Bell size={48} color="#cbd5e1" style={{ marginBottom: '16px' }} />
+          <p style={{
+            color: '#6b7280',
+            fontSize: '16px',
+            margin: '0 0 8px 0',
+            fontWeight: '500'
+          }}>
+            No notifications available
+          </p>
+          <p style={{
+            color: '#94a3b8',
+            fontSize: '14px',
+            margin: 0
+          }}>
+            You will receive notifications about your scans and messages here
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {notifications.map((notification) => (
+            <div
+
+              key={notification.id}
+              style={{
+                padding: '16px',
+                background: notification.is_read ? '#f8fafc' : '#e0f2fe',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <div>
+                <p style={{
+                  margin: '0 0 6px 0',
+                  fontSize: '14px',
+                  color: '#1e293b',
+                  fontWeight: notification.is_read ? '500' : '700'
+                }}>
+                  {notification.title}
+                </p>
+                <p style={{
+                  margin: 0,
+                  fontSize: '13px',
+                  color: '#64748b'
+                }}>
+                  {notification.message}
+                </p>
+              </div>
+              <button
+
+                onClick={() => handleDelete(notification.id)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}
+              >
+                Delete
+              </button>
             </div>
           ))}
         </div>
       )}
-    </div>
-  ); 
-}
-
-function ImageUploadModal() { 
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      top: 0, 
-      left: 0, 
-      right: 0, 
-      bottom: 0, 
-      background: 'rgba(0,0,0,0.5)', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center' 
-    }}>
-      <div style={{ background: 'white', padding: '24px', borderRadius: '12px', maxWidth: '500px' }}>
-        <h3>Upload Image</h3>
-        <p>Image upload modal content here</p>
-      </div>
     </div>
   ); 
 }
