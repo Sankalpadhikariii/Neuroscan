@@ -9,6 +9,7 @@ import string
 from typing import Optional, List, Dict
 from pathlib import Path
 
+from model_loader import model
 
 import matplotlib
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
@@ -33,19 +34,6 @@ import sqlite3
 import io
 import os
 from datetime import datetime
-conn = sqlite3.connect('neuroscan_platform.db')
-c = conn.cursor()
-matplotlib.use('Agg')
-# Check if column exists, if not add it
-try:
-    c.execute("ALTER TABLE patient_access_codes ADD COLUMN verification_code TEXT")
-    c.execute("ALTER TABLE patient_access_codes ADD COLUMN verification_code_expiry DATETIME")
-    conn.commit()
-    print("✅ Added verification_code columns")
-except sqlite3.OperationalError as e:
-    print(f"Column might already exist: {e}")
-finally:
-    conn.close()
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import json
@@ -60,7 +48,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room, send
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import json
-
+from model_loader import get_model
 from pdf_report import generate_pdf_report
 from email_utilis import send_verification_email, send_welcome_email
 
@@ -72,7 +60,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 
-MODEL_PATH = Path(__file__).resolve().parent / "vgg19_final_20260110_154609.pth"
+MODEL_PATH = "/app/models/vgg19.pth"
 
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
@@ -201,6 +189,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 
 
+
+def init_database():
+    """Create all base tables if they don't exist"""
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("CREATE TABLE IF NOT EXISTS users (...)")
+    c.execute("CREATE TABLE IF NOT EXISTS hospitals (...)")
+    c.execute("CREATE TABLE IF NOT EXISTS patients (...)")
+    c.execute("CREATE TABLE IF NOT EXISTS predictions (...)")
+    c.execute("CREATE TABLE IF NOT EXISTS patient_access_codes (...)")
+
+    conn.commit()
+    conn.close()
 # Add this function to app.py and call it at startup
 
 def migrate_database_schema():
@@ -210,6 +212,7 @@ def migrate_database_schema():
 
     # Create patient_access_codes table
     c.execute("""
+    
         CREATE TABLE IF NOT EXISTS patient_access_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             patient_id INTEGER NOT NULL,
@@ -4366,7 +4369,7 @@ try:
     checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
     # Use lightweight CNN architecture that matches stored checkpoints
-    model = CNN_TUMOR()
+    model = get_model()
 
     # Load the state dict from checkpoint
     if isinstance(checkpoint, dict):
@@ -7921,12 +7924,6 @@ def get_tumor_progression(patient_id):
 # ==============================================
 migrate_database_schema()
 if __name__ == "__main__":
-    print("🚀 Starting NeuroScan Platform with Real-time Chat...")
-    socketio.run(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        debug=True,
-        use_reloader=True,
-        allow_unsafe_werkzeug=True  # Needed for debug mode with SocketIO
-    )
+    init_database()           # Create tables FIRST
+    migrate_database_schema()  # Then alter them
+    socketio.run(app, host="0.0.0.0", port=5000)

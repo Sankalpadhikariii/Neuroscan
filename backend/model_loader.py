@@ -4,7 +4,7 @@ import torch
 
 MODEL_URL = os.getenv(
     "MODEL_URL",
-    "https://huggingface.co/Sankalpadhikari/vgg19_final_20260110_154609/commit/e63356096d85486ba665c9d854f15da3accdf692"
+    "https://huggingface.co/Sankalpadhikari/vgg19_final_20260110_154609/resolve/main/vgg19_final_20260110_154609.pth"
 )
 
 MODEL_PATH = "/app/models/vgg19.pth"
@@ -35,3 +35,7 @@ def get_model():
     _model = torch.load(MODEL_PATH, map_location=device)
     _model.eval()
     return _model
+
+
+def model():
+    return None
