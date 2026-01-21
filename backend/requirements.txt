@@ -1,15 +1,31 @@
-flask==3.0.0
-flask-cors==4.0.0
-flask-limiter==3.5.0
-torch==2.1.0
-torchvision==0.16.0
+# Web Framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-Limiter==3.5.0
+gunicorn==21.2.0
+Werkzeug==3.0.1
+
+# PyTorch (CPU-only - much smaller!)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+
+# Image Processing
 Pillow==10.1.0
-werkzeug==3.0.1
-python-dotenv==1.0.0
-requests==2.31.0
-reportlab==4.0.7
-matplotlib==3.8.2
 opencv-python-headless==4.8.1.78
 numpy==1.26.2
-Stripe
-stripe>=5.0.0
+
+# PDF & Visualization
+reportlab==4.0.7
+matplotlib==3.8.2
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Payment
+stripe==7.8.0
