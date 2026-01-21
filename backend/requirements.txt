@@ -12,7 +12,8 @@ Flask-Session==0.8.0
 torch==2.1.0+cpu
 torchvision==0.16.0+cpu
 eventlet>=0.33.0
-
+huggingface_hub
+eventlet
 # Image Processing
 Pillow==10.1.0
 opencv-python-headless==4.8.1.78
