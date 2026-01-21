@@ -11,6 +11,7 @@ Flask-Session==0.8.0
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.1.0+cpu
 torchvision==0.16.0+cpu
+eventlet>=0.33.0
 
 # Image Processing
 Pillow==10.1.0
