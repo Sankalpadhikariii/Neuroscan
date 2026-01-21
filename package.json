@@ -1,0 +1,23 @@
+{
+  "name": "final-year-project",
+  "version": "1.0.0",
+  "description": "An AI-powered deep learning system for automated detection and classification of brain tumors from MRI images using Convolutional Neural Networks based on VGG19 architecture. This project aims to assist medical professionals in accurately diagnosing brain tumors, thereby improving patient outcomes through timely and precise treatment planning.",
+  "main": "index.js",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd frontend && npm start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sankalpadhikariii/Neuroscan.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Sankalpadhikariii/Neuroscan/issues"
+  },
+  "homepage": "https://github.com/Sankalpadhikariii/Neuroscan#readme"
+}
