@@ -1,0 +1,59 @@
+* [33m0effa3d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Remove large binaries and obsolete generated files
+* [33m3622261[m Enhance frontend portals and subscription features
+* [33m8c98ae2[m Refactor backend logic and update ML integration
+* [33m3c4b33d[m Update gitignore to exclude models, databases, and generated files
+* [33mc2522bd[m[33m ([m[1;33mtag: [m[1;33mv1.1.0[m[33m, [m[1;31morigin/main[m[33m)[m Fix scan insertion to include hospital_id and ensure notification calls pass message and added video call feature using socket programming
+*   [33mc2299e0[m Merge branch 'feature/vgg19-implementation'
+[32m|[m[33m\[m  
+[32m|[m *   [33m378dd7d[m Merge local changes with remote repository
+[32m|[m [34m|[m[35m\[m  
+[32m|[m * [35m|[m [33mddc365b[m Fixation of having the detection system to exceed above 100%
+[32m|[m * [35m|[m [33mb8fc334[m Remove deleted model files from tracking
+[32m|[m * [35m|[m [33mc4f36ef[m Track model files with Git LFS
+[32m|[m * [35m|[m [33m936db09[m Add VGG19 implementation and update frontend and backend
+[32m|[m * [35m|[m [33m3e60bf3[m[33m ([m[1;32mbackup-custom-cnn[m[33m)[m Backup custom CNN before VGG19 migration
+* [35m|[m [35m|[m   [33m12094a4[m Merge branch 'main' of https://github.com/Sankalpadhikariii/Neuroscan
+[35m|[m[35m\[m [35m\[m [35m\[m  
+[35m|[m [35m|[m[35m/[m [35m/[m  
+[35m|[m[35m/[m[35m|[m [35m/[m   
+[35m|[m [35m|[m[35m/[m    
+[35m|[m * [33m25cee45[m Added Notification and Chat System
+[35m|[m * [33ma501610[m Merge remote changes and update local files
+[35m|[m *   [33mab98447[m Merge branch 'main' of https://github.com/Sankalpadhikariii/Neuroscan
+[35m|[m [1;32m|[m[1;33m\[m  
+[35m|[m [1;32m|[m * [33mb8f4304[m test for sushil
+[35m|[m * [1;33m|[m [33m6168e7b[m Update README file
+[35m|[m [1;33m|[m[1;33m/[m  
+[35m|[m * [33mfe10132[m creating various hospitals
+[35m|[m * [33ma9e367f[m Bugs Fixation
+[35m|[m * [33m1dae9cd[m Update frontend pages and backend logic
+[35m|[m * [33m9d1e592[m Fix Stripe upgrade button, update subscription handling, and frontend pricing pages
+[35m|[m * [33m92824fc[m Fix backend /me route conflict, update patient portal, add DB migration
+[35m|[m * [33mc873da6[m Fix frontend folder tracked as submodule
+[35m|[m * [33mb9198d7[m Update README and clean git tracking
+[35m|[m * [33me2cc0fd[m Backend stable: auth, email, patient flow working
+[35m|[m * [33mbe5ea92[m Fix broken submodule references and clean project structure
+[35m|[m * [33m875d871[m Update contact information in README.md
+[35m|[m * [33m1e1fd78[m Create README.md for NeuroScan project
+* [1;33m|[m [33m89ac46a[m Added Notification and Chat System
+* [1;33m|[m [33m7de5c2b[m Merge remote changes and update local files
+* [1;33m|[m   [33md472720[m Merge branch 'main' of https://github.com/Sankalpadhikariii/Neuroscan
+[1;34m|[m[1;35m\[m [1;33m\[m  
+[1;34m|[m * [1;33m|[m [33m8f7b873[m test for sushil
+* [1;35m|[m [1;33m|[m [33maeadccb[m Update README file
+[1;35m|[m[1;35m/[m [1;33m/[m  
+* [1;33m|[m [33m3c86652[m creating various hospitals
+* [1;33m|[m [33mcb21695[m Bugs Fixation
+* [1;33m|[m [33mf6966de[m Update frontend pages and backend logic
+* [1;33m|[m [33m8c4d0b2[m Fix Stripe upgrade button, update subscription handling, and frontend pricing pages
+* [1;33m|[m [33mba05c1d[m Fix backend /me route conflict, update patient portal, add DB migration
+* [1;33m|[m [33m45b48ec[m Fix frontend folder tracked as submodule
+* [1;33m|[m [33m906b29e[m Update README and clean git tracking
+* [1;33m|[m [33mf6c87a8[m Backend stable: auth, email, patient flow working
+* [1;33m|[m [33mebe25c3[m Fix broken submodule references and clean project structure
+* [1;33m|[m [33m97671a4[m Update contact information in README.md
+* [1;33m|[m [33m8c5cc43[m Create README.md for NeuroScan project
+[1;33m|[m[1;33m/[m  
+* [33m942a504[m Initial commit: full NeuroScan AI project
+* [33m111e1d8[m Remove large demo files exceeding GitHub limit
+* [33m45a02e1[m Initial commit: full NeuroScan AI project

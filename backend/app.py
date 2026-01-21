@@ -9,9 +9,12 @@ import string
 from typing import Optional, List, Dict
 from pathlib import Path
 
+<<<<<<< HEAD
 import matplotlib
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
 import socketio
+=======
+>>>>>>> 60e9c6c55f4a0825e4e279be9d2e0cd535cc68f5
 from werkzeug.utils import secure_filename
 import mimetypes
 from datetime import datetime, timedelta
@@ -70,7 +73,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 
-MODEL_PATH = r"C:\Users\Acer\OneDrive\Desktop\final year project\backend\models\vgg19_final_20260110_154609.pth"
+MODEL_PATH = Path(__file__).resolve().parent / "weights_60epochs.pt"
 
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
@@ -4207,8 +4210,8 @@ class CNN_TUMOR(nn.Module):
         if params is None:
             params = {
                 "shape_in": (3, 224, 224),
-                "initial_filters": 8,
-                "num_fc1": 100,
+                "initial_filters": 16,
+                "num_fc1": 64,
                 "num_classes": 4,
                 "dropout_rate": 0.25
             }
@@ -4362,25 +4365,18 @@ try:
     logger.info("Loading model...")
     checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
-    # Initialize VGG19-based model
-    model = VGG19_BrainTumor(num_classes=4)
+    # Use lightweight CNN architecture that matches stored checkpoints
+    model = CNN_TUMOR()
 
     # Load the state dict from checkpoint
     if isinstance(checkpoint, dict):
-        if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
-            logger.info("Loaded from 'model_state_dict' key")
-        elif 'state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['state_dict'])
-            logger.info("Loaded from 'state_dict' key")
-        else:
-            # Checkpoint is the state dict itself
-            model.load_state_dict(checkpoint)
-            logger.info("Loaded checkpoint directly as state_dict")
+        state_dict = checkpoint.get('model_state_dict') or checkpoint.get('state_dict') or checkpoint
+        model.load_state_dict(state_dict)
+        logger.info("Loaded CNN_TUMOR weights from checkpoint")
     else:
         # It's already a model object
         model = checkpoint
-        logger.info("Checkpoint was a model object")
+        logger.info("Checkpoint provided a model instance directly")
 
     model.to(device)
     model.eval()
