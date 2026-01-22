@@ -1,202 +1,293 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Video, VideoOff, Mic, MicOff, PhoneOff } from 'lucide-react';
 
-// Simple diagnostic component to test camera permissions
-export default function CameraTest() {
-  const [status, setStatus] = useState('');
-  const [logs, setLogs] = useState([]);
-  const [stream, setStream] = useState(null);
+export default function VideoCall({ darkMode, onEnd }) {
+  const [localStream, setLocalStream] = useState(null);
+  const [videoEnabled, setVideoEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [error, setError] = useState(null);
+  const [permissionState, setPermissionState] = useState('requesting');
+  
+  const localVideoRef = useRef(null);
 
-  const addLog = (message) => {
-    console.log(message);
-    setLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
-  };
+  useEffect(() => {
+    startCall();
+    return () => {
+      stopCall();
+    };
+  }, []);
 
-  const testPermissions = async () => {
-    addLog('🧪 Starting permission test...');
-    
-    // Test 1: Check if API exists
-    if (!navigator.mediaDevices) {
-      addLog('❌ navigator.mediaDevices not available');
-      setStatus('FAILED: Browser does not support camera access');
-      return;
-    }
-    addLog('✅ navigator.mediaDevices exists');
-
-    // Test 2: Check if getUserMedia exists
-    if (!navigator.mediaDevices.getUserMedia) {
-      addLog('❌ getUserMedia not available');
-      setStatus('FAILED: getUserMedia not supported');
-      return;
-    }
-    addLog('✅ getUserMedia exists');
-
-    // Test 3: Check current permissions state
+  async function startCall() {
     try {
-      const cameraPermission = await navigator.permissions.query({ name: 'camera' });
-      addLog(`📹 Camera permission state: ${cameraPermission.state}`);
-      
-      const micPermission = await navigator.permissions.query({ name: 'microphone' });
-      addLog(`🎤 Microphone permission state: ${micPermission.state}`);
-      
-      if (cameraPermission.state === 'denied' || micPermission.state === 'denied') {
-        addLog('⚠️ Permissions previously denied - need manual reset');
-        setStatus('BLOCKED: Please reset permissions in browser settings');
-      }
-    } catch (e) {
-      addLog(`⚠️ Could not query permissions: ${e.message}`);
-    }
+      setPermissionState('requesting');
+      setError(null);
 
-    // Test 4: Actually request permissions
-    try {
-      addLog('📞 Calling getUserMedia...');
-      setStatus('Requesting permissions...');
+      console.log('🎥 Requesting camera and microphone...');
       
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: true
       });
+
+      console.log('✅ Got media stream:', stream);
+      console.log('📹 Video tracks:', stream.getVideoTracks());
+      console.log('🎤 Audio tracks:', stream.getAudioTracks());
+
+      setLocalStream(stream);
+      setPermissionState('granted');
+
+      // Connect to video element
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+    } catch (err) {
+      console.error('❌ Error accessing media:', err);
+      setError(err.message);
+      setPermissionState('denied');
       
-      addLog('✅ SUCCESS! Permissions granted');
-      addLog(`📹 Video tracks: ${mediaStream.getVideoTracks().length}`);
-      addLog(`🎤 Audio tracks: ${mediaStream.getAudioTracks().length}`);
-      
-      setStream(mediaStream);
-      setStatus('SUCCESS: Camera and microphone accessed!');
-      
-    } catch (error) {
-      addLog(`❌ ERROR: ${error.name} - ${error.message}`);
-      setStatus(`FAILED: ${error.name}`);
-      
-      // Detailed error analysis
-      switch (error.name) {
-        case 'NotAllowedError':
-        case 'PermissionDeniedError':
-          addLog('💡 User denied permission OR browser blocked it');
-          addLog('💡 Check: 1) Browser address bar for camera icon');
-          addLog('💡        2) Browser settings → Site permissions');
-          break;
-        case 'NotFoundError':
-          addLog('💡 No camera/microphone hardware detected');
-          break;
-        case 'NotReadableError':
-          addLog('💡 Camera is already in use by another application');
-          break;
-        case 'SecurityError':
-          addLog('💡 HTTPS required (localhost is OK)');
-          break;
-        default:
-          addLog(`💡 Unknown error: ${error.message}`);
+      // Show user-friendly error
+      if (err.name === 'NotAllowedError') {
+        setError('Camera permission denied. Please allow camera access in browser settings.');
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera or microphone found.');
+      } else if (err.name === 'NotReadableError') {
+        setError('Camera is already in use by another application.');
+      } else {
+        setError(`Error: ${err.message}`);
       }
     }
-  };
+  }
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        addLog(`Stopping ${track.kind} track`);
+  function stopCall() {
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        console.log(`Stopping ${track.kind} track`);
         track.stop();
       });
-      setStream(null);
-      setStatus('Camera stopped');
+      setLocalStream(null);
     }
-  };
+  }
+
+  function toggleVideo() {
+    if (localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setVideoEnabled(videoTrack.enabled);
+      }
+    }
+  }
+
+  function toggleAudio() {
+    if (localStream) {
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setAudioEnabled(audioTrack.enabled);
+      }
+    }
+  }
+
+  function endCall() {
+    stopCall();
+    if (onEnd) onEnd();
+  }
+
+  const bgColor = darkMode ? '#0f172a' : '#ffffff';
+  const textColor = darkMode ? '#f1f5f9' : '#0f172a';
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'monospace', maxWidth: '800px', margin: '0 auto' }}>
-      <h1>🔬 Camera Permission Diagnostic Test</h1>
-      
-      <div style={{ marginBottom: '20px', padding: '15px', background: '#f0f0f0', borderRadius: '8px' }}>
-        <h3>Current Status: {status || 'Ready to test'}</h3>
-        <p><strong>URL:</strong> {window.location.href}</p>
-        <p><strong>Protocol:</strong> {window.location.protocol}</p>
-        <p><strong>Browser:</strong> {navigator.userAgent}</p>
-      </div>
-
-      <button 
-        onClick={testPermissions}
-        style={{
-          padding: '15px 30px',
-          fontSize: '18px',
-          background: '#10b981',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          cursor: 'pointer',
-          marginRight: '10px'
-        }}
-      >
-        🧪 Test Camera Permissions
-      </button>
-
-      {stream && (
-        <button 
-          onClick={stopCamera}
-          style={{
-            padding: '15px 30px',
-            fontSize: '18px',
-            background: '#ef4444',
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: bgColor,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999
+    }}>
+      {/* Video Container */}
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        maxWidth: '1200px',
+        aspectRatio: '16/9',
+        background: '#000',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+      }}>
+        {permissionState === 'requesting' && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
             color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer'
-          }}
-        >
-          ⏹️ Stop Camera
-        </button>
-      )}
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '24px', marginBottom: '10px' }}>
+              📹 Requesting camera access...
+            </div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>
+              Please allow camera and microphone when prompted
+            </div>
+          </div>
+        )}
 
-      <div style={{ marginTop: '20px' }}>
-        <h3>Test Logs:</h3>
-        <div style={{ 
-          background: '#000', 
-          color: '#0f0', 
-          padding: '15px', 
-          borderRadius: '8px',
-          maxHeight: '300px',
-          overflow: 'auto',
-          fontFamily: 'Courier New, monospace',
-          fontSize: '14px'
-        }}>
-          {logs.length === 0 ? (
-            <div>Click "Test Camera Permissions" to start...</div>
-          ) : (
-            logs.map((log, i) => <div key={i}>{log}</div>)
-          )}
-        </div>
-      </div>
+        {permissionState === 'denied' && error && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            color: 'white',
+            textAlign: 'center',
+            padding: '20px'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>❌</div>
+            <div style={{ fontSize: '20px', marginBottom: '10px' }}>
+              Camera Access Denied
+            </div>
+            <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '20px' }}>
+              {error}
+            </div>
+            <button
+              onClick={startCall}
+              style={{
+                padding: '10px 20px',
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        )}
 
-      {stream && (
-        <div style={{ marginTop: '20px' }}>
-          <h3>✅ Live Camera Feed:</h3>
+        {localStream && (
           <video
+            ref={localVideoRef}
             autoPlay
             playsInline
             muted
-            ref={(video) => {
-              if (video && stream) {
-                video.srcObject = stream;
-              }
-            }}
             style={{
               width: '100%',
-              maxWidth: '640px',
-              borderRadius: '8px',
-              border: '2px solid #10b981'
+              height: '100%',
+              objectFit: 'cover'
             }}
           />
-        </div>
-      )}
+        )}
 
-      <div style={{ marginTop: '30px', padding: '15px', background: '#fef3c7', borderRadius: '8px' }}>
-        <h3>⚠️ If permission dialog doesn't appear:</h3>
-        <ol style={{ lineHeight: '1.8' }}>
-          <li><strong>Check browser address bar</strong> - Look for a camera icon (🎥)</li>
-          <li><strong>Chrome:</strong> chrome://settings/content/camera</li>
-          <li><strong>Firefox:</strong> about:preferences#privacy → Permissions</li>
-          <li><strong>Clear site data:</strong> F12 → Application → Clear storage</li>
-          <li><strong>Try incognito/private window</strong></li>
-          <li><strong>Check if camera works in other apps</strong> (Zoom, Google Meet)</li>
-        </ol>
+        {/* Status Badge */}
+        {localStream && (
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            background: '#10b981',
+            color: 'white',
+            padding: '8px 16px',
+            borderRadius: '20px',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}>
+            🟢 Connected
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div style={{
+        marginTop: '30px',
+        display: 'flex',
+        gap: '15px'
+      }}>
+        <button
+          onClick={toggleVideo}
+          disabled={!localStream}
+          style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            border: 'none',
+            background: videoEnabled ? '#3b82f6' : '#ef4444',
+            color: 'white',
+            cursor: localStream ? 'pointer' : 'not-allowed',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s'
+          }}
+        >
+          {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
+        </button>
+
+        <button
+          onClick={toggleAudio}
+          disabled={!localStream}
+          style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            border: 'none',
+            background: audioEnabled ? '#3b82f6' : '#ef4444',
+            color: 'white',
+            cursor: localStream ? 'pointer' : 'not-allowed',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s'
+          }}
+        >
+          {audioEnabled ? <Mic size={24} /> : <MicOff size={24} />}
+        </button>
+
+        <button
+          onClick={endCall}
+          style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            border: 'none',
+            background: '#ef4444',
+            color: 'white',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s'
+          }}
+        >
+          <PhoneOff size={24} />
+        </button>
+      </div>
+
+      {/* Instructions */}
+      <div style={{
+        marginTop: '20px',
+        color: textColor,
+        textAlign: 'center',
+        opacity: 0.7,
+        fontSize: '14px'
+      }}>
+        {localStream ? (
+          'Video call active • Use controls below to manage audio/video'
+        ) : (
+          'Waiting for camera access...'
+        )}
       </div>
     </div>
   );
