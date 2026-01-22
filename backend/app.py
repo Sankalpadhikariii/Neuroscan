@@ -15,7 +15,7 @@ import matplotlib
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
 import socketio
 
-from werkzeug.utils import secure_filename
+from werkzeug.utils import secure_filename, redirect
 import mimetypes
 from datetime import datetime, timedelta
 import stripe
@@ -3441,31 +3441,43 @@ def generate_pdf_endpoint():
 # 5. SUBSCRIPTION LIMITS ENDPOINT (for FeatureGate)
 # ==============================================
 
-
-@app.route('/hospital/subscription-limits', methods=['GET'])
-@login_required
-def get_subscription_limits():
-    """Get subscription limits for the current hospital"""
+@app.route('/hospital/subscription', methods=['GET'])
+@hospital_required
+def hospital_subscription_page():
+    """Redirect to Stripe checkout or show subscription management"""
     hospital_id = session.get('hospital_id')
 
-    if not hospital_id:
-        return jsonify({'error': 'Not authorized'}), 403
+    # Get current plan
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT plan FROM hospitals WHERE id=?", (hospital_id,))
+    hospital = c.fetchone()
+    conn.close()
 
+    current_plan = hospital['plan'] if hospital else 'free'
+
+    # If already on Enterprise, show billing portal
+    if current_plan == 'enterprise':
+        # Redirect to Stripe billing portal
+        return redirect('https://billing.stripe.com/p/login/YOUR_PORTAL_LINK')
+
+    # Otherwise, create checkout session for upgrade
     try:
-        usage_info = get_detailed_usage(hospital_id)
+        checkout_session = stripe.checkout.Session.create(
+            customer_email=session.get('email'),
+            payment_method_types=['card'],
+            line_items=[{
+                'price': 'price_ENTERPRISE_PRICE_ID',  # Your Stripe price ID
+                'quantity': 1,
+            }],
+            mode='subscription',
+            success_url=request.host_url + 'hospital/subscription/success',
+            cancel_url=request.host_url + 'hospital/settings',
+        )
 
-        return jsonify({
-            'plan_name': usage_info['plan_name'],
-            'scans_used': usage_info['scans_used'],
-            'max_scans': usage_info['max_scans'],
-            'users_count': usage_info['users_count'],
-            'max_users': usage_info['max_users'],
-            'patients_count': usage_info['patients_count'],
-            'max_patients': usage_info['max_patients']
-        })
-
+        return redirect(checkout_session.url)
     except Exception as e:
-        logger.error(f"Error getting subscription limits: {e}")
+        logger.error(f"Stripe error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -4973,57 +4985,77 @@ def hospital_login():
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Login failed. Please try again."}), 500
-@app.route("/hospital/dashboard", methods=["GET"])
+
+
+@app.route("/hospital/dashboard-stats", methods=["GET"])
 @hospital_required
-def hospital_dashboard():
+def get_dashboard_stats():
+    """Get comprehensive dashboard statistics"""
+    hospital_id = session.get("hospital_id")
+
     conn = get_db()
     c = conn.cursor()
-    hospital_id = session["hospital_id"]
 
+    # Total patients
     c.execute("SELECT COUNT(*) as count FROM patients WHERE hospital_id=?", (hospital_id,))
-    total_patients = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=?", (hospital_id,))
-    total_scans = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=? AND is_tumor=1", (hospital_id,))
-    tumor_detections = c.fetchone()["count"]
+    total_patients = c.fetchone()['count']
 
-    # Active chats - use a safe default if table doesn't exist
-    try:
-        c.execute("SELECT COUNT(*) as count FROM chat_conversations WHERE hospital_id=? AND status='active'",
-                  (hospital_id,))
-        active_chats = c.fetchone()["count"]
-    except:
-        active_chats = 0
-
+    # Total scans
     c.execute("""
-        SELECT COUNT(*) as count FROM mri_scans 
-        WHERE hospital_id=? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-    """, (hospital_id,))
-    scans_this_month = c.fetchone()["count"]
-
-    c.execute("""
-        SELECT s.*, p.full_name as patient_name, p.patient_code
+        SELECT COUNT(*) as count 
         FROM mri_scans s
         JOIN patients p ON s.patient_id = p.id
-        WHERE s.hospital_id=?
-        ORDER BY s.created_at DESC LIMIT 10
+        WHERE p.hospital_id=?
     """, (hospital_id,))
+    total_scans = c.fetchone()['count']
+
+    # Tumor detections
+    c.execute("""
+        SELECT COUNT(*) as count 
+        FROM mri_scans s
+        JOIN patients p ON s.patient_id = p.id
+        WHERE p.hospital_id=? AND s.is_tumor=1
+    """, (hospital_id,))
+    tumor_detected = c.fetchone()['count']
+
+    # Scans this month
+    c.execute("""
+        SELECT COUNT(*) as count 
+        FROM mri_scans s
+        JOIN patients p ON s.patient_id = p.id
+        WHERE p.hospital_id=? 
+        AND strftime('%Y-%m', s.created_at) = strftime('%Y-%m', 'now')
+    """, (hospital_id,))
+    scans_this_month = c.fetchone()['count']
+
+    # Recent activity (last 10 scans)
+    c.execute("""
+        SELECT 
+            s.id,
+            s.prediction,
+            s.confidence,
+            s.is_tumor,
+            s.created_at,
+            p.full_name as patient_name,
+            p.patient_code
+        FROM mri_scans s
+        JOIN patients p ON s.patient_id = p.id
+        WHERE p.hospital_id=?
+        ORDER BY s.created_at DESC
+        LIMIT 10
+    """, (hospital_id,))
+
     recent_scans = [dict(row) for row in c.fetchall()]
 
     conn.close()
 
     return jsonify({
-        "stats": {
-            "total_patients": total_patients,
-            "total_scans": total_scans,
-            "tumor_detected": tumor_detections,
-            "scans_this_month": scans_this_month,
-            "active_chats": active_chats
-        },
+        "total_patients": total_patients,
+        "total_scans": total_scans,
+        "tumor_detected": tumor_detected,
+        "scans_this_month": scans_this_month,
         "recent_scans": recent_scans
     })
-
-
 @app.route("/hospital/subscription", methods=["GET"])
 @hospital_required
 def get_hospital_subscription_info():
@@ -5249,31 +5281,39 @@ def cancel_subscription():
     return jsonify({"message": "Subscription will not auto-renew at end of period"})
 
 
-@app.route("/hospital/patients", methods=["GET", "POST"])
-@hospital_required
-def hospital_patients():
-    conn = get_db()
-    c = conn.cursor()
-    hospital_id = session.get("hospital_id")
 
-    # ADD THIS DEBUG LINE
-    logger.info(f"🔍 Session hospital_id: {hospital_id}, user_id: {session.get('user_id')}")
+    # Add this endpoint to app.py to fix scan count display
 
-    if not hospital_id:
-        logger.error("❌ No hospital_id in session")
-        return jsonify({"error": "Session error: Please log out and log in again"}), 401
+    @app.route("/hospital/patients", methods=["GET"])
+    @hospital_required
+    def hospital_patients_with_scan_count():
+        """Get all patients with accurate scan counts"""
+        conn = get_db()
+        c = conn.cursor()
+        hospital_id = session["hospital_id"]
 
-    if request.method == "GET":
+        # FIXED QUERY: Join with mri_scans to get accurate count
         c.execute("""
-            SELECT p.*, hu.full_name as doctor_name, COUNT(s.id) as scan_count
+            SELECT 
+                p.*,
+                hu.full_name as doctor_name,
+                COUNT(s.id) as scan_count
             FROM patients p
             LEFT JOIN hospital_users hu ON p.assigned_doctor_id = hu.id
             LEFT JOIN mri_scans s ON p.id = s.patient_id
             WHERE p.hospital_id=?
-            GROUP BY p.id ORDER BY p.created_at DESC
+            GROUP BY p.id 
+            ORDER BY p.created_at DESC
         """, (hospital_id,))
-        patients = [dict(row) for row in c.fetchall()]
+
+        patients = []
+        for row in c.fetchall():
+            patient_dict = dict(row)
+            patients.append(patient_dict)
+
         conn.close()
+
+        logger.info(f"✅ Fetched {len(patients)} patients with scan counts")
         return jsonify({"patients": patients})
 
     # POST - Create patient
@@ -5364,8 +5404,8 @@ def hospital_patients():
 
 @app.route("/hospital/patients/<int:patient_id>/scans", methods=["GET"])
 @hospital_required
-def hospital_get_patient_scans(patient_id):
-    """Get all scans for a patient in hospital portal"""
+def hospital_get_patient_scans_detailed(patient_id):
+    """Get all scans for a patient with full details"""
     conn = get_db()
     c = conn.cursor()
     hospital_id = session.get("hospital_id")
@@ -5376,18 +5416,40 @@ def hospital_get_patient_scans(patient_id):
         conn.close()
         return jsonify({"error": "Patient not found"}), 404
 
-    # Get scans
+    # Get scans with ALL details
     c.execute("""
-        SELECT id, patient_id, prediction, confidence, is_tumor, scan_type, created_at
+        SELECT 
+            id, 
+            patient_id, 
+            prediction, 
+            confidence, 
+            is_tumor, 
+            probabilities,
+            scan_type,
+            notes,
+            scan_date,
+            created_at,
+            uploaded_by
         FROM mri_scans
         WHERE patient_id=?
         ORDER BY created_at DESC
     """, (patient_id,))
 
-    scans = [dict(row) for row in c.fetchall()]
+    scans = []
+    for row in c.fetchall():
+        scan = dict(row)
+        # Parse probabilities if it's a JSON string
+        if scan.get('probabilities'):
+            try:
+                scan['probabilities'] = json.loads(scan['probabilities'])
+            except:
+                scan['probabilities'] = {}
+        scans.append(scan)
+
     conn.close()
 
-    return jsonify({"scans": scans})
+    logger.info(f"✅ Fetched {len(scans)} scans for patient {patient_id}")
+    return jsonify({"scans": scans, "count": len(scans)})
 
 
 @app.route("/hospital/history", methods=["GET"])
@@ -6446,7 +6508,7 @@ def check_feature_access(feature_name):
         conn = get_db()
         c = conn.cursor()
 
-        # Get hospital's subscription plan
+        # Check for active subscription
         c.execute("""
             SELECT sp.name, sp.features
             FROM hospital_subscriptions hs
@@ -6457,24 +6519,74 @@ def check_feature_access(feature_name):
         """, (hospital_id,))
 
         sub = c.fetchone()
-        conn.close()
 
-        if not sub:
+        if sub:
+            # Has active subscription
+            plan_name = sub['name'].lower()
+
+            # Define feature access per plan
+            plan_features = {
+                'free': [],
+                'professional': ['video_call', 'ai_chat', 'gradcam'],
+                'premium': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics'],
+                'enterprise': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics',
+                               'priority_support']
+            }
+
+            features = plan_features.get(plan_name, [])
+            has_access = feature_name in features
+
+            conn.close()
+            logger.info(f"✅ Hospital {hospital_id} plan={plan_name}, feature={feature_name}, access={has_access}")
+
             return jsonify({
-                'has_access': False,
-                'plan': 'free',
-                'required_plans': get_required_plans(feature_name)
+                'has_access': has_access,
+                'plan': plan_name,
+                'required_plans': get_required_plans(feature_name),
+                'features_available': features
             })
 
-        plan_name = sub['name']
-        features = json.loads(sub['features']) if sub['features'] else []
+        # No active subscription - check subscription_plan column as fallback
+        try:
+            c.execute("SELECT subscription_plan FROM hospitals WHERE id = ?", (hospital_id,))
+            hospital = c.fetchone()
 
-        # Check if feature is in plan's features
-        has_access = feature_name in features
+            if hospital and hospital.get('subscription_plan'):
+                plan_name = hospital['subscription_plan'].lower()
 
+                plan_features = {
+                    'free': [],
+                    'professional': ['video_call', 'ai_chat', 'gradcam'],
+                    'premium': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics'],
+                    'enterprise': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics',
+                                   'priority_support']
+                }
+
+                features = plan_features.get(plan_name, [])
+                has_access = feature_name in features
+
+                conn.close()
+                logger.info(
+                    f"✅ Hospital {hospital_id} plan={plan_name} (from hospital table), feature={feature_name}, access={has_access}")
+
+                return jsonify({
+                    'has_access': has_access,
+                    'plan': plan_name,
+                    'required_plans': get_required_plans(feature_name),
+                    'features_available': features
+                })
+        except Exception as column_error:
+            # Column might not exist
+            logger.debug(f"subscription_plan column check failed: {column_error}")
+            pass
+
+        conn.close()
+
+        # Default to free plan
+        logger.warning(f"⚠️ No subscription found for hospital {hospital_id}, defaulting to FREE")
         return jsonify({
-            'has_access': has_access,
-            'plan': plan_name,
+            'has_access': False,
+            'plan': 'free',
             'required_plans': get_required_plans(feature_name)
         })
 
@@ -6483,6 +6595,17 @@ def check_feature_access(feature_name):
         return jsonify({'error': str(e)}), 500
 
 
+def get_required_plans(feature_name):
+    """Get which plans include a specific feature"""
+    feature_plans = {
+        'video_call': ['professional', 'premium', 'enterprise'],
+        'ai_chat': ['professional', 'premium', 'enterprise'],
+        'gradcam': ['professional', 'premium', 'enterprise'],
+        'tumor_tracking': ['premium', 'enterprise'],
+        'advanced_analytics': ['premium', 'enterprise'],
+        'priority_support': ['enterprise']
+    }
+    return feature_plans.get(feature_name, ['premium', 'enterprise'])
 def get_required_plans(feature_name):
     """Get which plans include a specific feature"""
     feature_plans = {
@@ -8092,6 +8215,99 @@ def get_tumor_progression(patient_id):
             'message': 'NeuroScan backend is running',
             'timestamp': datetime.now().isoformat()
         }), 200
+
+    @app.route('/hospital/upload-scan', methods=['POST'])
+    @hospital_required
+    def hospital_upload_scan():
+        """Upload and analyze MRI scan for a patient"""
+        try:
+            hospital_id = session.get('hospital_id')
+
+            # Get file and patient_id
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file provided'}), 400
+
+            file = request.files['file']
+            patient_id = request.form.get('patient_id')
+
+            if not patient_id:
+                return jsonify({'error': 'Patient ID required'}), 400
+
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+
+            # Verify patient belongs to hospital
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT id FROM patients WHERE id=? AND hospital_id=?", (patient_id, hospital_id))
+
+            if not c.fetchone():
+                conn.close()
+                return jsonify({'error': 'Patient not found'}), 404
+
+            # Save file
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            unique_filename = f"{timestamp}_{filename}"
+            filepath = os.path.join('uploads', 'scans', unique_filename)
+
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            file.save(filepath)
+
+            # Load and preprocess image
+            image = Image.open(filepath).convert('RGB')
+            transform = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+            input_tensor = transform(image).unsqueeze(0)
+
+            # Get model and predict
+            model = get_model()
+            model.eval()
+
+            with torch.no_grad():
+                output = model(input_tensor)
+                probabilities = torch.nn.functional.softmax(output[0], dim=0)
+                confidence, predicted_class = torch.max(probabilities, 0)
+
+            # Map class to tumor type
+            class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
+            prediction = class_names[predicted_class.item()]
+            is_tumor = prediction != 'notumor'
+
+            # Save to database
+            c.execute("""
+                INSERT INTO mri_scans (
+                    patient_id, hospital_id, image_path, prediction, 
+                    confidence, is_tumor, scan_type, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                patient_id, hospital_id, filepath, prediction,
+                float(confidence.item() * 100), is_tumor, 'MRI',
+                datetime.now().isoformat()
+            ))
+
+            scan_id = c.lastrowid
+            conn.commit()
+            conn.close()
+
+            logger.info(
+                f"✅ Scan uploaded: ID={scan_id}, prediction={prediction}, confidence={confidence.item() * 100:.2f}%")
+
+            return jsonify({
+                'success': True,
+                'scan_id': scan_id,
+                'prediction': prediction,
+                'confidence': float(confidence.item() * 100),
+                'is_tumor': is_tumor,
+                'message': 'Scan uploaded and analyzed successfully'
+            }), 201
+
+        except Exception as e:
+            logger.error(f"❌ Upload scan error: {e}")
+            return jsonify({'error': str(e)}), 500
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================
