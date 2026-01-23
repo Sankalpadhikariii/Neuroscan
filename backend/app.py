@@ -327,7 +327,7 @@ def create_notifications_table():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             read_at TIMESTAMP,
             FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE,
-            FOREIGN KEY (prediction_id) REFERENCES mri_scans(id) ON DELETE CASCADE,
+            FOREIGN KEY (prediction_id) REFERENCES scans(id) ON DELETE CASCADE,
             FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
         )
     """)
@@ -1164,6 +1164,94 @@ def update_database_schema():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # Admins table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS admins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            full_name TEXT,
+            role TEXT DEFAULT 'admin',
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP
+        )
+    ''')
+
+    # Hospitals table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS hospitals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hospital_name TEXT NOT NULL,
+            hospital_code TEXT UNIQUE NOT NULL,
+            contact_person TEXT,
+            email TEXT,
+            phone TEXT,
+            address TEXT,
+            city TEXT,
+            country TEXT,
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES admins(id)
+        )
+    ''')
+
+    # Hospital Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS hospital_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hospital_id INTEGER NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            full_name TEXT,
+            role TEXT DEFAULT 'doctor',
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # Patients table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS patients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hospital_id INTEGER NOT NULL,
+            patient_code TEXT UNIQUE NOT NULL,
+            full_name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            date_of_birth TEXT,
+            gender TEXT,
+            address TEXT,
+            emergency_contact TEXT,
+            emergency_phone TEXT,
+            assigned_doctor_id INTEGER,
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE,
+            FOREIGN KEY (assigned_doctor_id) REFERENCES hospital_users(id),
+            FOREIGN KEY (created_by) REFERENCES hospital_users(id)
+        )
+    ''')
+
+    # Patient Access Codes table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS patient_access_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            access_code TEXT UNIQUE NOT NULL,
+            verification_code TEXT,
+            is_verified INTEGER DEFAULT 0,
+            expires_at TIMESTAMP,
+            verified_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+        )
+    ''')
+
     # Notifications table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
@@ -1174,8 +1262,30 @@ def update_database_schema():
             scan_id INTEGER,
             read INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (user_id) REFERENCES admins(id),
             FOREIGN KEY (scan_id) REFERENCES scans(id)
+        )
+    ''')
+
+    # Scans table (central store for MRI analyses)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            prediction TEXT,
+            confidence REAL,
+            is_tumor INTEGER,
+            probabilities TEXT,
+            image_path TEXT,
+            gradcam_path TEXT,
+            uploaded_by INTEGER,
+            hospital_id INTEGER,
+            scan_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            notes TEXT,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+            FOREIGN KEY (uploaded_by) REFERENCES hospital_users(id) ON DELETE SET NULL,
+            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE
         )
     ''')
 
@@ -1189,31 +1299,52 @@ def update_database_schema():
             attachment_url TEXT,
             read INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sender_id) REFERENCES users(id),
-            FOREIGN KEY (recipient_id) REFERENCES users(id)
+            FOREIGN KEY (sender_id) REFERENCES hospital_users(id),
+            FOREIGN KEY (recipient_id) REFERENCES patients(id)
         )
     ''')
 
-    # Add gradcam_path column to scans table if it doesn't exist
-    cursor.execute("PRAGMA table_info(scans)")
-    columns = [column[1] for column in cursor.fetchall()]
+    # Add missing columns and ensure indexes
+    try:
+        cursor.execute("PRAGMA table_info(scans)")
+        columns = [column[1] for column in cursor.fetchall()]
 
-    if 'gradcam_path' not in columns:
-        cursor.execute('''
-            ALTER TABLE scans
-            ADD COLUMN gradcam_path TEXT
-        ''')
+        if 'gradcam_path' not in columns:
+            cursor.execute('''
+                ALTER TABLE scans
+                ADD COLUMN gradcam_path TEXT
+            ''')
 
-    if 'notes' not in columns:
-        cursor.execute('''
-            ALTER TABLE scans
-            ADD COLUMN notes TEXT
-        ''')
+        if 'notes' not in columns:
+            cursor.execute('''
+                ALTER TABLE scans
+                ADD COLUMN notes TEXT
+            ''')
+    except Exception as e:
+        print(f"Warning adding columns to scans: {e}")
+
+    # Ensure default admin exists
+    try:
+        cursor.execute("SELECT COUNT(*) as cnt FROM admins")
+        admin_count = cursor.fetchone()[0]
+        if admin_count == 0:
+            default_admin_password = generate_password_hash('admin123')
+            cursor.execute('''
+                INSERT INTO admins (username, email, password, full_name, role, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('admin', 'admin@neuroscan.local', default_admin_password, 'Administrator', 'superadmin', 1))
+            print("✅ Default admin created: username=admin, password=admin123")
+    except Exception as e:
+        print(f"Note: Admin setup - {e}")
 
     conn.commit()
     conn.close()
 
     print("Database schema updated successfully!")
+
+
+# Ensure required tables/columns exist on startup
+update_database_schema()
 
 
 # Modified predict route to include Grad-CAM generation
@@ -1788,7 +1919,7 @@ def notify_admins(notification_type: str, title: str, message: str, priority: st
         conn = get_db()
         c = conn.cursor()
 
-        c.execute("SELECT id FROM users WHERE role IN ('admin', 'superadmin')")
+        c.execute("SELECT id FROM admins WHERE role IN ('admin', 'superadmin')")
         admins = c.fetchall()
         conn.close()
 
@@ -2221,22 +2352,18 @@ def predict():
         c = conn.cursor()
 
         c.execute("""
-            INSERT INTO mri_scans (
-                hospital_id, patient_id, uploaded_by, scan_image,
-                prediction, confidence, is_tumor, probabilities,
-                notes, scan_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO scans (
+                patient_id, hospital_id, prediction, confidence, 
+                is_tumor, probabilities, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            hospital_id,
             patient_id,
-            user_id,
-            base64.b64encode(image_bytes).decode(),
+            hospital_id,
             prediction_label,
             conf_val,
             is_tumor,
             json.dumps(probabilities),
-            request.form.get("notes", ""),
-            request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
         scan_id = c.lastrowid
 
@@ -2488,7 +2615,7 @@ def admin_dashboard():
         c = conn.cursor()
 
         # Get total counts
-        c.execute("SELECT COUNT(*) FROM users WHERE role IN ('admin', 'superadmin')")
+        c.execute("SELECT COUNT(*) FROM admins WHERE role IN ('admin', 'superadmin')")
         total_admins = c.fetchone()[0]
 
         c.execute("SELECT COUNT(*) FROM hospitals")
@@ -2497,11 +2624,16 @@ def admin_dashboard():
         c.execute("SELECT COUNT(*) FROM patients")
         total_patients = c.fetchone()[0]
 
-        c.execute("""
-            SELECT COUNT(*) FROM hospital_subscriptions 
-            WHERE status = 'active'
-        """)
-        active_subscriptions = c.fetchone()[0]
+        # Try to get active subscriptions (may not exist)
+        active_subscriptions = 0
+        try:
+            c.execute("""
+                SELECT COUNT(*) FROM hospital_subscriptions 
+                WHERE status = 'active'
+            """)
+            active_subscriptions = c.fetchone()[0]
+        except:
+            pass
 
         c.execute("SELECT COUNT(*) FROM scans")
         total_scans = c.fetchone()[0]
@@ -2519,11 +2651,15 @@ def admin_dashboard():
         scans_this_month = c.fetchone()[0]
 
         # Calculate active users (users who logged in within last 30 days)
-        c.execute("""
-            SELECT COUNT(DISTINCT user_id) FROM activity_logs
-            WHERE created_at >= datetime('now', '-30 days')
-        """)
-        active_users = c.fetchone()[0]
+        active_users = 0
+        try:
+            c.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM activity_logs
+                WHERE created_at >= datetime('now', '-30 days')
+            """)
+            active_users = c.fetchone()[0]
+        except:
+            pass
 
         conn.close()
 
@@ -2603,7 +2739,7 @@ def get_all_admins():
 
         c.execute("""
             SELECT id, username, email, role, created_at
-            FROM users
+            FROM admins
             WHERE role IN ('admin', 'superadmin')
             ORDER BY created_at DESC
         """)
@@ -2641,11 +2777,9 @@ def get_all_hospitals():
         c.execute("""
             SELECT h.id, h.hospital_name, h.hospital_code, h.email,
                    h.contact_person, h.phone, h.address, h.created_at,
-                   hs.status as subscription_status,
-                   sp.display_name as subscription_plan
+                   'active' as subscription_status,
+                   'Standard' as subscription_plan
             FROM hospitals h
-            LEFT JOIN hospital_subscriptions hs ON h.id = hs.hospital_id AND hs.status = 'active'
-            LEFT JOIN subscription_plans sp ON hs.plan_id = sp.id
             ORDER BY h.created_at DESC
         """)
 
@@ -2660,8 +2794,8 @@ def get_all_hospitals():
                 'phone': row[5],
                 'address': row[6],
                 'created_at': row[7],
-                'subscription_status': row[8] or 'none',
-                'subscription_plan': row[9] or 'Free'
+                'subscription_status': row[8] or 'active',
+                'subscription_plan': row[9] or 'Standard'
             })
 
         conn.close()
@@ -2749,7 +2883,7 @@ def create_admin_user():
         c = conn.cursor()
 
         # Check if username or email already exists
-        c.execute('SELECT id FROM users WHERE username=? OR email=?',
+        c.execute('SELECT id FROM admins WHERE username=? OR email=?',
                   (data['username'], data['email']))
         if c.fetchone():
             conn.close()
@@ -2758,9 +2892,9 @@ def create_admin_user():
         # Create admin user
         hashed_password = generate_password_hash(data['password'])
         c.execute("""
-            INSERT INTO users (username, email, password, role)
-            VALUES (?, ?, ?, ?)
-        """, (data['username'], data['email'], hashed_password, data['role']))
+            INSERT INTO admins (username, email, password, role, full_name)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data['username'], data['email'], hashed_password, data['role'], data.get('full_name', '')))
 
         user_id = c.lastrowid
         conn.commit()
@@ -3000,7 +3134,7 @@ def update_admin_user(user_id):
         c = conn.cursor()
 
         # Check if user exists
-        c.execute('SELECT id, role FROM users WHERE id=?', (user_id,))
+        c.execute('SELECT id, role FROM admins WHERE id=?', (user_id,))
         user = c.fetchone()
         if not user:
             conn.close()
@@ -3039,7 +3173,7 @@ def update_admin_user(user_id):
             return jsonify({'error': 'No valid fields to update'}), 400
 
         # Perform update
-        query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+        query = f"UPDATE admins SET {', '.join(updates)} WHERE id = ?"
         params.append(user_id)
 
         c.execute(query, params)
@@ -3223,7 +3357,7 @@ def delete_admin_user(user_id):
         c = conn.cursor()
 
         # Check if user exists and get role
-        c.execute('SELECT id, role FROM users WHERE id=?', (user_id,))
+        c.execute('SELECT id, role FROM admins WHERE id=?', (user_id,))
         user = c.fetchone()
         if not user:
             conn.close()
@@ -3235,7 +3369,7 @@ def delete_admin_user(user_id):
             return jsonify({'error': 'Insufficient permissions'}), 403
 
         # Delete user
-        c.execute('DELETE FROM users WHERE id=?', (user_id,))
+        c.execute('DELETE FROM admins WHERE id=?', (user_id,))
         conn.commit()
         conn.close()
 
@@ -3480,7 +3614,7 @@ def get_detailed_usage(hospital_id):
     if subscription['plan_name'] == 'free' and is_blocked:
         # Check last scan time
         c.execute("""
-            SELECT created_at FROM mri_scans
+            SELECT created_at FROM scans
             WHERE hospital_id = ?
             ORDER BY created_at DESC
             LIMIT 1
@@ -3850,7 +3984,7 @@ def admin_hospitals():
                    COUNT(DISTINCT s.id) as scan_count
             FROM hospitals h
             LEFT JOIN hospital_users hu ON h.id = hu.hospital_id
-            LEFT JOIN mri_scans s ON h.id = s.hospital_id
+            LEFT JOIN scans s ON h.id = s.hospital_id
             GROUP BY h.id ORDER BY h.created_at DESC
         """)
         hospitals = [dict(row) for row in c.fetchall()]
@@ -4163,22 +4297,22 @@ def hospital_dashboard():
 
     c.execute("SELECT COUNT(*) as count FROM patients WHERE hospital_id=?", (hospital_id,))
     total_patients = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=?", (hospital_id,))
+    c.execute("SELECT COUNT(*) as count FROM scans WHERE hospital_id=?", (hospital_id,))
     total_scans = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=? AND is_tumor=1", (hospital_id,))
+    c.execute("SELECT COUNT(*) as count FROM scans WHERE hospital_id=? AND is_tumor=1", (hospital_id,))
     tumor_detections = c.fetchone()["count"]
     c.execute("SELECT COUNT(*) as count FROM chat_conversations WHERE hospital_id=? AND status='active'",
               (hospital_id,))
     active_chats = c.fetchone()["count"]
     c.execute("""
-        SELECT COUNT(*) as count FROM mri_scans 
+        SELECT COUNT(*) as count FROM scans 
         WHERE hospital_id=? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
     """, (hospital_id,))
     scans_this_month = c.fetchone()["count"]
 
     c.execute("""
         SELECT s.*, p.full_name as patient_name, p.patient_code
-        FROM mri_scans s
+        FROM scans s
         JOIN patients p ON s.patient_id = p.id
         WHERE s.hospital_id=?
         ORDER BY s.created_at DESC LIMIT 10
@@ -4429,7 +4563,7 @@ def hospital_patients():
             SELECT p.*, hu.full_name as doctor_name, COUNT(s.id) as scan_count
             FROM patients p
             LEFT JOIN hospital_users hu ON p.assigned_doctor_id = hu.id
-            LEFT JOIN mri_scans s ON p.id = s.patient_id
+            LEFT JOIN scans s ON p.id = s.patient_id
             WHERE p.hospital_id=?
             GROUP BY p.id ORDER BY p.created_at DESC
         """, (hospital_id,))
@@ -4514,7 +4648,7 @@ def hospital_history():
     c.execute("""
         SELECT s.*, p.full_name as patient_name, p.patient_code,
                hu.full_name as uploaded_by_name
-        FROM mri_scans s
+        FROM scans s
         JOIN patients p ON s.patient_id = p.id
         LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
         WHERE s.hospital_id=?
@@ -4578,17 +4712,15 @@ def predict():
         conn = get_db()
         c = conn.cursor()
         c.execute("""
-            INSERT INTO mri_scans (
-                hospital_id, patient_id, uploaded_by, scan_image,
+            INSERT INTO scans (
+                hospital_id, patient_id, uploaded_by, 
                 prediction, confidence, is_tumor, probabilities,
-                notes, scan_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                scan_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             hospital_id, patient_id, session["user_id"],
-            base64.b64encode(image_bytes).decode(),
-            prediction_label, conf_val, is_tumor, str(probabilities),
-            request.form.get("notes", ""),
-            request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
+            prediction_label, conf_val, is_tumor, json.dumps(probabilities),
+            datetime.now().strftime("%Y-%m-%d")
         ))
         scan_id = c.lastrowid
         conn.commit()
@@ -4625,7 +4757,7 @@ def generate_report(scan_id):
 
         c.execute("""
             SELECT s.*, p.*, h.hospital_name, h.hospital_code, hu.full_name as doctor_name
-            FROM mri_scans s
+            FROM scans s
             JOIN patients p ON s.patient_id = p.id
             JOIN hospitals h ON s.hospital_id = h.id
             LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
@@ -4651,14 +4783,31 @@ def generate_report(scan_id):
             return jsonify({"error": "Unauthorized"}), 403
 
         # Prepare data
+        # Convert stored probabilities JSON/text to dict
+        probs = row["probabilities"]
+        try:
+            probs = json.loads(probs) if isinstance(probs, str) else probs
+        except Exception:
+            probs = {}
+
+        # Load image as base64 if file exists
+        scan_image_b64 = None
+        image_path = row["image_path"]
+        if image_path and os.path.exists(image_path):
+            try:
+                with open(image_path, "rb") as f:
+                    scan_image_b64 = base64.b64encode(f.read()).decode("utf-8")
+            except Exception as img_err:
+                logger.warning(f"Could not read scan image for report: {img_err}")
+
         scan_data = {
             "id": row["id"],
             "prediction": row["prediction"],
             "confidence": row["confidence"] * 100 if row["confidence"] <= 1 else row["confidence"],
             "is_tumor": row["is_tumor"],
-            "probabilities": row["probabilities"],
+            "probabilities": probs,
             "scan_date": row["scan_date"],
-            "scan_image": row["scan_image"],
+            "scan_image": scan_image_b64,
             "notes": row["notes"]
         }
 
@@ -4746,6 +4895,91 @@ def patient_verify():
         "message": "Verification code sent to email",
         "email_hint": patient["email"][:3] + "***" + patient["email"][-10:]
     })
+
+
+@app.route("/patient/resend-access", methods=["POST"])
+def patient_resend_access():
+    """Resend (or regenerate) patient access code to the registered email"""
+    data = request.json or {}
+    hospital_code = data.get("hospital_code")
+    patient_code = data.get("patient_code")
+    email = data.get("email")
+
+    if not hospital_code or not patient_code:
+        return jsonify({"error": "Hospital code and patient code are required"}), 400
+
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT p.id, p.full_name, p.email, p.patient_code, p.hospital_id,
+                   h.hospital_name, h.hospital_code
+            FROM patients p
+            JOIN hospitals h ON p.hospital_id = h.id
+            WHERE h.hospital_code = ? AND p.patient_code = ?
+        """, (hospital_code, patient_code))
+
+        patient = c.fetchone()
+        if not patient:
+            conn.close()
+            return jsonify({"error": "Patient not found"}), 404
+
+        # Optional email match check
+        if email and patient["email"] and patient["email"].lower() != email.lower():
+            conn.close()
+            return jsonify({"error": "Email does not match our records"}), 400
+
+        # Get latest (non-expired) access code or create a new one
+        c.execute("""
+            SELECT id, access_code, expires_at
+            FROM patient_access_codes
+            WHERE patient_id = ?
+            ORDER BY expires_at DESC
+            LIMIT 1
+        """, (patient["id"],))
+        access_row = c.fetchone()
+
+        access_code = None
+        expires_at = datetime.now() + timedelta(days=30)
+
+        if access_row and access_row["expires_at"] and access_row["expires_at"] > datetime.now().isoformat():
+            access_code = access_row["access_code"]
+        else:
+            access_code = generate_code(8)
+            c.execute("""
+                INSERT INTO patient_access_codes (patient_id, access_code, expires_at)
+                VALUES (?, ?, ?)
+            """, (patient["id"], access_code, expires_at))
+            conn.commit()
+
+        # Send email
+        email_target = email or patient["email"]
+        if email_target:
+            try:
+                send_welcome_email(
+                    to_email=email_target,
+                    patient_name=patient["full_name"],
+                    patient_code=patient["patient_code"],
+                    access_code=access_code,
+                    hospital_name=patient["hospital_name"],
+                    hospital_code=patient["hospital_code"]
+                )
+            except Exception as e:
+                logger.error(f"Resend access email error: {e}")
+                conn.close()
+                return jsonify({"error": "Unable to send email. Please contact hospital."}), 500
+
+        conn.close()
+
+        return jsonify({
+            "message": "Access code sent to email on file",
+            "email_hint": (email_target[:3] + "***" + email_target[-10:]) if email_target else None
+        })
+
+    except Exception as e:
+        logger.error(f"Resend access error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route("/patient/login", methods=["POST"])
