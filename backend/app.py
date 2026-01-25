@@ -9,13 +9,8 @@ import string
 from typing import Optional, List, Dict
 from pathlib import Path
 
-from model_loader import model
-
-import matplotlib
-from flask_socketio import SocketIO, emit, join_room, leave_room, send
-import socketio
-
-from werkzeug.utils import secure_filename, redirect
+from aext_shared import user_id
+from werkzeug.utils import secure_filename
 import mimetypes
 from datetime import datetime, timedelta
 import stripe
@@ -29,11 +24,6 @@ from PIL import Image
 import torchvision.models as models
 from functools import wraps
 import cv2
-from email_utilis import send_verification_email, send_welcome_email, logger
-import sqlite3
-import io
-import os
-from datetime import datetime
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import json
@@ -48,7 +38,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room, send
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import json
-from model_loader import get_model
+
 from pdf_report import generate_pdf_report
 from email_utilis import send_verification_email, send_welcome_email
 
@@ -60,12 +50,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 DB_FILE = "neuroscan_platform.db"
 
-# Use Windows path for local development, Linux for Docker
-import platform
-if platform.system() == "Windows":
-    MODEL_PATH = Path(__file__).resolve().parent / "models" / "vgg19.pth"
-else:
-    MODEL_PATH = Path("/app/models/vgg19.pth")
+MODEL_PATH = r"C:\Users\Acer\OneDrive\Desktop\final year project\backend\models\vgg19_final_20260110_154609.pth"
 
 CHAT_UPLOAD_FOLDER = 'uploads/chat_attachments'
 ALLOWED_CHAT_FILES = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'dcm'}  # dcm for DICOM files
@@ -85,316 +70,55 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-from flask_session import Session  # Add this import at top
-
+# -----------------------------
+# Flask App Setup
+# -----------------------------
 app = Flask(__name__)
-app.secret_key = SECRET_KEY
-
-# Configure session
-app.config.update(
-    SECRET_KEY=SECRET_KEY,
-    SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_DOMAIN=None,
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
-    SESSION_TYPE='filesystem',
-    SESSION_FILE_DIR='./flask_session',  # Where to store sessions
-    SESSION_PERMANENT=False,
-    SESSION_COOKIE_NAME='neuroscan-session',
-    SESSION_USE_SIGNER=True,
-)
-
-# Initialize Flask-Session
-Session(app)
-
-# Create session directory
-os.makedirs('./flask_session', exist_ok=True)
-# ==============================================
-# CRITICAL CORS CONFIGURATION - FIXED
-# ==============================================
-
-from flask_cors import CORS, cross_origin
-
-# Allowed origins
+app.secret_key = secrets.token_hex(24)
+# 1. Define all your allowed origins in one place
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://localhost:3001",
     "http://127.0.0.1:3000",
-    "http://192.168.1.70:3000"
-    "https://neuroscannn-c7nmwfbc7-sankalpadhikariiis-projects.vercel.app"
+    "http://localhost:3001",
+    "http://192.168.1.70:3000",
+    "http://192.168.1.81:3000" # Added based on your previous terminal output
 ]
 
-# âœ… APPLY CORS TO ALL ROUTES WITH EXPLICIT SETTINGS
-CORS(app,
-     origins=ALLOWED_ORIGINS,
-     supports_credentials=True,
-     allow_headers=[
-         "Content-Type",
-         "Authorization",
-         "X-Requested-With",
-         "Accept",
-         "Origin",
-         "Access-Control-Request-Method",
-         "Access-Control-Request-Headers"
-     ],
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-     expose_headers=["Content-Type", "Authorization"],
-     send_wildcard=False,
-     max_age=3600)
+# 2. Single CORS call for Flask
+CORS(app, resources={
+    r"/*": {
+        "origins": ALLOWED_ORIGINS,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "expose_headers": ["Content-Type"]
+    }
+})
 
-
-# âœ… EXPLICIT AFTER_REQUEST HANDLER
-@app.after_request
-def after_request(response):
-    origin = request.headers.get('Origin')
-
-    # Only set CORS headers if origin is in allowed list
-    if origin in ALLOWED_ORIGINS:
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
-        response.headers[
-            'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin'
-        response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
-
-    return response
-
-
-# âœ… EXPLICIT OPTIONS HANDLER FOR PREFLIGHT
-@app.route('/<path:path>', methods=['OPTIONS'])
-def handle_options(path):
-    response = app.make_default_options_response()
-    origin = request.headers.get('Origin')
-
-    if origin in ALLOWED_ORIGINS:
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
-        response.headers[
-            'Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin'
-
-    return response
-# ==============================================
-# SESSION CONFIGURATION - FIXED FOR CROSS-ORIGIN
-# ==============================================
-
-app.config.update(
-    SECRET_KEY=SECRET_KEY,
-    SESSION_COOKIE_NAME='neuroscan_session',
-    SESSION_COOKIE_SAMESITE='Lax',  # âœ… CRITICAL for cross-origin
-    SESSION_COOKIE_SECURE=False,     # Set to True in production with HTTPS
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_DOMAIN=None,      # Let Flask handle it
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
-    SESSION_TYPE='filesystem'
-)
-# Device setup
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"Using device: {device}")
-
-
-def init_database():
-    """Create all base tables if they don't exist"""
-    conn = get_db()
-    c = conn.cursor()
-
-    logger.info("🔧 Initializing database tables...")
-
-    # Users table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT DEFAULT 'doctor',
-            full_name TEXT,
-            phone TEXT,
-            specialization TEXT,
-            license_number TEXT,
-            profile_picture TEXT,
-            is_active INTEGER DEFAULT 1,
-            is_verified INTEGER DEFAULT 0,
-            verification_token TEXT,
-            reset_token TEXT,
-            reset_token_expiry TIMESTAMP,
-            last_login TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Hospitals table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS hospitals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            address TEXT,
-            city TEXT,
-            state TEXT,
-            country TEXT,
-            postal_code TEXT,
-            phone TEXT,
-            website TEXT,
-            registration_number TEXT,
-            license_number TEXT,
-            admin_name TEXT,
-            admin_email TEXT,
-            is_active INTEGER DEFAULT 1,
-            is_verified INTEGER DEFAULT 0,
-            subscription_tier TEXT DEFAULT 'free',
-            subscription_status TEXT DEFAULT 'active',
-            stripe_customer_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Patients table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS patients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            age INTEGER,
-            date_of_birth DATE,
-            gender TEXT,
-            blood_type TEXT,
-            contact TEXT,
-            email TEXT,
-            address TEXT,
-            emergency_contact TEXT,
-            emergency_phone TEXT,
-            medical_history TEXT,
-            allergies TEXT,
-            current_medications TEXT,
-            hospital_id INTEGER,
-            doctor_id INTEGER,
-            access_code TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE SET NULL,
-            FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE SET NULL
-        )
-    """)
-
-    # Predictions table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            patient_id INTEGER,
-            hospital_id INTEGER,
-            image_path TEXT NOT NULL,
-            image_hash TEXT,
-            prediction TEXT NOT NULL,
-            confidence REAL NOT NULL,
-            probabilities TEXT,
-            model_version TEXT,
-            processing_time REAL,
-            notes TEXT,
-            is_verified INTEGER DEFAULT 0,
-            verified_by INTEGER,
-            verified_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
-            FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE SET NULL,
-            FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL
-        )
-    """)
-
-    # Patient access codes table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS patient_access_codes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            patient_id INTEGER NOT NULL,
-            access_code TEXT UNIQUE NOT NULL,
-            verification_code TEXT,
-            verification_code_expiry TIMESTAMP,
-            is_verified INTEGER DEFAULT 0,
-            verified_at TIMESTAMP,
-            expires_at TIMESTAMP,
-            last_accessed TIMESTAMP,
-            access_count INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Create indexes for performance
-    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_patients_hospital ON patients(hospital_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_predictions_patient ON predictions(patient_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_access_codes_code ON patient_access_codes(access_code)")
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ Base tables created/verified")
-# Add this function to app.py and call it at startup
-
-def migrate_database_schema():
-    """Create missing tables and columns"""
-    conn = get_db()
-    c = conn.cursor()
-
-    # Create patient_access_codes table
-    c.execute("""
-    
-        CREATE TABLE IF NOT EXISTS patient_access_codes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            patient_id INTEGER NOT NULL,
-            access_code TEXT NOT NULL,
-            verification_code TEXT,
-            is_verified INTEGER DEFAULT 0,
-            verified_at TIMESTAMP,
-            expires_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Add access_code column to patients if missing
-    c.execute("PRAGMA table_info(patients)")
-    columns = [col[1] for col in c.fetchall()]
-
-    if 'access_code' not in columns:
-        c.execute("ALTER TABLE patients ADD COLUMN access_code TEXT")
-        logger.info("✅ Added access_code column to patients")
-
-    # Create indexes
-    c.execute("""
-        CREATE INDEX IF NOT EXISTS idx_patient_access_codes_patient_id 
-        ON patient_access_codes(patient_id)
-    """)
-
-    c.execute("""
-        CREATE INDEX IF NOT EXISTS idx_patient_access_codes_access_code 
-        ON patient_access_codes(access_code)
-    """)
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ Database migration completed")
-
-# SocketIO with CORS support
+# 3. Match SocketIO origins exactly
 socketio = SocketIO(
     app,
     cors_allowed_origins=ALLOWED_ORIGINS,
-    async_mode='threading',
-    logger=True,
-    engineio_logger=True,
-    ping_timeout=60,
-    ping_interval=25
+    logger=False,
+    engineio_logger=False
+)
+# Limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["50 per minute"]
 )
 
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ============================================
-# CONFIGURATION FLAGS
-# ============================================
-ENABLE_GRADCAM = False  # Disabled due to GPU memory constraints
+# Model loading moved to lines 3009-3079 where VGG19_BrainTumor class is properly defined
+# This early loading is not needed and causes conflicts
+
+# Device setup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+logger.info(f"Using device: {device}")
 
 
 # ==============================================
@@ -543,633 +267,6 @@ def login_required(f):
         return jsonify({"error": "Not authenticated"}), 401
 
     return wrapper
-
-
-def ensure_usage_tracking_exists(hospital_id):
-    """Ensure usage_tracking record exists for hospital"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT id FROM usage_tracking 
-            WHERE hospital_id = ? AND is_current = 1
-        """, (hospital_id,))
-
-        if not c.fetchone():
-            logger.warning(f"⚠️ Creating missing usage_tracking for hospital {hospital_id}")
-
-            # Get actual counts
-            c.execute("SELECT COUNT(*) FROM hospital_users WHERE hospital_id = ?", (hospital_id,))
-            users_count = c.fetchone()[0]
-
-            c.execute("SELECT COUNT(*) FROM patients WHERE hospital_id = ?", (hospital_id,))
-            patients_count = c.fetchone()[0]
-
-            c.execute("""
-                SELECT COUNT(*) FROM mri_scans 
-                WHERE hospital_id = ? 
-                AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-            """, (hospital_id,))
-            scans_count = c.fetchone()[0]
-
-            period_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            if period_start.month == 12:
-                period_end = period_start.replace(year=period_start.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                period_end = period_start.replace(month=period_start.month + 1, day=1) - timedelta(days=1)
-
-            c.execute("""
-                INSERT INTO usage_tracking (
-                    hospital_id, scans_used, users_count, patients_count,
-                    period_start, period_end, is_current
-                ) VALUES (?, ?, ?, ?, ?, ?, 1)
-            """, (hospital_id, scans_count, users_count, patients_count,
-                  period_start.isoformat(), period_end.isoformat()))
-
-            conn.commit()
-            logger.info(
-                f"✅ Created usage_tracking: {scans_count} scans, {users_count} users, {patients_count} patients")
-
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"Error ensuring usage_tracking: {e}")
-        return False
-# ==============================================
-# HELPER FUNCTIONS FOR SUBSCRIPTION & USAGE
-# Added to resolve unresolved references
-# ==============================================
-
-def generate_unique_code(table, column, prefix='', length=6):
-    """
-    Generate a unique code for a table column
-
-    Args:
-        table: Database table name (e.g., 'patients', 'hospitals')
-        column: Column name to check for uniqueness (e.g., 'patient_code')
-        prefix: Optional prefix for the code (e.g., 'P' for patients)
-        length: Length of the random portion (default 6)
-
-    Returns:
-        str: Unique code with prefix
-    """
-    conn = get_db()
-    c = conn.cursor()
-
-    max_attempts = 100
-    for _ in range(max_attempts):
-        # Generate random code
-        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-        code = f"{prefix}{random_part}" if prefix else random_part
-
-        # Check if exists
-        c.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (code,))
-        count = c.fetchone()[0]
-
-        if count == 0:
-            conn.close()
-            return code
-
-    conn.close()
-    raise Exception(f"Could not generate unique code for {table}.{column} after {max_attempts} attempts")
-
-
-def get_hospital_subscription(hospital_id):
-    """
-    Get active subscription for a hospital with plan details
-
-    Args:
-        hospital_id: Hospital ID
-
-    Returns:
-        dict: Subscription details with plan information, or None if no active subscription
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT 
-                hs.id as subscription_id,
-                hs.hospital_id,
-                hs.plan_id,
-                hs.stripe_subscription_id,
-                hs.status,
-                hs.current_period_start,
-                hs.current_period_end,
-                hs.cancel_at_period_end,
-                sp.plan_name,
-                sp.max_scans_per_month,
-                sp.max_users,
-                sp.max_patients,
-                sp.features,
-                sp.price_monthly,
-                sp.price_yearly
-            FROM hospital_subscriptions hs
-            JOIN subscription_plans sp ON hs.plan_id = sp.id
-            WHERE hs.hospital_id = ? 
-            AND hs.status = 'active'
-            AND (hs.current_period_end IS NULL OR hs.current_period_end > datetime('now'))
-            ORDER BY hs.created_at DESC
-            LIMIT 1
-        """, (hospital_id,))
-
-        row = c.fetchone()
-        conn.close()
-
-        if row:
-            return dict(row)
-        else:
-            # Return default free plan if no subscription
-            return {
-                'subscription_id': None,
-                'hospital_id': hospital_id,
-                'plan_id': 1,
-                'plan_name': 'Free',
-                'max_scans_per_month': 10,
-                'max_users': 2,
-                'max_patients': 50,
-                'features': '[]',
-                'status': 'active'
-            }
-
-    except Exception as e:
-        logger.error(f"Error getting hospital subscription: {e}")
-        return None
-
-
-def get_current_usage(hospital_id):
-    """
-    Get current usage statistics for a hospital
-
-    Args:
-        hospital_id: Hospital ID
-
-    Returns:
-        dict: Usage statistics (scans_used, users_count, patients_count)
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Get or create usage tracking record for current period
-        c.execute("""
-            SELECT scans_used, users_count, patients_count, period_start, period_end
-            FROM usage_tracking
-            WHERE hospital_id = ? AND is_current = 1
-        """, (hospital_id,))
-
-        usage = c.fetchone()
-
-        if usage:
-            result = {
-                'scans_used': usage['scans_used'],
-                'users_count': usage['users_count'],
-                'patients_count': usage['patients_count'],
-                'period_start': usage['period_start'],
-                'period_end': usage['period_end']
-            }
-        else:
-            # Create new usage tracking record
-            period_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-            # Calculate period_end (last day of current month)
-            if period_start.month == 12:
-                period_end = period_start.replace(year=period_start.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                period_end = period_start.replace(month=period_start.month + 1, day=1) - timedelta(days=1)
-
-            c.execute("""
-                INSERT INTO usage_tracking (
-                    hospital_id, scans_used, users_count, patients_count,
-                    period_start, period_end, is_current
-                ) VALUES (?, 0, 0, 0, ?, ?, 1)
-            """, (hospital_id, period_start.isoformat(), period_end.isoformat()))
-
-            conn.commit()
-
-            result = {
-                'scans_used': 0,
-                'users_count': 0,
-                'patients_count': 0,
-                'period_start': period_start.isoformat(),
-                'period_end': period_end.isoformat()
-            }
-
-        conn.close()
-        return result
-
-    except Exception as e:
-        logger.error(f"Error getting current usage: {e}")
-        return {
-            'scans_used': 0,
-            'users_count': 0,
-            'patients_count': 0
-        }
-
-
-def get_stripe_price_id(plan_id, billing_cycle='monthly'):
-    """
-    Map subscription plan IDs to Stripe price IDs
-    """
-    # CHECK IF REAL STRIPE PRICES ARE CONFIGURED
-    basic_monthly = os.getenv('STRIPE_PRICE_BASIC_MONTHLY')
-
-    if not basic_monthly or basic_monthly == 'price_basic_monthly':
-        logger.warning("⚠️ Stripe prices not configured - using test mode")
-        # RETURN TEST PRICE IDs (create these in Stripe Dashboard first)
-        price_mapping = {
-            2: {  # Basic
-                'monthly': 'price_1QVtExIvP6P9XTkI6aDVGBg3',  # REPLACE WITH YOUR REAL STRIPE PRICE ID
-                'yearly': 'price_1QVtExIvP6P9XTkI6aDVGBg3'
-            },
-            3: {  # Premium
-                'monthly': 'price_1QVtExIvP6P9XTkI6aDVGBg3',
-                'yearly': 'price_1QVtExIvP6P9XTkI6aDVGBg3'
-            },
-            4: {  # Enterprise
-                'monthly': 'price_1QVtExIvP6P9XTkI6aDVGBg3',
-                'yearly': 'price_1QVtExIvP6P9XTkI6aDVGBg3'
-            }
-        }
-    else:
-        price_mapping = {
-            1: {'monthly': None, 'yearly': None},
-            2: {
-                'monthly': os.getenv('STRIPE_PRICE_BASIC_MONTHLY'),
-                'yearly': os.getenv('STRIPE_PRICE_BASIC_YEARLY')
-            },
-            3: {
-                'monthly': os.getenv('STRIPE_PRICE_PREMIUM_MONTHLY'),
-                'yearly': os.getenv('STRIPE_PRICE_PREMIUM_YEARLY')
-            },
-            4: {
-                'monthly': os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
-                'yearly': os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY')
-            }
-        }
-
-    plan_prices = price_mapping.get(plan_id)
-    if not plan_prices:
-        return None
-
-    return plan_prices.get(billing_cycle)
-
-
-def get_or_create_stripe_customer(hospital_id, email):
-    """
-    Get existing Stripe customer ID or create a new one
-
-    Args:
-        hospital_id: Hospital ID
-        email: Hospital email address
-
-    Returns:
-        str: Stripe customer ID
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if hospital already has a Stripe customer ID
-        c.execute("SELECT stripe_customer_id FROM hospitals WHERE id = ?", (hospital_id,))
-        result = c.fetchone()
-
-        if result and result['stripe_customer_id']:
-            conn.close()
-            return result['stripe_customer_id']
-
-        # Create new Stripe customer
-        customer = stripe.Customer.create(
-            email=email,
-            metadata={
-                'hospital_id': hospital_id
-            }
-        )
-
-        # Save customer ID to database
-        c.execute("""
-            UPDATE hospitals 
-            SET stripe_customer_id = ?
-            WHERE id = ?
-        """, (customer.id, hospital_id))
-
-        conn.commit()
-        conn.close()
-
-        return customer.id
-
-    except Exception as e:
-        logger.error(f"Error creating Stripe customer: {e}")
-        raise
-
-
-def get_detailed_usage(hospital_id):
-    """
-    Get detailed usage information with limits and blocking status
-
-    Args:
-        hospital_id: Hospital ID
-
-    Returns:
-        dict: Complete usage information including limits and blocking status
-    """
-    subscription = get_hospital_subscription(hospital_id)
-
-    if not subscription:
-        return {
-            'is_blocked': True,
-            'block_message': 'No active subscription found',
-            'scans_used': 0,
-            'max_scans': 0,
-            'users_count': 0,
-            'max_users': 0,
-            'patients_count': 0,
-            'max_patients': 0,
-            'plan_name': 'None'
-        }
-
-    usage = get_current_usage(hospital_id)
-
-    max_scans = subscription['max_scans_per_month']
-    max_users = subscription['max_users']
-    max_patients = subscription['max_patients']
-
-    scans_used = usage['scans_used']
-    users_count = usage['users_count']
-    patients_count = usage['patients_count']
-
-    # Check if blocked
-    is_blocked = False
-    block_message = ""
-
-    if max_scans != -1 and scans_used >= max_scans:
-        is_blocked = True
-        block_message = f"Monthly scan limit reached ({max_scans} scans). Please upgrade your plan."
-    elif max_users != -1 and users_count >= max_users:
-        is_blocked = True
-        block_message = f"User limit reached ({max_users} users). Please upgrade your plan."
-    elif max_patients != -1 and patients_count >= max_patients:
-        is_blocked = True
-        block_message = f"Patient limit reached ({max_patients} patients). Please upgrade your plan."
-
-    # Calculate usage percentage
-    usage_percentage = 0
-    if max_scans != -1 and max_scans > 0:
-        usage_percentage = (scans_used / max_scans) * 100
-
-    return {
-        'is_blocked': is_blocked,
-        'block_message': block_message,
-        'scans_used': scans_used,
-        'max_scans': 'unlimited' if max_scans == -1 else max_scans,
-        'users_count': users_count,
-        'max_users': 'unlimited' if max_users == -1 else max_users,
-        'patients_count': patients_count,
-        'max_patients': 'unlimited' if max_patients == -1 else max_patients,
-        'plan_name': subscription['plan_name'],
-        'usage_percentage': round(usage_percentage, 1)
-    }
-
-
-def increment_usage(hospital_id, resource_type='scans', amount=1):
-    """
-    Increment usage counter for a hospital
-
-    Args:
-        hospital_id: Hospital ID
-        resource_type: 'scans', 'users', or 'patients'
-        amount: Amount to increment (default 1)
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        field_map = {
-            'scans': 'scans_used',
-            'users': 'users_count',
-            'patients': 'patients_count'
-        }
-
-        field = field_map.get(resource_type)
-        if not field:
-            conn.close()
-            return False
-
-        # Get or create current period usage
-        c.execute("""
-            SELECT id FROM usage_tracking
-            WHERE hospital_id = ? AND is_current = 1
-        """, (hospital_id,))
-
-        usage = c.fetchone()
-
-        if not usage:
-            # Create new usage record
-            get_current_usage(hospital_id)
-
-        # Increment the counter
-        c.execute(f"""
-            UPDATE usage_tracking
-            SET {field} = {field} + ?, updated_at = CURRENT_TIMESTAMP
-            WHERE hospital_id = ? AND is_current = 1
-        """, (amount, hospital_id))
-
-        conn.commit()
-        conn.close()
-        return True
-
-    except Exception as e:
-        logger.error(f"Error incrementing usage: {e}")
-        return False
-
-
-def increment_usage(hospital_id, resource_type='scans', amount=1):
-    """Increment usage counter for a hospital"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        field_map = {
-            'scans': 'scans_used',
-            'users': 'users_count',
-            'patients': 'patients_count'
-        }
-
-        field = field_map.get(resource_type)
-        if not field:
-            logger.error(f"❌ Invalid resource_type: {resource_type}")
-            conn.close()
-            return False
-
-        # ✅ ADD THIS DEBUG LOG
-        logger.info(f"📊 Incrementing {resource_type} for hospital {hospital_id}")
-
-        # First, ensure usage tracking record exists
-        c.execute("""
-            SELECT id, {field} FROM usage_tracking
-            WHERE hospital_id = ? AND is_current = 1
-        """.format(field=field), (hospital_id,))
-
-        existing = c.fetchone()
-
-        # ✅ ADD THIS DEBUG LOG
-        if existing:
-            logger.info(f"   Current {field}: {existing[field]}")
-        else:
-            logger.warning(f"   No current usage_tracking record found! Creating one...")
-
-        if not existing:
-            # Create new tracking record
-            get_current_usage(hospital_id)
-
-        # Update the counter
-        c.execute("""
-            UPDATE usage_tracking
-            SET {field} = {field} + ?
-            WHERE hospital_id = ? AND is_current = 1
-        """.format(field=field), (amount, hospital_id))
-
-        rows_affected = c.rowcount
-
-        # ✅ ADD THIS DEBUG LOG
-        logger.info(f"   Updated {rows_affected} rows")
-
-        if rows_affected == 0:
-            logger.error(f"❌ Failed to update usage! No rows affected")
-
-        conn.commit()
-
-        # ✅ ADD THIS - Verify the update
-        c.execute(f"SELECT {field} FROM usage_tracking WHERE hospital_id = ? AND is_current = 1",
-                  (hospital_id,))
-        new_value = c.fetchone()
-        if new_value:
-            logger.info(f"   New {field}: {new_value[field]}")
-
-        conn.close()
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Error incrementing usage: {e}")
-        return False
-def has_feature(hospital_id, feature_key):
-    """
-    Check if hospital's plan includes a specific feature
-
-    Args:
-        hospital_id: Hospital ID
-        feature_key: Feature identifier (e.g., 'video_call', 'tumor_tracking')
-
-    Returns:
-        bool: True if feature is available, False otherwise
-    """
-    subscription = get_hospital_subscription(hospital_id)
-    if not subscription:
-        return False
-
-    try:
-        features = json.loads(subscription.get('features', '[]'))
-        return feature_key in features
-    except:
-        return False
-
-
-def create_usage_tracking_table():
-    """Create usage_tracking table if it doesn't exist"""
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS usage_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            hospital_id INTEGER NOT NULL,
-            scans_used INTEGER DEFAULT 0,
-            users_count INTEGER DEFAULT 0,
-            patients_count INTEGER DEFAULT 0,
-            period_start TEXT NOT NULL,
-            period_end TEXT NOT NULL,
-            is_current INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (hospital_id) REFERENCES hospitals(id)
-        )
-    """)
-
-    # Create index for faster lookups
-    c.execute("""
-        CREATE INDEX IF NOT EXISTS idx_usage_hospital_current 
-        ON usage_tracking(hospital_id, is_current)
-    """)
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ usage_tracking table created/verified")
-
-
-def add_stripe_customer_column():
-    """Add stripe_customer_id column to hospitals table if it doesn't exist"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if column exists
-        c.execute("PRAGMA table_info(hospitals)")
-        columns = [column[1] for column in c.fetchall()]
-
-        if 'stripe_customer_id' not in columns:
-            c.execute("""
-                ALTER TABLE hospitals 
-                ADD COLUMN stripe_customer_id TEXT
-            """)
-            conn.commit()
-            logger.info("✅ Added stripe_customer_id column to hospitals table")
-
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error adding stripe_customer_id column: {e}")
-
-
-def migrate_usage_tracking_columns():
-    """Add missing columns to usage_tracking table"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if columns exist
-        c.execute("PRAGMA table_info(usage_tracking)")
-        columns = [column[1] for column in c.fetchall()]
-
-        if 'scans_limit' not in columns:
-            c.execute("ALTER TABLE usage_tracking ADD COLUMN scans_limit INTEGER DEFAULT 0")
-            logger.info("✅ Added scans_limit column to usage_tracking")
-
-        if 'users_limit' not in columns:
-            c.execute("ALTER TABLE usage_tracking ADD COLUMN users_limit INTEGER DEFAULT 0")
-            logger.info("✅ Added users_limit column to usage_tracking")
-
-        if 'patients_limit' not in columns:
-            c.execute("ALTER TABLE usage_tracking ADD COLUMN patients_limit INTEGER DEFAULT 0")
-            logger.info("✅ Added patients_limit column to usage_tracking")
-
-        if 'subscription_id' not in columns:
-            c.execute("ALTER TABLE usage_tracking ADD COLUMN subscription_id INTEGER")
-            logger.info("✅ Added subscription_id column to usage_tracking")
-
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error migrating usage_tracking columns: {e}")
-
-
-# Initialize tables
-create_usage_tracking_table()
-add_stripe_customer_column()
-migrate_usage_tracking_columns()
 
 
 def admin_required(f):
@@ -1476,7 +573,7 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """Enhanced disconnect handler - FIXED"""
+    """Enhanced disconnect handler"""
     user_key = None
     user_info = None
 
@@ -1489,8 +586,8 @@ def handle_disconnect():
             break
 
     if user_info:
-        # FIXED: Use emit instead of socketio.emit
-        emit('user_status', {
+        # Notify others that user is offline
+        socketio.emit('user_status', {
             'user_type': user_info['user_type'],
             'user_id': user_info['user_id'],
             'status': 'offline'
@@ -1719,6 +816,34 @@ def get_notifications_api():
         return jsonify({'error': 'Failed to fetch notifications'}), 500
 
 
+@app.route('/notifications/<int:notification_id>/mark-read', methods=['POST'])
+def mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE notifications 
+            SET is_read = 1
+            WHERE id = ? AND user_id = ?
+        ''', (notification_id, user_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logging.error(f"Error marking notification as read: {e}")
+        return jsonify({'error': 'Failed to update notification'}), 500
+
+
 def create_notification_full(user_id, notif_type, message, scan_id=None, user_type='patient'):
     """Helper function to create a notification"""
     try:
@@ -1898,106 +1023,48 @@ def send_message():
 
 
 # ==============================================
-# PATIENT SCAN HISTORY ROUTES
+# GRAD-CAM ROUTES
 # ==============================================
-# Add this route to app.py - REPLACE the existing /hospital/patients POST endpoint
 
-@app.route("/hospital/patients", methods=["POST"])
-@hospital_required
-def create_patient_with_email():
-    """Create patient and send credentials email"""
-    conn = get_db()
-    c = conn.cursor()
-    hospital_id = session.get("hospital_id")
-
-    if not hospital_id:
-        conn.close()
-        return jsonify({"error": "Hospital ID not found in session"}), 401
-
-    data = request.json
-    logger.info(f"Creating patient with data: {data}")
-
-    # Validate required fields
-    if not data.get("full_name"):
-        conn.close()
-        return jsonify({"error": "full_name is required"}), 400
+@app.route('/gradcam/<int:scan_id>', methods=['GET'])
+def get_gradcam(scan_id):
+    """Get Grad-CAM visualization for a scan"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
 
     try:
-        # Generate codes
-        patient_code = generate_unique_code('patients', 'patient_code', prefix='P')
-        access_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-        # Insert patient
-        c.execute("""
-            INSERT INTO patients (
-                hospital_id, patient_code, full_name, email, phone,
-                date_of_birth, gender, address, emergency_contact, 
-                emergency_phone, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            hospital_id, patient_code,
-            data.get("full_name"), data.get("email"), data.get("phone"),
-            data.get("date_of_birth"), data.get("gender"), data.get("address"),
-            data.get("emergency_contact"), data.get("emergency_phone"),
-            session["user_id"]
-        ))
-        patient_id = c.lastrowid
+        # Get scan info
+        cursor.execute('''
+            SELECT gradcam_path, image_path 
+            FROM scans 
+            WHERE id = ?
+        ''', (scan_id,))
 
-        # Create access code entry with expiration
-        expires_at = datetime.now() + timedelta(days=365)  # 1 year validity
-        c.execute("""
-            INSERT INTO patient_access_codes (patient_id, access_code, expires_at)
-            VALUES (?, ?, ?)
-        """, (patient_id, access_code, expires_at))
-
-        # Get hospital info for email
-        c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id=?", (hospital_id,))
-        hospital = c.fetchone()
-
-        # Get patient data
-        c.execute("SELECT * FROM patients WHERE id=?", (patient_id,))
-        patient = dict(c.fetchone())
-        patient['scan_count'] = 0
-
-        conn.commit()
+        row = cursor.fetchone()
         conn.close()
 
-        # Send email
-        email_sent = False
-        if data.get("email"):
-            try:
-                from email_utilis import send_patient_credentials_email
+        if not row:
+            return jsonify({'error': 'Scan not found'}), 404
 
-                email_sent = send_patient_credentials_email(
-                    to_email=data.get("email"),
-                    patient_name=data.get("full_name"),
-                    hospital_name=hospital["hospital_name"],
-                    hospital_code=hospital["hospital_code"],
-                    patient_code=patient_code,
-                    access_code=access_code
-                )
+        gradcam_path = row[0]
 
-                if email_sent:
-                    logger.info(f"✅ Welcome email sent to {data.get('email')}")
-            except Exception as e:
-                logger.error(f"❌ Email error: {e}")
-
-        log_activity("hospital", session["user_id"], "create_patient", hospital_id=hospital_id)
-
-        return jsonify({
-            "message": "Patient created successfully",
-            "patient": patient,
-            "patient_id": patient_id,
-            "patient_code": patient_code,
-            "access_code": access_code,
-            "email_sent": email_sent
-        }), 201
+        if gradcam_path and os.path.exists(gradcam_path):
+            return send_file(gradcam_path, mimetype='image/jpeg')
+        else:
+            return jsonify({'error': 'Grad-CAM not available'}), 404
 
     except Exception as e:
-        conn.rollback()
-        conn.close()
-        logger.error(f"❌ Patient creation error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error fetching Grad-CAM: {e}")
+        return jsonify({'error': 'Failed to fetch Grad-CAM'}), 500
+
+
+# ==============================================
+# PATIENT SCAN HISTORY ROUTES
+# ==============================================
+
 @app.route('/hospital/patient-scans/<int:patient_id>', methods=['GET'])
 def get_patient_scans(patient_id):
     """Get all scans for a specific patient"""
@@ -2200,26 +1267,18 @@ def hospital_predict_enhanced(hospital_id=None):
 
         # Generate Grad-CAM if requested
         gradcam_path = None
-        if generate_gradcam and ENABLE_GRADCAM:
+        if generate_gradcam:
             try:
                 from gradcam_utils import generate_gradcam_from_tensor
-
-                # ENSURE MODEL IS IN EVAL MODE
-                model.eval()
-
                 gradcam_img, _ = generate_gradcam_from_tensor(
                     model, input_tensor, image, target_class=predicted_idx
                 )
 
-                # SAVE GRADCAM IMAGE
                 gradcam_filename = f"gradcam_{timestamp}_{filename}"
                 gradcam_path = os.path.join(UPLOAD_FOLDER, gradcam_filename)
                 Image.fromarray(gradcam_img).save(gradcam_path)
-
-                logger.info(f"✅ GradCAM saved: {gradcam_path}")
             except Exception as e:
-                logger.error(f"❌ Grad-CAM generation failed: {e}")
-                gradcam_path = None  # Continue without GradCAM
+                logging.error(f"Grad-CAM generation failed: {e}")
 
         # Get hospital user_id from session
         hospital_user_id = session.get('user_id')
@@ -2782,34 +1841,88 @@ def notify_hospital_users(hospital_id: int, notification_type: str, title: str, 
 # ==============================================
 # NOTIFICATION API ENDPOINTS
 # ==============================================
+# @app.route('/api/notifications', methods=['GET'])
+# @login_required
+# def get_notifications_api():
+# """Get notifications for current user"""
+# try:
+# user_id = session.get('user_id') or session.get('patient_id')
+# user_type = session.get('user_type') or 'patient'
 
-@app.route('/api/notifications/<int:notification_id>/read', methods=['PUT'])
-@login_required
-def mark_notification_read(notification_id):
-    """Mark a notification as read"""
-    try:
-        user_id = session.get('user_id') or session.get('patient_id')
-        conn = get_db()
-        c = conn.cursor()
+# Get query parameters
+# limit = request.args.get('limit', 50, type=int)
+# offset = request.args.get('offset', 0, type=int)
+# unread_only = request.args.get('unread_only', 'false').lower() == 'true'
 
-        c.execute("SELECT id FROM notifications WHERE id=? AND user_id=?",
-                  (notification_id, user_id))
+# conn = get_db()
+# c = conn.cursor()
 
-        if not c.fetchone():
-            conn.close()
-            return jsonify({'error': 'Notification not found'}), 404
+# Build query
+# query = """
+#   SELECT * FROM notifications
+#  WHERE user_id=? AND user_type=?
+# """
+# params = [user_id, user_type]
 
-        c.execute("UPDATE notifications SET is_read=1, read_at=CURRENT_TIMESTAMP WHERE id=?",
-                  (notification_id,))
+# if unread_only:
+#   query += " AND is_read=0"
 
-        conn.commit()
-        conn.close()
-        return jsonify({'message': 'Notification marked as read'})
-    except Exception as e:
-        logger.error(f"Error marking notification read: {e}")
-        return jsonify({'error': str(e)}), 500
+# query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+# params.extend([limit, offset])
+
+# c.execute(query, params)
+# notifications = [dict(row) for row in c.fetchall()]
+
+# Get unread count
+# c.execute("""
+##  SELECT COUNT(*) as count FROM notifications
+##WHERE user_id=? AND user_type=? AND is_read=0
+##""", (user_id, user_type))
+
+##unread_count = c.fetchone()['count']
+
+## conn.close()
+
+## return jsonify({
+##'notifications': notifications,
+##'unread_count': unread_count,
+##'total': len(notifications)
+## })
+
+##except Exception as e:
+## logger.error(f"❌ Error getting notifications: {e}")
+##return jsonify({'error': str(e)}), 500
 
 
+# DUPLICATE - @app.route('/api/notifications/<int:notification_id>/read', methods=['PUT'])
+# DUPLICATE - @login_required
+# DUPLICATE - def mark_notification_read(notification_id):
+# DUPLICATE - """Mark a notification as read"""
+# DUPLICATE - try:
+# DUPLICATE - user_id = session.get('user_id') or session.get('patient_id')
+# DUPLICATE -         # DUPLICATE - conn = get_db()
+# DUPLICATE - c = conn.cursor()
+# DUPLICATE -         # Verify ownership
+# DUPLICATE - c.execute("""
+# DUPLICATE - SELECT id FROM notifications
+# DUPLICATE - WHERE id=? AND user_id=?
+# DUPLICATE - """, (notification_id, user_id))
+# DUPLICATE -         # DUPLICATE - if not c.fetchone():
+# DUPLICATE - conn.close()
+# DUPLICATE - return jsonify({'error': 'Notification not found'}), 404
+# DUPLICATE -         # Mark as read
+# DUPLICATE - c.execute("""
+# DUPLICATE - UPDATE notifications
+# DUPLICATE - SET is_read=1, read_at=CURRENT_TIMESTAMP
+# DUPLICATE - WHERE id=?
+# DUPLICATE - """, (notification_id,))
+# DUPLICATE -         # DUPLICATE - conn.commit()
+# DUPLICATE - conn.close()
+# DUPLICATE -         # DUPLICATE - return jsonify({'message': 'Notification marked as read'})
+# DUPLICATE -     # DUPLICATE - except Exception as e:
+# DUPLICATE - logger.error(f"❌ Error marking notification read: {e}")
+# DUPLICATE - return jsonify({'error': str(e)}), 500
+# DUPLICATE -  # DUPLICATE - @app.route('/api/notifications/read-all', methods=['PUT'])
 @login_required
 def mark_all_notifications_read():
     """Mark all notifications as read for current user"""
@@ -2987,183 +2100,29 @@ def check_scan_limit(args):
     pass
 
 
+# ============================================
+# FIND YOUR /hospital/predict ROUTE (around line 1390)
+# REPLACE THE ENTIRE FUNCTION with this:
+# ============================================
+
+# Replace your /hospital/predict endpoint in app.py with this fixed version
 # ==============================================
-# CORRECTED APP UPDATES - NO ERRORS VERSION
-# Add these endpoints to your app.py
-# ==============================================
-
-# ==============================================
-# 1. NOTIFICATION ENDPOINTS
-# ==============================================
-
-@app.route('/notifications/mark-all-read', methods=['POST'])
-@login_required
-def mark_all_notifications_read():
-    """Mark all notifications as read for the current user"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-
-    user_id = session['user_id']
-    user_type = session.get('user_type', 'hospital')
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute('''
-            UPDATE notifications 
-            SET is_read = 1
-            WHERE user_id = ? AND user_type = ? AND is_read = 0
-        ''', (user_id, user_type))
-
-        affected = c.rowcount
-        conn.commit()
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'marked_count': affected,
-            'message': f'{affected} notifications marked as read'
-        })
-
-    except Exception as e:
-        logger.error(f"Error marking all notifications as read: {e}")
-        return jsonify({'error': 'Failed to update notifications'}), 500
-
-
-@app.route('/notifications/clear-all', methods=['POST'])
-@login_required
-def clear_all_read_notifications():
-    """Delete all read notifications for the current user"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-
-    user_id = session['user_id']
-    user_type = session.get('user_type', 'hospital')
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute('''
-            DELETE FROM notifications 
-            WHERE user_id = ? AND user_type = ? AND is_read = 1
-        ''', (user_id, user_type))
-
-        deleted = c.rowcount
-        conn.commit()
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'deleted_count': deleted,
-            'message': f'{deleted} notifications cleared'
-        })
-
-    except Exception as e:
-        logger.error(f"Error clearing notifications: {e}")
-        return jsonify({'error': 'Failed to clear notifications'}), 500
-
-
-# ==============================================
-# 3. GRAD-CAM VISUALIZATION
-# ==============================================
-
-@app.route('/generate-gradcam/<int:scan_id>', methods=['GET'])
-@login_required
-def generate_gradcam_route(scan_id):
-    """Generate GradCAM heatmap visualization for a scan"""
-    try:
-        user_type = session.get('user_type')
-        user_id = session.get('user_id') or session.get('patient_id')
-
-        # Get scan data
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-            SELECT scan_image, prediction, hospital_id, patient_id, probabilities
-            FROM mri_scans WHERE id = ?
-        """, (scan_id,))
-
-        scan = c.fetchone()
-        conn.close()
-
-        if not scan:
-            return jsonify({"error": "Scan not found"}), 404
-
-        # Check authorization
-        if user_type == "hospital":
-            if scan["hospital_id"] != session.get("hospital_id"):
-                return jsonify({"error": "Unauthorized"}), 403
-        elif user_type == "patient":
-            if scan["patient_id"] != session.get("patient_id"):
-                return jsonify({"error": "Unauthorized"}), 403
-
-        # Decode base64 image
-        try:
-            image_data = base64.b64decode(scan["scan_image"])
-            image = Image.open(io.BytesIO(image_data)).convert('RGB')
-        except Exception as e:
-            logger.error(f"Image decode error: {e}")
-            return jsonify({"error": "Failed to decode scan image"}), 500
-
-        # Prepare input tensor
-        input_tensor = transform(image).unsqueeze(0).to(device)
-
-        # Import GradCAM utility
-        try:
-            from gradcam_utils import generate_gradcam_from_tensor
-        except ImportError:
-            logger.error("gradcam_utils.py not found")
-            return jsonify({"error": "GradCAM module not available"}), 500
-
-        # Generate GradCAM
-        try:
-            model.eval()  # Ensure model is in eval mode
-
-            overlaid_image, prediction_idx = generate_gradcam_from_tensor(
-                model=model,
-                input_tensor=input_tensor,
-                original_image=image,
-                target_class=None  # Use predicted class
-            )
-
-            # Convert to bytes
-            buffer = io.BytesIO()
-            Image.fromarray(overlaid_image).save(buffer, format='PNG')
-            buffer.seek(0)
-
-            return send_file(
-                buffer,
-                mimetype='image/png',
-                as_attachment=False,
-                download_name=f'gradcam_scan_{scan_id}.png'
-            )
-
-        except Exception as e:
-            logger.error(f"GradCAM generation error: {e}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({"error": f"Failed to generate GradCAM: {str(e)}"}), 500
-
-    except Exception as e:
-        logger.error(f"GradCAM route error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-# ==============================================
-# 4. ENHANCED PREDICTION WITH USAGE TRACKING
+# REPLACE YOUR EXISTING /hospital/predict ROUTE WITH THIS
+# Search for "@app.route("/hospital/predict", methods=["POST"])"
+# and replace the entire function with this fixed version
 # ==============================================
 
 @app.route("/hospital/predict", methods=["POST"])
-@login_required
-def predict_with_usage():
-    """Enhanced prediction with usage tracking and warnings"""
+@hospital_required
+@check_scan_limit
+def predict():
+    """Fixed prediction endpoint with proper notification handling"""
 
+    # Get hospital_id from session
     hospital_id = session.get("hospital_id")
     user_id = session.get("user_id")
 
+    # Verify hospital_id exists
     if not hospital_id:
         logger.error("❌ hospital_id not found in session")
         return jsonify({
@@ -3171,17 +2130,6 @@ def predict_with_usage():
         }), 401
 
     try:
-        # Check usage limits BEFORE prediction
-        usage_info = get_detailed_usage(hospital_id)
-
-        if usage_info['is_blocked']:
-            return jsonify({
-                "error": "Usage limit reached",
-                "usage": usage_info,
-                "upgrade_required": True,
-                "message": usage_info['block_message']
-            }), 403
-
         # Validate image upload
         if "image" not in request.files:
             return jsonify({"error": "No image"}), 400
@@ -3190,16 +2138,36 @@ def predict_with_usage():
         if not patient_id:
             return jsonify({"error": "Patient ID required"}), 400
 
-        # Read and process image
+        # ============================================
+        # STEP 1: Read and open the image
+        # ============================================
         image_bytes = request.files["image"].read()
         image_stream = io.BytesIO(image_bytes)
         image_stream.seek(0)
         image = Image.open(image_stream).convert("RGB")
 
-        # Validate image (if you have validation function)
-        logger.info("🔍 Processing uploaded image...")
+        # ============================================
+        # STEP 2: VALIDATE IMAGE *BEFORE* PREDICTION
+        # ============================================
+        logger.info("🔍 Validating uploaded image...")
+        is_valid, error_msg, warning_msg = validate_brain_scan(image)
 
-        # Process image and run prediction
+        if not is_valid:
+            logger.warning(f"❌ Validation failed: {error_msg}")
+            return jsonify({
+                "error": "Invalid Image",
+                "message": error_msg,
+                "suggestion": "Please upload a grayscale brain MRI scan from medical imaging equipment."
+            }), 400
+
+        if warning_msg:
+            logger.info(f"⚠️ Warning: {warning_msg}")
+
+        logger.info("✅ Image validation passed")
+
+        # ============================================
+        # STEP 3: Process image and run prediction
+        # ============================================
         image_stream.seek(0)
         image = Image.open(image_stream).convert("RGB")
         tensor = transform(image).unsqueeze(0).to(device)
@@ -3221,10 +2189,29 @@ def predict_with_usage():
             for i in range(len(class_names))
         }
 
+        # ============================================
+        # STEP 4: Secondary validation with probabilities
+        # ============================================
+        is_valid_result, error_msg_result, warning_msg_result = validate_brain_scan(image, probabilities)
+
+        if not is_valid_result:
+            logger.warning(f"❌ Post-prediction validation failed: {error_msg_result}")
+            return jsonify({
+                "error": "Invalid Scan Result",
+                "message": error_msg_result,
+                "suggestion": "The AI model could not confidently classify this as a brain scan."
+            }), 400
+
+        # Combine warnings
+        if warning_msg_result:
+            warning_msg = f"{warning_msg}. {warning_msg_result}" if warning_msg else warning_msg_result
+
         confidence_percent = round(conf_val * 100, 2)
         logger.info(f"📊 Prediction: {prediction_label} ({confidence_percent}%)")
 
-        # Save to database
+        # ============================================
+        # STEP 5: Save to database WITH HOSPITAL_ID
+        # ============================================
         conn = get_db()
         c = conn.cursor()
 
@@ -3256,11 +2243,12 @@ def predict_with_usage():
         conn.commit()
         conn.close()
 
-        # Update usage and get new stats
+        # ============================================
+        # STEP 6: Update usage and notifications
+        # ============================================
         increment_usage(hospital_id, 'scans', 1)
-        updated_usage = get_detailed_usage(hospital_id)
 
-        # Create notification
+        # 🔥 FIX: Properly formatted notification creation
         if is_tumor:
             if confidence_percent < 70:
                 notif_title = '⚠️ Low Confidence Detection'
@@ -3275,6 +2263,7 @@ def predict_with_usage():
             notif_message = f'No tumor detected for patient {patient_code} with {confidence_percent}% confidence.'
             notif_priority = 'normal'
 
+        # Create notification with ALL required parameters
         try:
             create_notification(
                 user_id=user_id,
@@ -3293,192 +2282,195 @@ def predict_with_usage():
 
         log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
 
-        # Calculate usage percentage for warning
-        usage_percentage = 0
-        usage_warning = None
-
-        if updated_usage['max_scans'] != 'unlimited' and updated_usage['max_scans'] > 0:
-            usage_percentage = (updated_usage['scans_used'] / updated_usage['max_scans']) * 100
-
-            if usage_percentage >= 90:
-                usage_warning = {
-                    "level": "critical",
-                    "message": f"⚠️ You've used {usage_percentage:.0f}% of your monthly scan limit ({updated_usage['scans_used']}/{updated_usage['max_scans']}). Consider upgrading your plan.",
-                    "scans_remaining": updated_usage['max_scans'] - updated_usage['scans_used']
-                }
-            elif usage_percentage >= 75:
-                usage_warning = {
-                    "level": "warning",
-                    "message": f"You've used {usage_percentage:.0f}% of your monthly scan limit ({updated_usage['scans_used']}/{updated_usage['max_scans']}).",
-                    "scans_remaining": updated_usage['max_scans'] - updated_usage['scans_used']
-                }
-
         return jsonify({
             "scan_id": scan_id,
             "prediction": prediction_label,
             "confidence": confidence_percent,
             "is_tumor": is_tumor,
             "probabilities": probabilities,
-            "usage": {
-                "scans_used": updated_usage['scans_used'],
-                "max_scans": updated_usage['max_scans'],
-                "percentage": round(usage_percentage, 1) if usage_percentage else None,
-                "warning": usage_warning
-            }
+            "validation_warning": warning_msg
         })
 
     except Exception as e:
-        logger.error(f"Prediction error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ==============================================
-# PDF GENERATION ENDPOINT
-# ==============================================
-
-@app.route('/api/generate-pdf', methods=['POST'])
-@login_required
-def generate_pdf_endpoint():
-    """Generate PDF report for brain tumor analysis"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No image provided'}), 400
-
-        file = request.files['file']
-        prediction = request.form.get('prediction', 'Unknown')
-        confidence = request.form.get('confidence', '0')
-        patient_id = request.form.get('patient_id', 'unknown')
-        patient_name = request.form.get('patient_name', 'Anonymous Patient')
-        probabilities = request.form.get('probabilities', '{}')
-        scan_id = request.form.get('scan_id', '')
-
-        # Parse probabilities
-        try:
-            probs = json.loads(probabilities)
-        except:
-            probs = {}
-
-        # Ensure confidence doesn't exceed 100
-        conf_value = float(confidence)
-        if conf_value > 100:
-            conf_value = 100
-
-        # Get hospital info from session
-        hospital_id = session.get('hospital_id')
-        user_id = session.get('user_id')
-
-        # Read file image as base64
-        file.seek(0)
-        image_bytes = file.read()
-        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-
-        # Get hospital and patient data
-        conn = get_db()
-        c = conn.cursor()
-
-        # Get hospital info
-        hospital_data = {}
-        if hospital_id:
-            c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id=?", (hospital_id,))
-            hospital_row = c.fetchone()
-            if hospital_row:
-                hospital_data = {
-                    'name': hospital_row['hospital_name'],
-                    'code': hospital_row['hospital_code'],
-                    'doctor_name': 'N/A'
-                }
-
-        # Get doctor name
-        if user_id:
-            c.execute("SELECT full_name FROM hospital_users WHERE id=?", (user_id,))
-            doctor_row = c.fetchone()
-            if doctor_row:
-                hospital_data['doctor_name'] = doctor_row['full_name']
-
-        # Get patient info
-        c.execute("SELECT * FROM patients WHERE id=?", (patient_id,))
-        patient_row = c.fetchone()
-        patient_data = {}
-        if patient_row:
-            patient_data = {
-                'name': patient_row['full_name'],
-                'id': patient_row['patient_code'],
-                'email': patient_row['email'] or 'N/A',
-                'phone': patient_row['phone'] or 'N/A',
-                'date_of_birth': patient_row['date_of_birth'] or 'N/A',
-                'gender': patient_row['gender'] or 'N/A'
-            }
-
-        conn.close()
-
-        # Prepare scan data
-        scan_data = {
-            'prediction': prediction,
-            'confidence': conf_value,
-            'probabilities': probs,
-            'scan_id': scan_id,
-            'timestamp': datetime.now().strftime('%B %d, %Y'),
-            'scan_image': image_base64
-        }
-
-        # Generate PDF
-        pdf_buffer = generate_pdf_report(scan_data, patient_data, hospital_data)
-        pdf_buffer.seek(0)
-
-        return send_file(
-            pdf_buffer,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'NeuroScan_Report_{patient_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-        )
-
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
+        logger.error(f"❌ Prediction error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Failed to generate PDF: {str(e)}'}), 500
+
+        # Send error notification with ALL required parameters
+        try:
+            create_notification(
+                user_id=user_id,
+                user_type='hospital',
+                notification_type='error',
+                title='❌ Prediction Failed',
+                message=f'Failed to analyze MRI scan: {str(e)}',
+                hospital_id=hospital_id,
+                priority='high'
+            )
+        except Exception as notif_error:
+            logger.error(f"Failed to create error notification: {notif_error}")
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
 # ==============================================
-# 5. SUBSCRIPTION LIMITS ENDPOINT (for FeatureGate)
+# SUBSCRIPTION NOTIFICATIONS
 # ==============================================
 
-@app.route('/hospital/subscription', methods=['GET'])
-@hospital_required
-def hospital_subscription_page():
-    """Redirect to Stripe checkout or show subscription management"""
-    hospital_id = session.get('hospital_id')
+def notify_usage_limit_warning(hospital_id: int, usage_percent: float):
+    """Notify when approaching usage limits"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notification_type='usage_warning',
+        title='⚠️ Usage Limit Warning',
+        message=f'You have used {usage_percent}% of your monthly scan limit. Consider upgrading your plan.',
+        priority='normal'
+    )
 
-    # Get current plan
+
+def notify_usage_limit_reached(hospital_id: int):
+    """Notify when usage limit is reached"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notification_type='usage_limit',
+        title='🚫 Monthly Limit Reached',
+        message='You have reached your monthly scan limit. Upgrade your plan to continue scanning.',
+        priority='high'
+    )
+
+
+def notify_subscription_expiring(hospital_id: int, days_remaining: int):
+    """Notify when subscription is expiring"""
+    notify_hospital_users(
+        hospital_id=hospital_id,
+        notif_type='subscription_expiring',
+        title='⏰ Subscription Expiring Soon',
+        message=f'Your subscription will expire in {days_remaining} days. Renew to avoid service interruption.',
+        priority='high'
+    )
+
+
+# ==============================================
+# SETUP COMMAND
+# ==============================================
+
+@app.cli.command()
+def setup_notifications():
+    """CLI command to setup notifications table"""
+    create_notifications_table()
+    print("✅ Notifications system initialized")
+
+
+def get_hospital_subscription(hospital_id):
+    """Get active subscription for a hospital"""
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT plan FROM hospitals WHERE id=?", (hospital_id,))
+    c.execute("""
+        SELECT hs.*, sp.name as plan_name, sp.display_name, sp.price_monthly,
+               sp.max_scans_per_month, sp.max_users, sp.max_patients, sp.features
+        FROM hospital_subscriptions hs
+        JOIN subscription_plans sp ON hs.plan_id = sp.id
+        WHERE hs.hospital_id = ? AND hs.status = 'active'
+        ORDER BY hs.created_at DESC
+        LIMIT 1
+    """, (hospital_id,))
+    sub = c.fetchone()
+    conn.close()
+    return dict(sub) if sub else None
+
+
+def get_or_create_stripe_customer(hospital_id):
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("SELECT stripe_customer_id, email, hospital_name FROM hospitals WHERE id=?", (hospital_id,))
     hospital = c.fetchone()
+
+    if hospital["stripe_customer_id"]:
+        conn.close()
+        return hospital["stripe_customer_id"]
+
+    customer = stripe.Customer.create(
+        email=hospital["email"],
+        name=hospital["hospital_name"],
+        metadata={"hospital_id": hospital_id}
+    )
+
+    c.execute("UPDATE hospitals SET stripe_customer_id=? WHERE id=?",
+              (customer.id, hospital_id))
+    conn.commit()
     conn.close()
 
-    current_plan = hospital['plan'] if hospital else 'free'
+    return customer.id
 
-    # If already on Enterprise, show billing portal
-    if current_plan == 'enterprise':
-        # Redirect to Stripe billing portal
-        return redirect('https://billing.stripe.com/p/login/YOUR_PORTAL_LINK')
 
-    # Otherwise, create checkout session for upgrade
-    try:
-        checkout_session = stripe.checkout.Session.create(
-            customer_email=session.get('email'),
-            payment_method_types=['card'],
-            line_items=[{
-                'price': 'price_ENTERPRISE_PRICE_ID',  # Your Stripe price ID
-                'quantity': 1,
-            }],
-            mode='subscription',
-            success_url=request.host_url + 'hospital/subscription/success',
-            cancel_url=request.host_url + 'hospital/settings',
-        )
+# -----------------------------
+# STRIPE HELPERS
+# -----------------------------
+def get_stripe_price_id(plan_id, billing_cycle):
+    """
+    Map subscription plan IDs to Stripe price IDs.
+    """
+    price_mapping = {
+        1: {"monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY')},
+        2: {"monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY')},
+        3: {"monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
+            "yearly": os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY')},
+    }
 
-        return redirect(checkout_session.url)
-    except Exception as e:
-        logger.error(f"Stripe error: {e}")
-        return jsonify({'error': str(e)}), 500
+    plan_prices = price_mapping.get(plan_id)
+    if not plan_prices:
+        return None
+
+    return plan_prices.get(billing_cycle)
+
+
+def get_current_usage(hospital_id):
+    """Get current period usage for a hospital"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM usage_tracking
+        WHERE hospital_id = ? AND is_current = 1
+        ORDER BY period_start DESC
+        LIMIT 1
+    """, (hospital_id,))
+    usage = c.fetchone()
+    conn.close()
+    return dict(usage) if usage else None
+
+
+def check_usage_limit(hospital_id, resource_type='scans'):
+    """
+    Check if hospital has reached usage limits
+    Returns: (can_use: bool, current_usage: int, limit: int)
+    """
+    subscription = get_hospital_subscription(hospital_id)
+    usage = get_current_usage(hospital_id)
+
+    if not subscription or not usage:
+        return False, 0, 0
+
+    if resource_type == 'scans':
+        limit = subscription['max_scans_per_month']
+        current = usage['scans_used']
+    elif resource_type == 'users':
+        limit = subscription['max_users']
+        current = usage['users_count']
+    elif resource_type == 'patients':
+        limit = subscription['max_patients']
+        current = usage['patients_count']
+    else:
+        return False, 0, 0
+
+    # -1 means unlimited
+    if limit == -1:
+        return True, current, limit
+
+    can_use = current < limit
+    return can_use, current, limit
 
 
 @app.route('/admin/dashboard', methods=['GET'])
@@ -4059,55 +3051,6 @@ def update_admin_user(user_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/admin/users/hospital/<int:hospital_id>', methods=['GET'])
-@login_required
-@admin_required
-def get_hospital_account(hospital_id):
-    """Get a single hospital account details"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT h.id, h.hospital_name, h.hospital_code, h.email,
-                   h.contact_person, h.phone, h.address, h.created_at,
-                   hs.status as subscription_status,
-                   sp.display_name as subscription_plan,
-                   sp.name as subscription_plan_name
-            FROM hospitals h
-            LEFT JOIN hospital_subscriptions hs ON h.id = hs.hospital_id AND hs.status = 'active'
-            LEFT JOIN subscription_plans sp ON hs.plan_id = sp.id
-            WHERE h.id = ?
-        """, (hospital_id,))
-
-        row = c.fetchone()
-        conn.close()
-
-        if not row:
-            return jsonify({'error': 'Hospital not found'}), 404
-
-        hospital = {
-            'id': row[0],
-            'hospital_name': row[1],
-            'hospital_code': row[2],
-            'email': row[3],
-            'contact_person': row[4],
-            'phone': row[5],
-            'address': row[6],
-            'created_at': row[7],
-            'subscription_status': row[8] or 'none',
-            'subscription_plan': row[9] or 'Free',
-            'subscription_plan_name': row[10] or 'free',
-            'userType': 'hospital'
-        }
-
-        return jsonify(hospital)
-
-    except Exception as e:
-        logger.error(f"Error fetching hospital: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/admin/users/hospital/<int:hospital_id>', methods=['PUT'])
 @login_required
 @admin_required
@@ -4261,9 +3204,150 @@ def update_patient_record(patient_id):
 # ADMIN - DELETE USERS
 # ==============================================
 
+@app.route('/admin/users/admin/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_admin_user(user_id):
+    """Delete an admin user"""
+    try:
+        # Prevent deleting yourself
+        if user_id == session['user_id']:
+            return jsonify({'error': 'Cannot delete your own account'}), 400
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if user exists and get role
+        c.execute('SELECT id, role FROM users WHERE id=?', (user_id,))
+        user = c.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        # Only superadmin can delete superadmin accounts
+        if user[1] == 'superadmin' and session.get('role') != 'superadmin':
+            conn.close()
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        # Delete user
+        c.execute('DELETE FROM users WHERE id=?', (user_id,))
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_admin_user',
+                     f"Deleted admin user ID: {user_id}")
+
+        return jsonify({'message': 'Admin user deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting admin user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/hospital/<int:hospital_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_hospital_account(hospital_id):
+    """Delete a hospital account and all related data"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if hospital exists
+        c.execute('SELECT id FROM hospitals WHERE id=?', (hospital_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Hospital not found'}), 404
+
+        # Delete hospital (cascades to related tables if FK set)
+        c.execute('DELETE FROM hospitals WHERE id=?', (hospital_id,))
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_hospital',
+                     f"Deleted hospital ID: {hospital_id}")
+
+        return jsonify({'message': 'Hospital account deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting hospital: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/patient/<int:patient_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_patient_record(patient_id):
+    """Delete a patient record"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if patient exists
+        c.execute('SELECT id, hospital_id FROM patients WHERE id=?', (patient_id,))
+        patient = c.fetchone()
+        if not patient:
+            conn.close()
+            return jsonify({'error': 'Patient not found'}), 404
+
+        hospital_id = patient[1]
+
+        # Delete patient (cascades to scans)
+        c.execute('DELETE FROM patients WHERE id=?', (patient_id,))
+
+        # Update usage tracking
+        try:
+            c.execute("""
+                UPDATE usage_tracking
+                SET patients_count = GREATEST(0, patients_count - 1)
+                WHERE hospital_id = ? AND is_current = 1
+            """, (hospital_id,))
+        except Exception as e:
+            logger.warning(f"Could not update usage tracking: {e}")
+
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'deleted_patient',
+                     f"Deleted patient ID: {patient_id}")
+
+        return jsonify({'message': 'Patient record deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting patient: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route("/api/stripe/config", methods=["GET"])
 def stripe_config():
     return jsonify({"publishableKey": STRIPE_PUBLISHABLE_KEY})
+
+
+def increment_usage(hospital_id, resource_type='scans', amount=1):
+    """Increment usage counter"""
+    conn = get_db()
+    c = conn.cursor()
+
+    field_map = {
+        'scans': 'scans_used',
+        'users': 'users_count',
+        'patients': 'patients_count'
+    }
+
+    field = field_map.get(resource_type)
+    if not field:
+        conn.close()
+        return False
+
+    c.execute(f"""
+        UPDATE usage_tracking
+        SET {field} = {field} + ?, updated_at = CURRENT_TIMESTAMP
+        WHERE hospital_id = ? AND is_current = 1
+    """, (amount, hospital_id))
+
+    conn.commit()
+    conn.close()
+    return True
 
 
 def has_feature(hospital_id, feature_key):
@@ -4311,6 +3395,119 @@ def check_scan_limit(f):
         return f(*args, **kwargs)
 
     return wrapper
+
+
+def get_detailed_usage(hospital_id):
+    """
+    Get comprehensive usage information for a hospital
+    Returns detailed status including limits, cooldowns, etc.
+    """
+    conn = get_db()
+    c = conn.cursor()
+
+    # Get subscription
+    c.execute("""
+        SELECT hs.*, sp.name as plan_name, sp.display_name, 
+               sp.max_scans_per_month, sp.price_monthly
+        FROM hospital_subscriptions hs
+        JOIN subscription_plans sp ON hs.plan_id = sp.id
+        WHERE hs.hospital_id = ? AND hs.status = 'active'
+        ORDER BY hs.created_at DESC
+        LIMIT 1
+    """, (hospital_id,))
+    subscription = c.fetchone()
+
+    if not subscription:
+        conn.close()
+        return {
+            'is_blocked': True,
+            'block_message': 'No active subscription',
+            'can_scan': False
+        }
+
+    subscription = dict(subscription)
+
+    # Get usage
+    c.execute("""
+        SELECT * FROM usage_tracking
+        WHERE hospital_id = ? AND is_current = 1
+        ORDER BY period_start DESC
+        LIMIT 1
+    """, (hospital_id,))
+    usage = c.fetchone()
+
+    if not usage:
+        conn.close()
+        return {
+            'is_blocked': True,
+            'block_message': 'Usage tracking not found',
+            'can_scan': False
+        }
+
+    usage = dict(usage)
+
+    scans_used = usage['scans_used']
+    scans_limit = usage['scans_limit']
+
+    # Check for unlimited
+    if scans_limit == -1:
+        conn.close()
+        return {
+            'is_blocked': False,
+            'can_scan': True,
+            'scans_used': scans_used,
+            'scans_limit': -1,
+            'is_unlimited': True,
+            'plan_name': subscription['display_name'],
+            'usage_percent': 0
+        }
+
+    # Calculate usage percentage
+    usage_percent = (scans_used / scans_limit * 100) if scans_limit > 0 else 0
+
+    # Check if blocked
+    is_blocked = scans_used >= scans_limit
+
+    # Check cooldown (for free tier)
+    cooldown_active = False
+    cooldown_ends = None
+
+    if subscription['plan_name'] == 'free' and is_blocked:
+        # Check last scan time
+        c.execute("""
+            SELECT created_at FROM mri_scans
+            WHERE hospital_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (hospital_id,))
+        last_scan = c.fetchone()
+
+        if last_scan:
+            last_scan_time = datetime.strptime(last_scan['created_at'], '%Y-%m-%d %H:%M:%S')
+            cooldown_ends = last_scan_time + timedelta(hours=24)
+            cooldown_active = datetime.now() < cooldown_ends
+
+    # Period end date
+    period_end = datetime.strptime(usage['period_end'], '%Y-%m-%d')
+    days_until_reset = (period_end - datetime.now()).days
+
+    # Generate appropriate message
+    if is_blocked:
+        if subscription['plan_name'] == 'free':
+            if cooldown_active:
+                hours_left = int((cooldown_ends - datetime.now()).total_seconds() / 3600)
+                block_message = f"Free scan available in {hours_left} hours. Upgrade for unlimited scans!"
+            else:
+                block_message = f"Monthly limit reached. Resets in {days_until_reset} days or upgrade now!"
+        else:
+            block_message = f"Monthly limit of {scans_limit} scans reached. Upgrade to get more!"
+    elif usage_percent >= 80:
+        remaining = scans_limit - scans_used
+        block_message = f"Only {remaining} scans remaining this month. Consider upgrading!"
+    else:
+        block_message = None
+
+    conn.close()
 
     return {
         'is_blocked': is_blocked and (not cooldown_active if cooldown_active else True),
@@ -4371,43 +3568,48 @@ def requires_feature(feature_key):
 # ==============================================
 # CNN MODEL SETUP
 # ==============================================
-# Lightweight CNN for tumor detection (VGG19-based)
-# ==============================================
-# ✅ CORRECTED CNN MODEL - MATCHES CHECKPOINT
-# ==============================================
+
 class CNN_TUMOR(nn.Module):
-    def __init__(self):
+    def __init__(self, params=None):
         super(CNN_TUMOR, self).__init__()
+        if params is None:
+            params = {
+                "shape_in": (3, 224, 224),
+                "initial_filters": 8,
+                "num_fc1": 100,
+                "num_classes": 4,
+                "dropout_rate": 0.25
+            }
+        Cin, Hin, Win = params["shape_in"]
+        init_f = params["initial_filters"]
+        num_fc1 = params["num_fc1"]
+        num_classes = params["num_classes"]
+        self.dropout_rate = params["dropout_rate"]
 
-        # Use pretrained VGG19
-        vgg = models.vgg19(pretrained=False)
+        self.conv1 = nn.Conv2d(Cin, init_f, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(init_f, 2 * init_f, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(2 * init_f, 4 * init_f, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(4 * init_f, 8 * init_f, kernel_size=3, padding=1)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
+        self.num_flatten = 7 * 7 * 8 * init_f
+        self.fc1 = nn.Linear(self.num_flatten, num_fc1)
+        self.fc2 = nn.Linear(num_fc1, num_classes)
 
-        # Extract features
-        self.features = vgg.features
-
-        # Adaptive pooling
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-
-        # ✅ CORRECTED CLASSIFIER - MATCHES YOUR CHECKPOINT
-        self.classifier = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096),   # Layer 0
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(4096, 1024),           # Layer 3 ✅ (was 4096 → 4096)
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(1024, 256),            # Layer 6 ✅ (was 4096 → 4)
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(256, 4)                # Layer 9 - Final output (4 classes)
-        )
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.classifier(x)
-        return x
+    def forward(self, X):
+        X = F.relu(self.conv1(X))
+        X = F.max_pool2d(X, kernel_size=2, stride=2)
+        X = F.relu(self.conv2(X))
+        X = F.max_pool2d(X, kernel_size=2, stride=2)
+        X = F.relu(self.conv3(X))
+        X = F.max_pool2d(X, kernel_size=2, stride=2)
+        X = F.relu(self.conv4(X))
+        X = F.max_pool2d(X, kernel_size=2, stride=2)
+        X = self.adaptive_pool(X)
+        X = X.view(-1, self.num_flatten)
+        X = F.relu(self.fc1(X))
+        X = F.dropout(X, p=self.dropout_rate, training=self.training)
+        X = self.fc2(X)
+        return F.log_softmax(X, dim=1)
 
 
 class VGG19_BrainTumor(nn.Module):
@@ -4524,59 +3726,44 @@ def validate_brain_scan(image, probabilities=None):
 
 
 # Load the model
-# Load the model
 try:
     logger.info("Loading model...")
+    checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
-    if not MODEL_PATH.exists():
-        logger.error(f"❌ Model not found at {MODEL_PATH}")
-        model = None
-    else:
-        checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+    # Initialize VGG19-based model
+    model = VGG19_BrainTumor(num_classes=4)
 
-        # Initialize model with CORRECTED architecture
-        model = CNN_TUMOR()
-
-        # Get the actual state dict
-        if isinstance(checkpoint, dict):
-            state_dict = checkpoint.get('model_state_dict') or checkpoint.get('state_dict') or checkpoint
+    # Load the state dict from checkpoint
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info("Loaded from 'model_state_dict' key")
+        elif 'state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
+            logger.info("Loaded from 'state_dict' key")
         else:
-            state_dict = checkpoint
+            # Checkpoint is the state dict itself
+            model.load_state_dict(checkpoint)
+            logger.info("Loaded checkpoint directly as state_dict")
+    else:
+        # It's already a model object
+        model = checkpoint
+        logger.info("Checkpoint was a model object")
 
-        # Remove "vgg19." prefix if present
-        new_state_dict = {}
-        for key, value in state_dict.items():
-            if key.startswith('vgg19.'):
-                new_key = key.replace('vgg19.', '', 1)
-                new_state_dict[new_key] = value
-            else:
-                new_state_dict[key] = value
-
-        # ✅ Load with strict=False to allow minor mismatches
-        missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
-
-        if missing_keys:
-            logger.warning(f"⚠️ Missing keys: {missing_keys}")
-        if unexpected_keys:
-            logger.warning(f"⚠️ Unexpected keys: {unexpected_keys}")
-
-        # Move to device and set eval mode
-        model.to(device)
-        model.eval()
-        logger.info(f"✅ Model loaded successfully from {MODEL_PATH}")
+    model.to(device)
+    model.eval()
+    logger.info("✅ Model loaded successfully and moved to device")
 
 except Exception as e:
-    logger.error(f"❌ Model loading error: {e}")
+    logger.error(f"❌ Error loading model: {e}")
     import traceback
 
     traceback.print_exc()
-    model = None
 
-# ✅ CRITICAL: Check if model loaded successfully
-if model is None:
-    logger.error("❌ CRITICAL: Model failed to load! Predictions will not work.")
-else:
-    logger.info(f"✅ Model ready on {device}")
+
+# Model already loaded above (lines 125-165)
+# No need to reload here
+
 
 # ==============================================
 # PUBLIC SUBSCRIPTION ROUTES
@@ -4604,6 +3791,21 @@ def get_public_subscription_plans():
     conn.close()
     return jsonify({"plans": plans})
 
+
+@app.route("/api/subscription/features", methods=["GET"])
+def get_all_features():
+    """Get all available features"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM feature_flags WHERE is_active = 1")
+    features = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify({"features": features})
+
+
+# ==============================================
+# ADMIN ROUTES
+# ==============================================
 
 @app.route("/admin/login", methods=["POST"])
 def admin_login():
@@ -4761,97 +3963,78 @@ def admin_get_all_subscriptions():
     return jsonify({"subscriptions": subscriptions, "stats": stats})
 
 
-# REPLACE the /api/stripe/create-checkout-session endpoint in app.py
-
 @app.route("/api/stripe/create-checkout-session", methods=["POST"])
 @hospital_required
 def create_checkout_session():
-    """Fixed Stripe checkout session creation"""
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No request data provided"}), 400
+    data = request.json
+    plan_identifier = data.get("plan_id")  # Can be ID or name
+    billing_cycle = data.get("billing_cycle", "monthly")
 
-        plan_identifier = data.get("plan_id")
-        billing_cycle = data.get("billing_cycle", "monthly")
+    print(f"DEBUG: plan_identifier = {plan_identifier}, billing_cycle = {billing_cycle}")
 
-        logger.info(f"🔍 Checkout request: plan={plan_identifier}, cycle={billing_cycle}")
+    hospital_id = session["hospital_id"]
 
-        hospital_id = session.get("hospital_id")
-        if not hospital_id:
-            return jsonify({"error": "Hospital ID not found in session"}), 400
+    conn = get_db()
+    c = conn.cursor()
 
-        conn = get_db()
-        c = conn.cursor()
+    # Try to find plan by ID (numeric) OR by name (string)
+    if isinstance(plan_identifier, str) and not plan_identifier.isdigit():
+        # Plan name provided (e.g., "basic", "professional")
+        c.execute("SELECT * FROM subscription_plans WHERE name=?", (plan_identifier,))
+    else:
+        # Numeric ID provided
+        c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_identifier,))
 
-        # Find plan by ID or name
-        if isinstance(plan_identifier, str) and not plan_identifier.isdigit():
-            c.execute("SELECT * FROM subscription_plans WHERE name=?", (plan_identifier,))
-        else:
-            c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_identifier,))
+    plan = c.fetchone()
 
-        plan = c.fetchone()
-
-        if not plan:
-            conn.close()
-            logger.error(f"❌ Plan not found: {plan_identifier}")
-            return jsonify({"error": f"Plan '{plan_identifier}' not found"}), 404
-
-        plan = dict(plan)
-        logger.info(f"✅ Found plan: {plan['name']} (ID: {plan['id']})")
-
-        # Get Stripe price ID
-        price_id = get_stripe_price_id(plan["id"], billing_cycle)
-        if not price_id:
-            conn.close()
-            logger.error(f"❌ No Stripe price configured for plan {plan['id']}")
-            return jsonify({"error": "Stripe price not configured for this plan"}), 400
-
-        logger.info(f"💳 Using Stripe price_id: {price_id}")
-
-        # Get hospital email
-        c.execute("SELECT email FROM hospitals WHERE id = ?", (hospital_id,))
-        hospital_row = c.fetchone()
-        hospital_email = hospital_row['email'] if hospital_row else None
+    if not plan:
         conn.close()
+        print(f"ERROR: Plan not found for identifier: {plan_identifier}")
+        return jsonify({"error": f"Plan '{plan_identifier}' not found"}), 404
 
-        # Get or create Stripe customer
-        customer_id = get_or_create_stripe_customer(hospital_id, hospital_email)
-        logger.info(f"👤 Stripe customer_id: {customer_id}")
+    plan = dict(plan)
+    print(f"SUCCESS: Found plan - {plan['name']} (ID: {plan['id']})")
 
-        if not customer_id:
-            return jsonify({"error": "Failed to create Stripe customer"}), 500
+    # Get the Stripe price ID
+    price_id = get_stripe_price_id(plan["id"], billing_cycle)
+    if not price_id:
+        conn.close()
+        print(f"ERROR: No Stripe price configured for plan {plan['id']}, cycle {billing_cycle}")
+        return jsonify({"error": "Stripe price not configured for this plan"}), 400
 
-        # Create checkout session
-        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+    print(f"DEBUG: Using Stripe price_id: {price_id}")
 
+    # Get or create Stripe customer
+    customer_id = get_or_create_stripe_customer(hospital_id)
+    print(f"DEBUG: Stripe customer_id: {customer_id}")
+
+    try:
+        # Create Stripe checkout session
         checkout_session = stripe.checkout.Session.create(
             customer=customer_id,
             mode="subscription",
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
-            success_url=f"{frontend_url}/subscription-success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{frontend_url}/subscription-cancelled",
+            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/subscription-cancelled",
             metadata={
-                "hospital_id": str(hospital_id),
-                "plan_id": str(plan["id"]),
+                "hospital_id": hospital_id,
+                "plan_id": plan["id"],
                 "billing_cycle": billing_cycle
             }
         )
 
-        logger.info(f"✅ Checkout session created: {checkout_session.id}")
-        return jsonify({
-            "url": checkout_session.url,
-            "sessionId": checkout_session.id
-        })
+        conn.close()
+        print(f"SUCCESS: Checkout session created: {checkout_session.id}")
+        return jsonify({"url": checkout_session.url, "sessionId": checkout_session.id})
 
     except stripe.error.StripeError as e:
-        logger.error(f"❌ Stripe error: {str(e)}")
+        conn.close()
+        print(f"STRIPE ERROR: {str(e)}")
         return jsonify({"error": f"Stripe error: {str(e)}"}), 500
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        conn.close()
+        print(f"UNEXPECTED ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -4920,142 +4103,104 @@ def admin_revenue_analytics():
 
 @app.route("/hospital/login", methods=["POST"])
 def hospital_login():
-    """Hospital login with proper session setup"""
-    try:
-        data = request.json
-        username = data.get("username")
-        password = data.get("password")
+    """Fixed hospital login with proper session setup"""
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
 
-        if not username or not password:
-            return jsonify({"error": "Username and password required"}), 400
-
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT hu.*, h.hospital_name, h.hospital_code, h.id as hospital_id
-            FROM hospital_users hu
-            JOIN hospitals h ON hu.hospital_id = h.id
-            WHERE hu.username=? AND hu.status='active' AND h.status='active'
-        """, (username,))
-
-        user = c.fetchone()
-        conn.close()
-
-        if not user or not check_password_hash(user["password"], password):
-            logger.warning(f"❌ Failed login attempt: {username}")
-            return jsonify({"error": "Invalid credentials"}), 401
-
-        # ✅ Clear any old session data
-        session.clear()
-
-        # ✅ Set ALL required session variables
-        session["user_id"] = user["id"]
-        session["user_type"] = "hospital"
-        session["hospital_id"] = user["hospital_id"]
-        session["username"] = user["username"]
-        session.permanent = True
-        session.modified = True
-
-        # ✅ Ensure usage tracking exists
-        ensure_usage_tracking_exists(user["hospital_id"])
-
-        # Log the login
-        log_activity("hospital", user["id"], "login", hospital_id=user["hospital_id"])
-
-        # Debug log
-        logger.info(f"✅ Hospital login successful: user_id={user['id']}, hospital_id={user['hospital_id']}")
-
-        return jsonify({
-            "user": {
-                "id": user["id"],
-                "username": user["username"],
-                "email": user["email"],
-                "full_name": user["full_name"],
-                "hospital_id": user["hospital_id"],
-                "hospital_name": user["hospital_name"],
-                "hospital_code": user["hospital_code"],
-                "role": user["role"],
-                "type": "hospital"
-            }
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Hospital login error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": "Login failed. Please try again."}), 500
-
-
-@app.route("/hospital/dashboard-stats", methods=["GET"])
-@hospital_required
-def get_dashboard_stats():
-    """Get comprehensive dashboard statistics"""
-    hospital_id = session.get("hospital_id")
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
 
     conn = get_db()
     c = conn.cursor()
 
-    # Total patients
+    c.execute("""
+        SELECT hu.*, h.hospital_name, h.hospital_code, h.id as hospital_id
+        FROM hospital_users hu
+        JOIN hospitals h ON hu.hospital_id = h.id
+        WHERE hu.username=? AND hu.status='active' AND h.status='active'
+    """, (username,))
+
+    user = c.fetchone()
+    conn.close()
+
+    if not user or not check_password_hash(user["password"], password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    # ✅ CRITICAL FIX: Set ALL required session variables
+    session.clear()  # Clear any old session data
+    session["user_id"] = user["id"]
+    session["user_type"] = "hospital"
+    session["hospital_id"] = user["hospital_id"]  # ⚠️ MUST BE SET
+    session["username"] = user["username"]
+    session.permanent = True  # Make session persist
+
+    # Log the login
+    log_activity("hospital", user["id"], "login", hospital_id=user["hospital_id"])
+
+    # Debug log
+    logger.info(f"✅ Hospital login successful: user_id={user['id']}, hospital_id={user['hospital_id']}")
+
+    return jsonify({
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "hospital_id": user["hospital_id"],  # ✅ Include in response
+            "hospital_name": user["hospital_name"],
+            "hospital_code": user["hospital_code"],
+            "role": user["role"],
+            "type": "hospital"
+        }
+    })
+
+
+@app.route("/hospital/dashboard", methods=["GET"])
+@hospital_required
+def hospital_dashboard():
+    conn = get_db()
+    c = conn.cursor()
+    hospital_id = session["hospital_id"]
+
     c.execute("SELECT COUNT(*) as count FROM patients WHERE hospital_id=?", (hospital_id,))
-    total_patients = c.fetchone()['count']
-
-    # Total scans
+    total_patients = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=?", (hospital_id,))
+    total_scans = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) as count FROM mri_scans WHERE hospital_id=? AND is_tumor=1", (hospital_id,))
+    tumor_detections = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) as count FROM chat_conversations WHERE hospital_id=? AND status='active'",
+              (hospital_id,))
+    active_chats = c.fetchone()["count"]
     c.execute("""
-        SELECT COUNT(*) as count 
+        SELECT COUNT(*) as count FROM mri_scans 
+        WHERE hospital_id=? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+    """, (hospital_id,))
+    scans_this_month = c.fetchone()["count"]
+
+    c.execute("""
+        SELECT s.*, p.full_name as patient_name, p.patient_code
         FROM mri_scans s
         JOIN patients p ON s.patient_id = p.id
-        WHERE p.hospital_id=?
+        WHERE s.hospital_id=?
+        ORDER BY s.created_at DESC LIMIT 10
     """, (hospital_id,))
-    total_scans = c.fetchone()['count']
-
-    # Tumor detections
-    c.execute("""
-        SELECT COUNT(*) as count 
-        FROM mri_scans s
-        JOIN patients p ON s.patient_id = p.id
-        WHERE p.hospital_id=? AND s.is_tumor=1
-    """, (hospital_id,))
-    tumor_detected = c.fetchone()['count']
-
-    # Scans this month
-    c.execute("""
-        SELECT COUNT(*) as count 
-        FROM mri_scans s
-        JOIN patients p ON s.patient_id = p.id
-        WHERE p.hospital_id=? 
-        AND strftime('%Y-%m', s.created_at) = strftime('%Y-%m', 'now')
-    """, (hospital_id,))
-    scans_this_month = c.fetchone()['count']
-
-    # Recent activity (last 10 scans)
-    c.execute("""
-        SELECT 
-            s.id,
-            s.prediction,
-            s.confidence,
-            s.is_tumor,
-            s.created_at,
-            p.full_name as patient_name,
-            p.patient_code
-        FROM mri_scans s
-        JOIN patients p ON s.patient_id = p.id
-        WHERE p.hospital_id=?
-        ORDER BY s.created_at DESC
-        LIMIT 10
-    """, (hospital_id,))
-
     recent_scans = [dict(row) for row in c.fetchall()]
 
     conn.close()
 
     return jsonify({
-        "total_patients": total_patients,
-        "total_scans": total_scans,
-        "tumor_detected": tumor_detected,
-        "scans_this_month": scans_this_month,
+        "stats": {
+            "total_patients": total_patients,
+            "total_scans": total_scans,
+            "tumor_detected": tumor_detections,
+            "scans_this_month": scans_this_month,
+            "active_chats": active_chats
+        },
         "recent_scans": recent_scans
     })
+
+
 @app.route("/hospital/subscription", methods=["GET"])
 @hospital_required
 def get_hospital_subscription_info():
@@ -5076,14 +4221,7 @@ def get_hospital_subscription_info():
 
     # Calculate days until renewal
     if subscription['current_period_end']:
-        # Handle both datetime strings with time and date-only strings
-        period_end = subscription['current_period_end']
-        if ' ' in period_end:
-            # Contains time information
-            end_date = datetime.strptime(period_end, '%Y-%m-%d %H:%M:%S.%f')
-        else:
-            # Date only
-            end_date = datetime.strptime(period_end, '%Y-%m-%d')
+        end_date = datetime.strptime(subscription['current_period_end'], '%Y-%m-%d')
         days_remaining = (end_date - datetime.now()).days
     else:
         days_remaining = 0
@@ -5281,175 +4419,90 @@ def cancel_subscription():
     return jsonify({"message": "Subscription will not auto-renew at end of period"})
 
 
+@app.route("/hospital/patients", methods=["GET", "POST"])
+@hospital_required
+def hospital_patients():
+    conn = get_db()
+    c = conn.cursor()
+    hospital_id = session["hospital_id"]
 
-    # Add this endpoint to app.py to fix scan count display
-
-    @app.route("/hospital/patients", methods=["GET"])
-    @hospital_required
-    def hospital_patients_with_scan_count():
-        """Get all patients with accurate scan counts"""
-        conn = get_db()
-        c = conn.cursor()
-        hospital_id = session["hospital_id"]
-
-        # FIXED QUERY: Join with mri_scans to get accurate count
+    if request.method == "GET":
         c.execute("""
-            SELECT 
-                p.*,
-                hu.full_name as doctor_name,
-                COUNT(s.id) as scan_count
+            SELECT p.*, hu.full_name as doctor_name, COUNT(s.id) as scan_count
             FROM patients p
             LEFT JOIN hospital_users hu ON p.assigned_doctor_id = hu.id
             LEFT JOIN mri_scans s ON p.id = s.patient_id
             WHERE p.hospital_id=?
-            GROUP BY p.id 
-            ORDER BY p.created_at DESC
+            GROUP BY p.id ORDER BY p.created_at DESC
         """, (hospital_id,))
-
-        patients = []
-        for row in c.fetchall():
-            patient_dict = dict(row)
-            patients.append(patient_dict)
-
+        patients = [dict(row) for row in c.fetchall()]
         conn.close()
-
-        logger.info(f"✅ Fetched {len(patients)} patients with scan counts")
         return jsonify({"patients": patients})
 
     # POST - Create patient
     data = request.json
-    logger.info(f"📝 Creating patient with data: {data}")
+    patient_code = generate_code(6)
+    access_code = generate_code(8)
 
-    # VALIDATE REQUIRED FIELDS
-    if not data.get("full_name"):
-        logger.error("❌ Missing full_name")
-        return jsonify({"error": "full_name is required"}), 400
-
-    # GENERATE CODES
-    patient_code = generate_unique_code('patients', 'patient_code', prefix='P')
-    access_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    logger.info(f"✓ Generated patient_code: {patient_code}")
-
-    try:
-        c.execute("""
-            INSERT INTO patients (
-                hospital_id, patient_code, full_name, email, phone,
-                date_of_birth, gender, address, emergency_contact, 
-                emergency_phone, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            hospital_id, patient_code,
-            data.get("full_name"), data.get("email"), data.get("phone"),
-            data.get("date_of_birth"), data.get("gender"), data.get("address"),
-            data.get("emergency_contact"), data.get("emergency_phone"),
-            session["user_id"]
-        ))
-        patient_id = c.lastrowid
-
-        # CREATE ACCESS CODE ENTRY
-        expires_at = datetime.now() + timedelta(days=30)
-        c.execute("""
-            INSERT INTO patient_access_codes (patient_id, access_code, expires_at)
-            VALUES (?, ?, ?)
-        """, (patient_id, access_code, expires_at))
-
-        # GET HOSPITAL INFO
-        c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id=?", (hospital_id,))
-        hospital = c.fetchone()
-
-        # GET PATIENT DATA
-        c.execute("SELECT * FROM patients WHERE id=?", (patient_id,))
-        patient = dict(c.fetchone())
-        patient['scan_count'] = 0
-
-        conn.commit()
-        conn.close()
-
-        # SEND EMAIL
-        email_sent = False
-        try:
-            from email_utilis import send_patient_credentials_email
-
-            email_sent = send_patient_credentials_email(
-                to_email=data.get("email"),
-                patient_name=data.get("full_name"),
-                hospital_name=hospital["hospital_name"],
-                hospital_code=hospital["hospital_code"],
-                patient_code=patient_code,
-                access_code=access_code
-            )
-
-            if email_sent:
-                logger.info(f"✅ Welcome email sent to {data.get('email')}")
-        except Exception as e:
-            logger.error(f"❌ Email error: {e}")
-
-        log_activity("hospital", session["user_id"], "create_patient", hospital_id=hospital_id)
-
-        return jsonify({
-            "message": "Patient created successfully",
-            "patient": patient,
-            "patient_id": patient_id,
-            "patient_code": patient_code,
-            "access_code": access_code,
-            "email_sent": email_sent
-        }), 201
-
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        logger.error(f"❌ Patient creation error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/hospital/patients/<int:patient_id>/scans", methods=["GET"])
-@hospital_required
-def hospital_get_patient_scans_detailed(patient_id):
-    """Get all scans for a patient with full details"""
-    conn = get_db()
-    c = conn.cursor()
-    hospital_id = session.get("hospital_id")
-
-    # Verify patient belongs to hospital
-    c.execute("SELECT id FROM patients WHERE id=? AND hospital_id=?", (patient_id, hospital_id))
-    if not c.fetchone():
-        conn.close()
-        return jsonify({"error": "Patient not found"}), 404
-
-    # Get scans with ALL details
     c.execute("""
-        SELECT 
-            id, 
-            patient_id, 
-            prediction, 
-            confidence, 
-            is_tumor, 
-            probabilities,
-            scan_type,
-            notes,
-            scan_date,
-            created_at,
-            uploaded_by
-        FROM mri_scans
-        WHERE patient_id=?
-        ORDER BY created_at DESC
-    """, (patient_id,))
+        INSERT INTO patients (
+            hospital_id, patient_code, full_name, email, phone,
+            date_of_birth, gender, address, emergency_contact, 
+            emergency_phone, assigned_doctor_id, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        hospital_id, patient_code,
+        data.get("full_name"), data.get("email"), data.get("phone"),
+        data.get("date_of_birth"), data.get("gender"), data.get("address"),
+        data.get("emergency_contact"), data.get("emergency_phone"),
+        session["user_id"], session["user_id"]
+    ))
+    patient_id = c.lastrowid
 
-    scans = []
-    for row in c.fetchall():
-        scan = dict(row)
-        # Parse probabilities if it's a JSON string
-        if scan.get('probabilities'):
-            try:
-                scan['probabilities'] = json.loads(scan['probabilities'])
-            except:
-                scan['probabilities'] = {}
-        scans.append(scan)
+    expires_at = datetime.now() + timedelta(days=30)
+    c.execute("""
+        INSERT INTO patient_access_codes (patient_id, access_code, expires_at)
+        VALUES (?, ?, ?)
+    """, (patient_id, access_code, expires_at))
 
+    c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id=?", (hospital_id,))
+    hospital = c.fetchone()
+
+    c.execute("SELECT p.*, 0 as scan_count FROM patients p WHERE p.id=?", (patient_id,))
+    patient = dict(c.fetchone())
+
+    conn.commit()
     conn.close()
 
-    logger.info(f"✅ Fetched {len(scans)} scans for patient {patient_id}")
-    return jsonify({"scans": scans, "count": len(scans)})
+    # Send welcome email
+    email_sent = False
+    try:
+        email_sent = send_welcome_email(
+            to_email=data.get("email"),
+            patient_name=data.get("full_name"),
+            patient_code=patient_code,
+            access_code=access_code,
+            hospital_name=hospital["hospital_name"],
+            hospital_code=hospital["hospital_code"]
+        )
+        if email_sent:
+            logger.info(f"✅ Welcome email sent to {data.get('email')}")
+        else:
+            logger.warning(f"⚠️ Email not configured")
+    except Exception as e:
+        logger.error(f"❌ Email error: {e}")
+        email_sent = False
+
+    log_activity("hospital", session["user_id"], "create_patient", hospital_id=hospital_id)
+
+    return jsonify({
+        "message": "Patient created successfully",
+        "patient": patient,
+        "patient_id": patient_id,
+        "patient_code": patient_code,
+        "access_code": access_code,
+        "email_sent": email_sent
+    }), 201
 
 
 @app.route("/hospital/history", methods=["GET"])
@@ -5477,6 +4530,91 @@ def hospital_history():
 
 # ==============================================
 # MRI PREDICTION (WITH USAGE LIMITS)
+# ==============================================
+
+@app.route("/hospital/predict", methods=["POST"])
+@hospital_required
+@check_scan_limit
+def predict():
+    hospital_id = session["hospital_id"]
+    try:
+        if "image" not in request.files:
+            return jsonify({"error": "No image"}), 400
+
+        patient_id = request.form.get("patient_id")
+        if not patient_id:
+            return jsonify({"error": "Patient ID required"}), 400
+
+        # 1. Read and process the image
+        image_bytes = request.files["image"].read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tensor = transform(image).unsqueeze(0).to(device)
+
+        # 2. Run the AI Prediction
+        with torch.no_grad():
+            output = model(tensor)
+            probs = F.softmax(output, dim=1)[0]
+            conf, pred = torch.max(probs, 0)
+
+        # 3. Format the results
+        probabilities = {
+            class_names[i]: round(float(probs[i].item()) * 100, 2)
+            for i in range(len(class_names))
+        }
+        prediction_label = class_names[int(pred.item())]
+        conf_val = float(conf.item())
+
+        # 4. VALIDATION: Check if AI confidence is too low (Non-Brain Image)
+        # We pass 'image' and the 'probabilities' we just calculated
+        is_valid, error_msg, warning_msg = validate_brain_scan(image, probabilities)
+
+        if not is_valid:
+            return jsonify({
+                "error": "Invalid Scan Result",
+                "message": error_msg,
+                "suggestion": "The AI does not recognize this as a brain MRI scan."
+            }), 400
+
+        # 5. Save to Database (Only if validation passed)
+        is_tumor = prediction_label != "notumor"
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO mri_scans (
+                hospital_id, patient_id, uploaded_by, scan_image,
+                prediction, confidence, is_tumor, probabilities,
+                notes, scan_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            hospital_id, patient_id, session["user_id"],
+            base64.b64encode(image_bytes).decode(),
+            prediction_label, conf_val, is_tumor, str(probabilities),
+            request.form.get("notes", ""),
+            request.form.get("scan_date", datetime.now().strftime("%Y-%m-%d"))
+        ))
+        scan_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        # 6. Send response back to Frontend
+        increment_usage(hospital_id, 'scans', 1)
+        log_activity("hospital", session["user_id"], "prediction", hospital_id=hospital_id)
+
+        return jsonify({
+            "scan_id": scan_id,
+            "prediction": prediction_label,
+            "confidence": round(conf_val * 100, 2),
+            "probabilities": probabilities,
+            "validation_warning": warning_msg  # <--- This triggers the yellow warning in UI
+        })
+
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# REPORT GENERATION
 # ==============================================
 
 @app.route("/generate-report/<int:scan_id>", methods=["GET"])
@@ -5561,14 +4699,11 @@ def generate_report(scan_id):
 
 @app.route("/patient/verify", methods=["POST"])
 def patient_verify():
-    """Step 2: Verify patient - FIXED"""
+    """Step 2: Verify patient"""
     data = request.json
     hospital_code = data.get("hospital_code")
     patient_code = data.get("patient_code")
     access_code = data.get("access_code")
-
-    if not hospital_code or not patient_code or not access_code:
-        return jsonify({"error": "All fields required"}), 400
 
     conn = get_db()
     c = conn.cursor()
@@ -5579,28 +4714,20 @@ def patient_verify():
         JOIN hospitals h ON p.hospital_id = h.id
         JOIN patient_access_codes pac ON p.id = pac.patient_id
         WHERE h.hospital_code=? AND p.patient_code=? AND pac.access_code=?
-            AND (pac.expires_at IS NULL OR pac.expires_at > datetime('now'))
-    """, (hospital_code.upper(), patient_code.upper(), access_code))
+            AND pac.expires_at > datetime('now')
+    """, (hospital_code, patient_code, access_code))
 
-    patient_row = c.fetchone()
+    patient = c.fetchone()
 
-    if not patient_row:
+    if not patient:
         conn.close()
-        return jsonify({"error": "Invalid credentials or expired access code"}), 401
-
-    # ✅ CONVERT TO DICTIONARY
-    patient = dict(patient_row)
+        return jsonify({"error": "Invalid credentials or expired"}), 401
 
     # Generate verification code
     verification_code = ''.join(random.choices(string.digits, k=6))
-    expiry = datetime.now() + timedelta(minutes=10)
 
-    c.execute("""
-        UPDATE patient_access_codes 
-        SET verification_code=?, verification_code_expiry=?
-        WHERE id=?
-    """, (verification_code, expiry, patient["access_id"]))
-
+    c.execute("UPDATE patient_access_codes SET verification_code=? WHERE id=?",
+              (verification_code, patient["access_id"]))
     conn.commit()
     conn.close()
 
@@ -5612,91 +4739,65 @@ def patient_verify():
             patient_name=patient['full_name'],
             hospital_name=patient['hospital_name']
         )
-        logger.info(f"✅ Verification email sent to {patient['email']}")
     except Exception as e:
-        logger.error(f"❌ Email error: {e}")
+        logger.error(f"Email error: {e}")
 
-    logger.info(f"🔐 Verification code for {patient['full_name']}: {verification_code}")
-
-    # Mask email
-    email = patient["email"]
-    email_hint = email[:3] + "***" + email[email.rfind('@'):]
+    logger.info(f"Verification code: {verification_code}")
 
     return jsonify({
-        "message": "Verification code sent to your email",
-        "email_hint": email_hint
+        "message": "Verification code sent to email",
+        "email_hint": patient["email"][:3] + "***" + patient["email"][-10:]
     })
+
 
 @app.route("/patient/login", methods=["POST"])
 def patient_login():
-    """Step 3: Login with verification code - FIXED"""
+    """Step 3: Login with verification code"""
     data = request.json
     patient_code = data.get("patient_code")
     verification_code = data.get("verification_code")
-
-    if not patient_code or not verification_code:
-        return jsonify({"error": "Patient code and verification code required"}), 400
 
     conn = get_db()
     c = conn.cursor()
 
     c.execute("""
-        SELECT p.*, h.hospital_name, h.id as hospital_id, pac.id as access_code_id
+        SELECT p.*, h.hospital_name, h.id as hospital_id, pac.id as access_id
         FROM patients p
         JOIN hospitals h ON p.hospital_id = h.id
         JOIN patient_access_codes pac ON p.id = pac.patient_id
-        WHERE p.patient_code = ? 
-        AND pac.verification_code = ?
-        AND (pac.verification_code_expiry IS NULL OR pac.verification_code_expiry > datetime('now'))
-    """, (patient_code.upper(), verification_code))
+        WHERE p.patient_code=? AND pac.verification_code=?
+    """, (patient_code, verification_code))
 
-    patient_row = c.fetchone()
+    patient = c.fetchone()
 
-    if not patient_row:
+    if not patient:
         conn.close()
-        logger.warning(f"❌ Invalid login attempt: {patient_code}")
-        return jsonify({"error": "Invalid or expired verification code"}), 401
+        return jsonify({"error": "Invalid verification code"}), 401
 
-    # ✅ CONVERT TO DICTIONARY
-    patient = dict(patient_row)
-
-    # Mark as verified
     c.execute("""
         UPDATE patient_access_codes 
-        SET is_verified = 1, verified_at = datetime('now')
-        WHERE id = ?
-    """, (patient["access_code_id"],))
-
+        SET is_verified=1, verified_at=datetime('now')
+        WHERE id=?
+    """, (patient["access_id"],))
     conn.commit()
     conn.close()
 
-    # ✅ SET SESSION
-    session.clear()
-    session.permanent = True
     session["patient_id"] = patient["id"]
     session["patient_type"] = "patient"
     session["user_id"] = patient["id"]
     session["user_type"] = "patient"
     session["hospital_id"] = patient["hospital_id"]
-    session["full_name"] = patient["full_name"]
-    session.modified = True
 
-    logger.info(f"✅ Patient logged in: {patient['full_name']} (ID: {patient['id']})")
-
-    # ✅ USE DICT.GET() NOW
     return jsonify({
         "patient": {
             "id": patient["id"],
             "full_name": patient["full_name"],
             "patient_code": patient["patient_code"],
             "hospital_name": patient["hospital_name"],
-            "email": patient.get("email"),  # ✅ Now works
-            "phone": patient.get("phone"),  # ✅ Now works
-            "date_of_birth": patient.get("date_of_birth"),
-            "gender": patient.get("gender"),
             "type": "patient"
         }
     })
+
 
 # DUPLICATE - @app.route("/patient/scans", methods=["GET"])
 # DUPLICATE - @patient_required
@@ -5800,17 +4901,17 @@ def logout():
     session.clear()
     return jsonify({"message": "Logged out"})
 
+
 @app.route("/me", methods=["GET"])
 def me():
     """Get current user info"""
-    # Check both user_id and patient_id
     if "user_id" not in session and "patient_id" not in session:
         return jsonify({"error": "Not authenticated"}), 401
 
-    user_type = session.get("user_type") or session.get("patient_type")
+    user_type = session.get("user_type")
 
     if user_type == "patient":
-        patient_id = session.get("patient_id") or session.get("user_id")
+        patient_id = session.get("patient_id")
 
         conn = get_db()
         c = conn.cursor()
@@ -5820,17 +4921,14 @@ def me():
             JOIN hospitals h ON p.hospital_id = h.id
             WHERE p.id=?
         """, (patient_id,))
-        patient_row = c.fetchone()
+        patient = c.fetchone()
         conn.close()
 
-        if not patient_row:
+        if not patient:
             return jsonify({"error": "Patient not found"}), 404
 
-        # ✅ CONVERT TO DICT FIRST
-        patient = dict(patient_row)
-
         profile_picture_url = None
-        if patient.get("profile_picture") and patient.get("profile_picture_mime"):
+        if patient["profile_picture"] and patient["profile_picture_mime"]:
             profile_picture_url = f"data:{patient['profile_picture_mime']};base64,{patient['profile_picture']}"
 
         return jsonify({
@@ -5839,17 +4937,16 @@ def me():
                 "type": "patient",
                 "full_name": patient["full_name"],
                 "patient_code": patient["patient_code"],
-                "email": patient.get("email"),
-                "phone": patient.get("phone"),
-                "date_of_birth": patient.get("date_of_birth"),
-                "gender": patient.get("gender"),
+                "email": patient["email"],
+                "phone": patient["phone"],
+                "date_of_birth": patient["date_of_birth"],
+                "gender": patient["gender"],
                 "hospital_name": patient["hospital_name"],
                 "hospital_code": patient["hospital_code"],
                 "profile_picture": profile_picture_url
             }
         })
 
-    # Hospital user
     return jsonify({
         "user": {
             "id": session.get("user_id"),
@@ -6056,6 +5153,114 @@ def send_chat_message():
 
     except Exception as e:
         logger.error(f"Error sending message: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/conversations', methods=['GET'])
+@login_required
+def get_conversations():
+    """Get all conversations for current user"""
+    try:
+        user_type = session.get('user_type') or 'patient'
+
+        conn = get_db()
+        c = conn.cursor()
+
+        if user_type == 'hospital':
+            # Get all patients this hospital user has messaged
+            hospital_user_id = session.get('user_id')
+
+            c.execute("""
+                SELECT DISTINCT
+                    p.id as patient_id,
+                    p.full_name as patient_name,
+                    p.patient_code,
+                    p.email as patient_email,
+                    (
+                        SELECT m.message 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message,
+                    (
+                        SELECT m.created_at 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message_time,
+                    (
+                        SELECT COUNT(*) 
+                        FROM messages m 
+                        WHERE m.patient_id = p.id 
+                        AND m.hospital_user_id = ?
+                        AND m.sender_type = 'patient'
+                        AND m.is_read = 0
+                    ) as unread_count
+                FROM patients p
+                INNER JOIN messages m ON m.patient_id = p.id
+                WHERE m.hospital_user_id = ?
+                GROUP BY p.id
+                ORDER BY last_message_time DESC
+            """, (hospital_user_id, hospital_user_id, hospital_user_id, hospital_user_id))
+
+            conversations = [dict(row) for row in c.fetchall()]
+
+        else:  # patient
+            # Get the doctor assigned to this patient
+            patient_id = session.get('patient_id')
+
+            c.execute("""
+                SELECT DISTINCT
+                    hu.id as hospital_user_id,
+                    hu.username as doctor_name,
+                    hu.email as doctor_email,
+                    h.hospital_name,
+                    (
+                        SELECT m.message 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message,
+                    (
+                        SELECT m.created_at 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        ORDER BY m.created_at DESC 
+                        LIMIT 1
+                    ) as last_message_time,
+                    (
+                        SELECT COUNT(*) 
+                        FROM messages m 
+                        WHERE m.patient_id = ?
+                        AND m.hospital_user_id = hu.id
+                        AND m.sender_type = 'hospital'
+                        AND m.is_read = 0
+                    ) as unread_count
+                FROM hospital_users hu
+                INNER JOIN hospitals h ON hu.hospital_id = h.id
+                INNER JOIN messages m ON m.hospital_user_id = hu.id
+                WHERE m.patient_id = ?
+                GROUP BY hu.id
+                ORDER BY last_message_time DESC
+            """, (patient_id, patient_id, patient_id, patient_id))
+
+            conversations = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+
+        return jsonify({
+            'conversations': conversations
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting conversations: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -6498,1821 +5703,17 @@ def handle_toggle_video(data):
                 return jsonify({"error": "Internal server error during analysis"}), 500
 
 
-@app.route('/hospital/check-feature/<feature_name>', methods=['GET'])
-@hospital_required
-def check_feature_access(feature_name):
-    """Check if hospital has access to a specific feature"""
-    hospital_id = session.get('hospital_id')
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check for active subscription
-        c.execute("""
-            SELECT sp.name, sp.features
-            FROM hospital_subscriptions hs
-            JOIN subscription_plans sp ON hs.plan_id = sp.id
-            WHERE hs.hospital_id = ? AND hs.status = 'active'
-            ORDER BY hs.created_at DESC
-            LIMIT 1
-        """, (hospital_id,))
-
-        sub = c.fetchone()
-
-        if sub:
-            # Has active subscription
-            plan_name = sub['name'].lower()
-
-            # Define feature access per plan
-            plan_features = {
-                'free': [],
-                'professional': ['video_call', 'ai_chat', 'gradcam'],
-                'premium': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics'],
-                'enterprise': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics',
-                               'priority_support']
-            }
-
-            features = plan_features.get(plan_name, [])
-            has_access = feature_name in features
-
-            conn.close()
-            logger.info(f"✅ Hospital {hospital_id} plan={plan_name}, feature={feature_name}, access={has_access}")
-
-            return jsonify({
-                'has_access': has_access,
-                'plan': plan_name,
-                'required_plans': get_required_plans(feature_name),
-                'features_available': features
-            })
-
-        # No active subscription - check subscription_plan column as fallback
-        try:
-            c.execute("SELECT subscription_plan FROM hospitals WHERE id = ?", (hospital_id,))
-            hospital = c.fetchone()
-
-            if hospital and hospital.get('subscription_plan'):
-                plan_name = hospital['subscription_plan'].lower()
-
-                plan_features = {
-                    'free': [],
-                    'professional': ['video_call', 'ai_chat', 'gradcam'],
-                    'premium': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics'],
-                    'enterprise': ['video_call', 'ai_chat', 'gradcam', 'tumor_tracking', 'advanced_analytics',
-                                   'priority_support']
-                }
-
-                features = plan_features.get(plan_name, [])
-                has_access = feature_name in features
-
-                conn.close()
-                logger.info(
-                    f"✅ Hospital {hospital_id} plan={plan_name} (from hospital table), feature={feature_name}, access={has_access}")
-
-                return jsonify({
-                    'has_access': has_access,
-                    'plan': plan_name,
-                    'required_plans': get_required_plans(feature_name),
-                    'features_available': features
-                })
-        except Exception as column_error:
-            # Column might not exist
-            logger.debug(f"subscription_plan column check failed: {column_error}")
-            pass
-
-        conn.close()
-
-        # Default to free plan
-        logger.warning(f"⚠️ No subscription found for hospital {hospital_id}, defaulting to FREE")
-        return jsonify({
-            'has_access': False,
-            'plan': 'free',
-            'required_plans': get_required_plans(feature_name)
-        })
-
-    except Exception as e:
-        logger.error(f"Error checking feature access: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-def get_required_plans(feature_name):
-    """Get which plans include a specific feature"""
-    feature_plans = {
-        'video_call': ['professional', 'premium', 'enterprise'],
-        'ai_chat': ['professional', 'premium', 'enterprise'],
-        'gradcam': ['professional', 'premium', 'enterprise'],
-        'tumor_tracking': ['premium', 'enterprise'],
-        'advanced_analytics': ['premium', 'enterprise'],
-        'priority_support': ['enterprise']
-    }
-    return feature_plans.get(feature_name, ['premium', 'enterprise'])
-def get_required_plans(feature_name):
-    """Get which plans include a specific feature"""
-    feature_plans = {
-        'video_call': ['premium', 'enterprise'],
-        'ai_chat': ['premium', 'enterprise'],
-        'advanced_analytics': ['enterprise'],
-        'tumor_tracking': ['premium', 'enterprise']
-    }
-    return feature_plans.get(feature_name, ['enterprise'])
-
-
-def mark_all_notifications_read():
-    """Mark all notifications as read for the current user"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-
-    user_id = session['user_id']
-    user_type = session.get('user_type', 'hospital')
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute('''
-            UPDATE notifications 
-            SET is_read = 1
-            WHERE user_id = ? AND user_type = ? AND is_read = 0
-        ''', (user_id, user_type))
-
-        affected = c.rowcount
-        conn.commit()
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'marked_count': affected,
-            'message': f'{affected} notifications marked as read'
-        })
-
-    except Exception as e:
-        logger.error(f"Error marking all notifications as read: {e}")
-        return jsonify({'error': 'Failed to update notifications'}), 500
-
-
-# 2. ADD THIS ENDPOINT FOR CLEARING ALL NOTIFICATIONS
-def clear_all_notifications():
-    """Delete all read notifications for the current user"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-
-    user_id = session['user_id']
-    user_type = session.get('user_type', 'hospital')
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute('''
-            DELETE FROM notifications 
-            WHERE user_id = ? AND user_type = ? AND is_read = 1
-        ''', (user_id, user_type))
-
-        deleted = c.rowcount
-        conn.commit()
-        conn.close()
-
-        return jsonify({
-            'success': True,
-            'deleted_count': deleted,
-            'message': f'{deleted} notifications cleared'
-        })
-
-    except Exception as e:
-        logger.error(f"Error clearing notifications: {e}")
-        return jsonify({'error': 'Failed to clear notifications'}), 500
-
-
-# Add these routes to your app.py
-
-@app.route('/admin/subscription-plans/<int:plan_id>', methods=['GET', 'PUT', 'DELETE'])
-@admin_required
-def manage_subscription_plan(plan_id):
-    """Get, update, or delete a subscription plan"""
-    conn = get_db()
-    c = conn.cursor()
-
-    if request.method == 'GET':
-        # Get plan details
-        c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_id,))
-        plan = c.fetchone()
-        conn.close()
-
-        if not plan:
-            return jsonify({'error': 'Plan not found'}), 404
-
-        plan_dict = dict(plan)
-        try:
-            plan_dict['features'] = json.loads(plan_dict['features']) if plan_dict['features'] else []
-        except:
-            plan_dict['features'] = []
-
-        return jsonify({'plan': plan_dict})
-
-    elif request.method == 'PUT':
-        # Update plan
-        data = request.json
-
-        try:
-            # Validate pricing
-            price_monthly = float(data.get('price_monthly', 0))
-            price_yearly = float(data.get('price_yearly', 0))
-
-            # Validate limits
-            max_scans = int(data.get('max_scans_per_month', -1))
-            max_users = int(data.get('max_users', -1))
-            max_patients = int(data.get('max_patients', -1))
-
-            # Prepare features
-            features = data.get('features', [])
-            if isinstance(features, list):
-                features_json = json.dumps(features)
-            else:
-                features_json = features
-
-            # Update query
-            c.execute("""
-                UPDATE subscription_plans
-                SET 
-                    name = ?,
-                    display_name = ?,
-                    description = ?,
-                    price_monthly = ?,
-                    price_yearly = ?,
-                    max_scans_per_month = ?,
-                    max_users = ?,
-                    max_patients = ?,
-                    features = ?,
-                    is_active = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (
-                data.get('name'),
-                data.get('display_name'),
-                data.get('description'),
-                price_monthly,
-                price_yearly,
-                max_scans,
-                max_users,
-                max_patients,
-                features_json,
-                data.get('is_active', 1),
-                plan_id
-            ))
-
-            if c.rowcount == 0:
-                conn.close()
-                return jsonify({'error': 'Plan not found'}), 404
-
-            conn.commit()
-
-            # Get updated plan
-            c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_id,))
-            updated_plan = dict(c.fetchone())
-            updated_plan['features'] = json.loads(updated_plan['features']) if updated_plan['features'] else []
-
-            conn.close()
-
-            log_activity('admin', session['user_id'], 'update_plan',
-                         f"Updated plan: {data.get('name')}")
-
-            return jsonify({
-                'message': 'Plan updated successfully',
-                'plan': updated_plan
-            })
-
-        except ValueError as e:
-            conn.close()
-            return jsonify({'error': f'Invalid data format: {str(e)}'}), 400
-        except Exception as e:
-            conn.close()
-            logger.error(f"Error updating plan: {e}")
-            return jsonify({'error': str(e)}), 500
-
-    elif request.method == 'DELETE':
-        # Soft delete - mark as inactive
-        c.execute("""
-            UPDATE subscription_plans
-            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (plan_id,))
-
-        if c.rowcount == 0:
-            conn.close()
-            return jsonify({'error': 'Plan not found'}), 404
-
-        conn.commit()
-        conn.close()
-
-        log_activity('admin', session['user_id'], 'delete_plan',
-                     f"Deleted plan ID: {plan_id}")
-
-        return jsonify({'message': 'Plan deactivated successfully'})
-
-
-@app.route('/admin/subscription-plans', methods=['POST'])
-@admin_required
-def create_subscription_plan():
-    """Create a new subscription plan"""
-    data = request.json
-
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Validate required fields
-        required = ['name', 'display_name', 'price_monthly', 'price_yearly']
-        for field in required:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-
-        # Check if name already exists
-        c.execute("SELECT id FROM subscription_plans WHERE name=?", (data['name'],))
-        if c.fetchone():
-            conn.close()
-            return jsonify({'error': 'Plan name already exists'}), 409
-
-        # Prepare features
-        features = data.get('features', [])
-        if isinstance(features, list):
-            features_json = json.dumps(features)
-        else:
-            features_json = features
-
-        # Insert plan
-        c.execute("""
-            INSERT INTO subscription_plans (
-                name, display_name, description,
-                price_monthly, price_yearly,
-                max_scans_per_month, max_users, max_patients,
-                features, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data['name'],
-            data['display_name'],
-            data.get('description', ''),
-            float(data['price_monthly']),
-            float(data['price_yearly']),
-            int(data.get('max_scans_per_month', -1)),
-            int(data.get('max_users', -1)),
-            int(data.get('max_patients', -1)),
-            features_json,
-            data.get('is_active', 1)
-        ))
-
-        plan_id = c.lastrowid
-        conn.commit()
-
-        # Get created plan
-        c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_id,))
-        new_plan = dict(c.fetchone())
-        new_plan['features'] = json.loads(new_plan['features']) if new_plan['features'] else []
-
-        conn.close()
-
-        log_activity('admin', session['user_id'], 'create_plan',
-                     f"Created plan: {data['name']}")
-
-        return jsonify({
-            'message': 'Plan created successfully',
-            'plan': new_plan
-        }), 201
-
-    except Exception as e:
-        logger.error(f"Error creating plan: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/admin/features', methods=['GET'])
-@admin_required
-def get_all_features():
-    """Get list of all available features"""
-    # Predefined feature list
-    features = [
-        {
-            'key': 'video_call',
-            'name': 'Video Consultations',
-            'description': 'Real-time video calls with patients'
-        },
-        {
-            'key': 'ai_chat',
-            'name': 'AI-Powered Chat',
-            'description': 'Advanced chat with AI assistance'
-        },
-        {
-            'key': 'tumor_tracking',
-            'name': 'Tumor Progression Tracking',
-            'description': 'Track tumor changes over time'
-        },
-        {
-            'key': 'advanced_analytics',
-            'name': 'Advanced Analytics',
-            'description': 'Detailed reports and insights'
-        },
-        {
-            'key': 'priority_support',
-            'name': 'Priority Support',
-            'description': '24/7 priority customer support'
-        },
-        {
-            'key': 'api_access',
-            'name': 'API Access',
-            'description': 'RESTful API for integrations'
-        },
-        {
-            'key': 'white_label',
-            'name': 'White Label',
-            'description': 'Custom branding options'
-        }
-    ]
-
-    return jsonify({'features': features})
-
-
-# Also add this database migration to ensure the table exists
-def ensure_subscription_tables():
-    """Ensure subscription_plans table has all required columns"""
-    conn = get_db()
-    c = conn.cursor()
-
-    # Check if table exists
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS subscription_plans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            display_name TEXT NOT NULL,
-            description TEXT,
-            price_monthly REAL NOT NULL DEFAULT 0,
-            price_yearly REAL NOT NULL DEFAULT 0,
-            max_scans_per_month INTEGER DEFAULT -1,
-            max_users INTEGER DEFAULT -1,
-            max_patients INTEGER DEFAULT -1,
-            features TEXT DEFAULT '[]',
-            is_active INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Insert default plans if table is empty
-    c.execute("SELECT COUNT(*) FROM subscription_plans")
-    if c.fetchone()[0] == 0:
-        default_plans = [
-            {
-                'name': 'free',
-                'display_name': 'Free',
-                'description': 'Perfect for trying out NeuroScan',
-                'price_monthly': 0,
-                'price_yearly': 0,
-                'max_scans_per_month': 10,
-                'max_users': 2,
-                'max_patients': 50,
-                'features': json.dumps([])
-            },
-            {
-                'name': 'basic',
-                'display_name': 'Basic',
-                'description': 'For small clinics and practices',
-                'price_monthly': 99,
-                'price_yearly': 950,
-                'max_scans_per_month': 100,
-                'max_users': 5,
-                'max_patients': 500,
-                'features': json.dumps(['priority_support'])
-            },
-            {
-                'name': 'premium',
-                'display_name': 'Premium',
-                'description': 'For growing healthcare facilities',
-                'price_monthly': 299,
-                'price_yearly': 2990,
-                'max_scans_per_month': 500,
-                'max_users': 20,
-                'max_patients': 2000,
-                'features': json.dumps([
-                    'video_call', 'ai_chat', 'tumor_tracking',
-                    'priority_support', 'advanced_analytics'
-                ])
-            },
-            {
-                'name': 'enterprise',
-                'display_name': 'Enterprise',
-                'description': 'For large hospitals and networks',
-                'price_monthly': 999,
-                'price_yearly': 9990,
-                'max_scans_per_month': -1,
-                'max_users': -1,
-                'max_patients': -1,
-                'features': json.dumps([
-                    'video_call', 'ai_chat', 'tumor_tracking',
-                    'priority_support', 'advanced_analytics',
-                    'api_access', 'white_label'
-                ])
-            }
-        ]
-
-        for plan in default_plans:
-            c.execute("""
-                INSERT INTO subscription_plans (
-                    name, display_name, description,
-                    price_monthly, price_yearly,
-                    max_scans_per_month, max_users, max_patients,
-                    features, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-            """, (
-                plan['name'], plan['display_name'], plan['description'],
-                plan['price_monthly'], plan['price_yearly'],
-                plan['max_scans_per_month'], plan['max_users'], plan['max_patients'],
-                plan['features']
-            ))
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ Subscription tables verified")
-
-
-# Call this when app starts
-ensure_subscription_tables()
-
-
-@app.route("/api/chatbot", methods=["POST"])
-def chatbot_api():
-    """AI Chatbot endpoint using Ollama"""
-    try:
-        data = request.get_json()
-        user_message = data.get('message', '').strip()
-
-        if not user_message:
-            return jsonify({"error": "Message is required"}), 400
-
-        # Get Ollama configuration from environment
-        ollama_url = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
-        ollama_model = os.getenv('OLLAMA_MODEL', 'llama2')
-
-        # System prompt for medical context
-        system_prompt = """You are a helpful medical AI assistant for NeuroScan, a brain tumor detection platform. 
-You can answer questions about:
-- Brain tumors (glioma, meningioma, pituitary tumors)
-- MRI scans and medical imaging
-- How to use the NeuroScan platform
-- General brain health information
-
-Always be professional, empathetic, and provide accurate medical information. 
-If asked about specific diagnoses, remind users to consult with healthcare professionals.
-Keep responses concise and helpful."""
-
-        try:
-            # Call Ollama API
-            response = requests.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": f"{system_prompt}\n\nUser: {user_message}\nAssistant:",
-                    "stream": False
-                },
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                ai_response = result.get('response', 'Sorry, I could not generate a response.')
-
-                return jsonify({
-                    "success": True,
-                    "response": ai_response,
-                    "model": ollama_model
-                }), 200
-            else:
-                # Ollama not available - return fallback response
-                return jsonify({
-                    "success": True,
-                    "response": "I'm currently unavailable. The AI service is not running. Please make sure Ollama is installed and running.",
-                    "fallback": True
-                }), 200
-
-        except requests.exceptions.ConnectionError:
-            # Ollama not running - return helpful message
-            return jsonify({
-                "success": True,
-                "response": """The AI assistant is currently offline. To enable AI chat:
-
-1. Install Ollama from https://ollama.ai
-2. Run: ollama pull llama2
-3. Start Ollama service
-4. Restart NeuroScan
-
-For now, you can still use all other features of the platform.""",
-                "fallback": True
-            }), 200
-
-        except requests.exceptions.Timeout:
-            return jsonify({
-                "success": True,
-                "response": "The AI is taking too long to respond. Please try again with a shorter question.",
-                "fallback": True
-            }), 200
-
-    except Exception as e:
-        logger.error(f"Chatbot error: {e}")
-        return jsonify({
-            "success": True,
-            "response": f"I encountered an error: {str(e)}. Please try again.",
-            "fallback": True
-        }), 200
-
-
-# Alternative: Simple chatbot without Ollama (fallback)
-@app.route("/api/chatbot/simple", methods=["POST"])
-def simple_chatbot():
-    """Simple rule-based chatbot fallback"""
-    try:
-        data = request.get_json()
-        user_message = data.get('message', '').strip().lower()
-
-        # Simple keyword-based responses
-        responses = {
-            'hello': "Hello! I'm your NeuroScan AI assistant. How can I help you today?",
-            'hi': "Hi there! I can help answer questions about brain tumors and MRI scans.",
-            'help': "I can help you with:\n- Brain tumor information\n- MRI scan interpretation\n- Platform features\n- Medical terminology\n\nWhat would you like to know?",
-            'glioma': "Glioma is a type of tumor that occurs in the brain and spinal cord. It begins in the glial cells that surround nerve cells. Treatment depends on the type, location, and grade. Please consult with a healthcare provider for specific medical advice.",
-            'meningioma': "Meningioma is a tumor that arises from the meninges (membranes surrounding the brain and spinal cord). Most are benign and grow slowly. Treatment may involve observation, surgery, or radiation therapy.",
-            'pituitary': "Pituitary tumors are growths in the pituitary gland. Most are benign and can affect hormone production. Symptoms vary based on size and hormone effects. Consult an endocrinologist for proper evaluation.",
-            'mri': "MRI (Magnetic Resonance Imaging) uses magnetic fields and radio waves to create detailed images of the brain. It's the gold standard for detecting brain tumors. The scan is painless and typically takes 30-60 minutes.",
-            'scan': "To upload a scan:\n1. Click 'Upload MRI' in your dashboard\n2. Select your MRI image file\n3. Wait for AI analysis\n4. View results and probability scores\n\nSupported formats: JPG, PNG",
-        }
-
-        # Find matching response
-        for keyword, response in responses.items():
-            if keyword in user_message:
-                return jsonify({
-                    "success": True,
-                    "response": response,
-                    "model": "simple_rules"
-                }), 200
-
-        # Default response
-        return jsonify({
-            "success": True,
-            "response": "I'm not sure I understand. Could you rephrase your question? I can help with brain tumor information, MRI scans, and platform features.",
-            "model": "simple_rules"
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Simple chatbot error: {e}")
-        return jsonify({"error": str(e)}), 500
-# ============================================================
-# ADMIN: DELETE PATIENT
-# ============================================================
-def require_admin(args):
-    pass
-
-
-@app.route("/admin/users/patient/<int:patient_id>", methods=["DELETE"])
-
-def admin_delete_patient(patient_id):
-    """Delete a patient (admin only)"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if patient exists
-        c.execute("SELECT full_name, email FROM patients WHERE id = ?", (patient_id,))
-        patient = c.fetchone()
-
-        if not patient:
-            return jsonify({"error": "Patient not found"}), 404
-
-        patient_name = patient[0]
-
-        # Delete patient (cascade will handle related records)
-        c.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
-        conn.commit()
-
-        logger.info(f"🗑️ Admin deleted patient: {patient_name} (ID: {patient_id})")
-
-        return jsonify({
-            "success": True,
-            "message": f"Patient {patient_name} deleted successfully"
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error deleting patient: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ============================================================
-# ADMIN: DELETE HOSPITAL
-# ============================================================
-@app.route("/admin/users/hospital/<int:hospital_id>", methods=["DELETE"])
-
-def admin_delete_hospital(hospital_id):
-    """Delete a hospital (admin only)"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if hospital exists
-        c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id = ?", (hospital_id,))
-        hospital = c.fetchone()
-
-        if not hospital:
-            return jsonify({"error": "Hospital not found"}), 404
-
-        hospital_name = hospital[0]
-
-        # Check if hospital has patients
-        c.execute("SELECT COUNT(*) FROM patients WHERE hospital_id = ?", (hospital_id,))
-        patient_count = c.fetchone()[0]
-
-        if patient_count > 0:
-            return jsonify({
-                "error": f"Cannot delete hospital with {patient_count} active patients. Please delete or transfer patients first."
-            }), 400
-
-        # Delete hospital (cascade will handle related records)
-        c.execute("DELETE FROM hospitals WHERE id = ?", (hospital_id,))
-        conn.commit()
-
-        logger.info(f"🗑️ Admin deleted hospital: {hospital_name} (ID: {hospital_id})")
-
-        return jsonify({
-            "success": True,
-            "message": f"Hospital {hospital_name} deleted successfully"
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error deleting hospital: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ============================================================
-# ADMIN: DELETE ADMIN USER
-# ============================================================
-@app.route("/admin/users/admin/<int:admin_id>", methods=["DELETE"])
-
-def admin_delete_admin(admin_id):
-    """Delete an admin user (admin only)"""
-    try:
-        # Prevent self-deletion
-        current_admin_id = session.get('user_id')
-        if current_admin_id == admin_id:
-            return jsonify({"error": "Cannot delete your own admin account"}), 400
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Check if admin exists
-        c.execute("SELECT username, email FROM admins WHERE id = ?", (admin_id,))
-        admin = c.fetchone()
-
-        if not admin:
-            return jsonify({"error": "Admin not found"}), 404
-
-        admin_username = admin[0]
-
-        # Check if this is the last admin
-        c.execute("SELECT COUNT(*) FROM admins WHERE is_active = 1")
-        admin_count = c.fetchone()[0]
-
-        if admin_count <= 1:
-            return jsonify({
-                "error": "Cannot delete the last admin account. Create another admin first."
-            }), 400
-
-        # Delete admin
-        c.execute("DELETE FROM admins WHERE id = ?", (admin_id,))
-        conn.commit()
-
-        logger.info(f"🗑️ Admin deleted admin user: {admin_username} (ID: {admin_id})")
-
-        return jsonify({
-            "success": True,
-            "message": f"Admin {admin_username} deleted successfully"
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error deleting admin: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ============================================================
-# HELPER: Batch delete patients
-# ============================================================
-@app.route("/admin/users/patients/batch-delete", methods=["DELETE"])
-
-def admin_batch_delete_patients():
-    """Delete multiple patients at once"""
-    try:
-        data = request.get_json()
-        patient_ids = data.get('patient_ids', [])
-
-        if not patient_ids:
-            return jsonify({"error": "No patient IDs provided"}), 400
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Delete patients
-        placeholders = ','.join('?' * len(patient_ids))
-        c.execute(f"DELETE FROM patients WHERE id IN ({placeholders})", patient_ids)
-        deleted_count = c.rowcount
-        conn.commit()
-
-        logger.info(f"🗑️ Admin batch deleted {deleted_count} patients")
-
-        return jsonify({
-            "success": True,
-            "message": f"Successfully deleted {deleted_count} patients"
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error batch deleting patients: {e}")
-        return jsonify({"error": str(e)}), 500
-
-    # ============================================================
-    # ADMIN: DELETE PATIENT
-    # ============================================================
-    @app.route("/admin/users/patient/<int:patient_id>", methods=["DELETE"])
-    def admin_delete_patient(patient_id):
-        """Delete a patient (admin only)"""
-        # Check admin authentication
-        if session.get('user_type') != 'admin':
-            return jsonify({"error": "Admin access required"}), 403
-
-        try:
-            conn = get_db()
-            c = conn.cursor()
-
-            # Check if patient exists
-            c.execute("SELECT full_name, email FROM patients WHERE id = ?", (patient_id,))
-            patient = c.fetchone()
-
-            if not patient:
-                return jsonify({"error": "Patient not found"}), 404
-
-            patient_name = patient[0]
-
-            # Delete patient (cascade will handle related records)
-            c.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
-            conn.commit()
-
-            logger.info(f"🗑️ Admin deleted patient: {patient_name} (ID: {patient_id})")
-
-            return jsonify({
-                "success": True,
-                "message": f"Patient {patient_name} deleted successfully"
-            }), 200
-
-        except Exception as e:
-            logger.error(f"Error deleting patient: {e}")
-            return jsonify({"error": str(e)}), 500
-
-    # ============================================================
-    # ADMIN: DELETE HOSPITAL
-    # ============================================================
-    @app.route("/admin/users/hospital/<int:hospital_id>", methods=["DELETE"])
-    def admin_delete_hospital(hospital_id):
-        """Delete a hospital (admin only)"""
-        # Check admin authentication
-        if session.get('user_type') != 'admin':
-            return jsonify({"error": "Admin access required"}), 403
-
-        try:
-            conn = get_db()
-            c = conn.cursor()
-
-            # Check if hospital exists
-            c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id = ?", (hospital_id,))
-            hospital = c.fetchone()
-
-            if not hospital:
-                return jsonify({"error": "Hospital not found"}), 404
-
-            hospital_name = hospital[0]
-
-            # Check if hospital has patients
-            c.execute("SELECT COUNT(*) FROM patients WHERE hospital_id = ?", (hospital_id,))
-            patient_count = c.fetchone()[0]
-
-            if patient_count > 0:
-                return jsonify({
-                    "error": f"Cannot delete hospital with {patient_count} active patients. Please delete or transfer patients first."
-                }), 400
-
-            # Delete hospital (cascade will handle related records)
-            c.execute("DELETE FROM hospitals WHERE id = ?", (hospital_id,))
-            conn.commit()
-
-            logger.info(f"🗑️ Admin deleted hospital: {hospital_name} (ID: {hospital_id})")
-
-            return jsonify({
-                "success": True,
-                "message": f"Hospital {hospital_name} deleted successfully"
-            }), 200
-
-        except Exception as e:
-            logger.error(f"Error deleting hospital: {e}")
-            return jsonify({"error": str(e)}), 500
-
-    # ============================================================
-    # ADMIN: DELETE ADMIN USER
-    # ============================================================
-    @app.route("/admin/users/admin/<int:admin_id>", methods=["DELETE"])
-    def admin_delete_admin(admin_id):
-        """Delete an admin user (admin only)"""
-        # Check admin authentication
-        if session.get('user_type') != 'admin':
-            return jsonify({"error": "Admin access required"}), 403
-
-        try:
-            # Prevent self-deletion
-            current_admin_id = session.get('user_id')
-            if current_admin_id == admin_id:
-                return jsonify({"error": "Cannot delete your own admin account"}), 400
-
-            conn = get_db()
-            c = conn.cursor()
-
-            # Check if admin exists
-            c.execute("SELECT username, email FROM admins WHERE id = ?", (admin_id,))
-            admin = c.fetchone()
-
-            if not admin:
-                return jsonify({"error": "Admin not found"}), 404
-
-            admin_username = admin[0]
-
-            # Check if this is the last admin
-            c.execute("SELECT COUNT(*) FROM admins WHERE is_active = 1")
-            admin_count = c.fetchone()[0]
-
-            if admin_count <= 1:
-                return jsonify({
-                    "error": "Cannot delete the last admin account. Create another admin first."
-                }), 400
-
-            # Delete admin
-            c.execute("DELETE FROM admins WHERE id = ?", (admin_id,))
-            conn.commit()
-
-            logger.info(f"🗑️ Admin deleted admin user: {admin_username} (ID: {admin_id})")
-
-            return jsonify({
-                "success": True,
-                "message": f"Admin {admin_username} deleted successfully"
-            }), 200
-
-        except Exception as e:
-            logger.error(f"Error deleting admin: {e}")
-            return jsonify({"error": str(e)}), 500
-
-        # ============================================================
-        # ADMIN: DELETE PATIENT
-        # ============================================================
-        @app.route("/admin/users/patient/<int:patient_id>", methods=["DELETE"])
-        def admin_delete_patient(patient_id):
-            """Delete a patient (admin only)"""
-            # Check admin authentication
-            if session.get('user_type') != 'admin':
-                return jsonify({"error": "Admin access required"}), 403
-
-            try:
-                conn = get_db()
-                c = conn.cursor()
-
-                # Check if patient exists
-                c.execute("SELECT full_name, email FROM patients WHERE id = ?", (patient_id,))
-                patient = c.fetchone()
-
-                if not patient:
-                    return jsonify({"error": "Patient not found"}), 404
-
-                patient_name = patient[0]
-
-                # Delete patient (cascade will handle related records)
-                c.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
-                conn.commit()
-
-                logger.info(f"🗑️ Admin deleted patient: {patient_name} (ID: {patient_id})")
-
-                return jsonify({
-                    "success": True,
-                    "message": f"Patient {patient_name} deleted successfully"
-                }), 200
-
-            except Exception as e:
-                logger.error(f"Error deleting patient: {e}")
-                return jsonify({"error": str(e)}), 500
-
-        # ============================================================
-        # ADMIN: DELETE HOSPITAL
-        # ============================================================
-        @app.route("/admin/users/hospital/<int:hospital_id>", methods=["DELETE"])
-        def admin_delete_hospital(hospital_id):
-            """Delete a hospital (admin only)"""
-            # Check admin authentication
-            if session.get('user_type') != 'admin':
-                return jsonify({"error": "Admin access required"}), 403
-
-            try:
-                conn = get_db()
-                c = conn.cursor()
-
-                # Check if hospital exists
-                c.execute("SELECT hospital_name, hospital_code FROM hospitals WHERE id = ?", (hospital_id,))
-                hospital = c.fetchone()
-
-                if not hospital:
-                    return jsonify({"error": "Hospital not found"}), 404
-
-                hospital_name = hospital[0]
-
-                # Check if hospital has patients
-                c.execute("SELECT COUNT(*) FROM patients WHERE hospital_id = ?", (hospital_id,))
-                patient_count = c.fetchone()[0]
-
-                if patient_count > 0:
-                    return jsonify({
-                        "error": f"Cannot delete hospital with {patient_count} active patients. Please delete or transfer patients first."
-                    }), 400
-
-                # Delete hospital (cascade will handle related records)
-                c.execute("DELETE FROM hospitals WHERE id = ?", (hospital_id,))
-                conn.commit()
-
-                logger.info(f"🗑️ Admin deleted hospital: {hospital_name} (ID: {hospital_id})")
-
-                return jsonify({
-                    "success": True,
-                    "message": f"Hospital {hospital_name} deleted successfully"
-                }), 200
-
-            except Exception as e:
-                logger.error(f"Error deleting hospital: {e}")
-                return jsonify({"error": str(e)}), 500
-
-        # ============================================================
-        # ADMIN: DELETE ADMIN USER
-        # ============================================================
-        @app.route("/admin/users/admin/<int:admin_id>", methods=["DELETE"])
-        def admin_delete_admin(admin_id):
-            """Delete an admin user (admin only)"""
-            # Check admin authentication
-            if session.get('user_type') != 'admin':
-                return jsonify({"error": "Admin access required"}), 403
-
-            try:
-                # Prevent self-deletion
-                current_admin_id = session.get('user_id')
-                if current_admin_id == admin_id:
-                    return jsonify({"error": "Cannot delete your own admin account"}), 400
-
-                conn = get_db()
-                c = conn.cursor()
-
-                # Check if admin exists
-                c.execute("SELECT username, email FROM admins WHERE id = ?", (admin_id,))
-                admin = c.fetchone()
-
-                if not admin:
-                    return jsonify({"error": "Admin not found"}), 404
-
-                admin_username = admin[0]
-
-                # Check if this is the last admin
-                c.execute("SELECT COUNT(*) FROM admins WHERE is_active = 1")
-                admin_count = c.fetchone()[0]
-
-                if admin_count <= 1:
-                    return jsonify({
-                        "error": "Cannot delete the last admin account. Create another admin first."
-                    }), 400
-
-                # Delete admin
-                c.execute("DELETE FROM admins WHERE id = ?", (admin_id,))
-                conn.commit()
-
-                logger.info(f"🗑️ Admin deleted admin user: {admin_username} (ID: {admin_id})")
-
-                return jsonify({
-                    "success": True,
-                    "message": f"Admin {admin_username} deleted successfully"
-                }), 200
-
-            except Exception as e:
-                logger.error(f"Error deleting admin: {e}")
-                return jsonify({"error": str(e)}), 500
-
-            @app.before_request
-            def log_session_debug():
-                """Debug middleware to check session state"""
-                if request.endpoint and 'hospital' in request.endpoint:
-                    app.logger.info(f"🔍 Request: {request.method} {request.endpoint}")
-                    app.logger.info(f"   Session: {dict(session)}")
-                    app.logger.info(f"   user_type: {session.get('user_type')}")
-                    app.logger.info(f"   user_id: {session.get('user_id')}")
-                    app.logger.info(f"   hospital_id: {session.get('hospital_id')}")
-                    app.logger.info(f"   Cookies: {request.cookies.keys()}")
-
-
-# OpenCV and image processing
-try:
-    import cv2
-    import numpy as np
-    from PIL import Image
-
-    CV_AVAILABLE = True
-except ImportError:
-    CV_AVAILABLE = False
-    logger.warning("⚠️ OpenCV not available. Grad-CAM will be disabled.")
-
-# Matplotlib for visualization
-try:
-    import matplotlib
-
-    matplotlib.use('Agg')  # Non-interactive backend
-    import matplotlib.pyplot as plt
-
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
-    logger.warning("⚠️ Matplotlib not available. Grad-CAM will be disabled.")
-
-# ReportLab for PDF generation
-try:
-    from reportlab.lib.pagesizes import letter, A4
-    from reportlab.lib.units import inch
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table,
-        TableStyle, Image as RLImage, PageBreak
-    )
-    from reportlab.lib import colors
-
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
-    logger.warning("⚠️ ReportLab not available. PDF generation will be disabled.")
-
-# PyTorch for Grad-CAM
-try:
-    import torch
-    import torch.nn.functional as F
-    from torchvision import transforms
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning("⚠️ PyTorch imports failed. Grad-CAM will be disabled.")
-
-# ===============================================================================
-# 1. GRAD-CAM CLASS (Only if dependencies available)
-# ===============================================================================
-
-if CV_AVAILABLE and MATPLOTLIB_AVAILABLE and TORCH_AVAILABLE:
-
-    class GradCAM:
-        """Generate Grad-CAM visualizations for CNN models"""
-
-        def __init__(self, model, target_layer):
-            self.model = model
-            self.target_layer = target_layer
-            self.gradients = None
-            self.activations = None
-
-            # Register hooks
-            self.target_layer.register_forward_hook(self.save_activation)
-            self.target_layer.register_backward_hook(self.save_gradient)
-
-        def save_activation(self, module, input, output):
-            self.activations = output.detach()
-
-        def save_gradient(self, module, grad_input, grad_output):
-            self.gradients = grad_output[0].detach()
-
-        def generate_cam(self, input_tensor, target_class=None):
-            """Generate Class Activation Map"""
-            self.model.eval()
-            output = self.model(input_tensor)
-
-            if target_class is None:
-                target_class = output.argmax(dim=1).item()
-
-            self.model.zero_grad()
-            class_loss = output[0, target_class]
-            class_loss.backward()
-
-            gradients = self.gradients
-            activations = self.activations
-
-            weights = torch.mean(gradients, dim=(2, 3), keepdim=True)
-            cam = torch.sum(weights * activations, dim=1, keepdim=True)
-            cam = F.relu(cam)
-
-            cam = cam - cam.min()
-            cam = cam / (cam.max() + 1e-8)
-
-            return cam.squeeze().cpu().numpy()
-
-
-    def generate_gradcam_visualization(model, image_path, save_path=None, device='cpu'):
-        """Generate and save Grad-CAM visualization"""
-        try:
-            img = Image.open(image_path).convert('RGB')
-            img_array = np.array(img)
-
-            transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
-
-            input_tensor = transform(img).unsqueeze(0).to(device)
-
-            if hasattr(model, 'features'):
-                target_layer = model.features[-1]
-            else:
-                target_layer = list(model.children())[-2]
-
-            gradcam = GradCAM(model, target_layer)
-            cam = gradcam.generate_cam(input_tensor)
-
-            cam_resized = cv2.resize(cam, (img_array.shape[1], img_array.shape[0]))
-
-            heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
-            heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-
-            overlay = heatmap * 0.4 + img_array * 0.6
-            overlay = np.uint8(overlay)
-
-            fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
-            axes[0].imshow(img_array)
-            axes[0].set_title('Original Image', fontsize=14, fontweight='bold')
-            axes[0].axis('off')
-
-            axes[1].imshow(heatmap)
-            axes[1].set_title('Activation Map', fontsize=14, fontweight='bold')
-            axes[1].axis('off')
-
-            axes[2].imshow(overlay)
-            axes[2].set_title('Overlay', fontsize=14, fontweight='bold')
-            axes[2].axis('off')
-
-            plt.tight_layout()
-
-            if save_path is None:
-                save_path = image_path.replace('.jpg', '_gradcam.jpg').replace('.png', '_gradcam.png')
-
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            plt.close()
-
-            logger.info(f"✅ Grad-CAM saved to: {save_path}")
-            return save_path
-
-        except Exception as e:
-            logger.error(f"❌ Grad-CAM generation failed: {e}")
-            raise
-
-
-# ===============================================================================
-# 2. GRAD-CAM ENDPOINT (with availability check)
-# ===============================================================================
-
-# Add this corrected endpoint to app.py (replace existing)
-@app.route("/gradcam/<int:scan_id>", methods=["GET"])
-@login_required
-def get_gradcam_image(scan_id):
-    """Generate and return GradCAM visualization"""
-    try:
-        user_type = session.get('user_type')
-        user_id = session.get('user_id') or session.get('patient_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        # Get scan with authorization check
-        if user_type == 'hospital':
-            c.execute("""
-                SELECT s.*, p.hospital_id 
-                FROM mri_scans s
-                JOIN patients p ON s.patient_id = p.id
-                WHERE s.id = ? AND p.hospital_id = ?
-            """, (scan_id, session.get('hospital_id')))
-        elif user_type == 'patient':
-            c.execute("""
-                SELECT s.*, p.hospital_id 
-                FROM mri_scans s
-                JOIN patients p ON s.patient_id = p.id
-                WHERE s.id = ? AND p.id = ?
-            """, (scan_id, session.get('patient_id')))
-        else:
-            c.execute("SELECT * FROM mri_scans WHERE id = ?", (scan_id,))
-
-        scan = c.fetchone()
-        conn.close()
-
-        if not scan:
-            return jsonify({"error": "Scan not found"}), 404
-
-        # Check if scan_image exists (base64)
-        if not scan.get('scan_image'):
-            return jsonify({"error": "Scan image not found"}), 404
-
-        # Decode base64 image
-        try:
-            image_data = base64.b64decode(scan['scan_image'])
-            image = Image.open(io.BytesIO(image_data)).convert('RGB')
-        except Exception as e:
-            logger.error(f"Image decode error: {e}")
-            return jsonify({"error": "Failed to decode scan image"}), 500
-
-        # Generate GradCAM
-        try:
-            # Import here to avoid circular imports
-            from gradcam_utils import generate_gradcam_from_tensor
-
-            # Prepare image
-            transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
-
-            input_tensor = transform(image).unsqueeze(0).to(device)
-
-            # Generate GradCAM
-            model.eval()
-            overlaid_image, prediction_idx = generate_gradcam_from_tensor(
-                model=model,
-                input_tensor=input_tensor,
-                original_image=image,
-                target_class=None
-            )
-
-            # Convert to bytes
-            buffer = io.BytesIO()
-            Image.fromarray(overlaid_image).save(buffer, format='PNG')
-            buffer.seek(0)
-
-            return send_file(
-                buffer,
-                mimetype='image/png',
-                as_attachment=False,
-                download_name=f'gradcam_scan_{scan_id}.png'
-            )
-
-        except ImportError:
-            return jsonify({
-                "error": "GradCAM module not available",
-                "message": "gradcam_utils.py is missing"
-            }), 503
-        except Exception as e:
-            logger.error(f"GradCAM generation error: {e}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({"error": f"Failed to generate GradCAM: {str(e)}"}), 500
-
-    except Exception as e:
-        logger.error(f"GradCAM route error: {e}")
-        return jsonify({"error": str(e)}), 500
-# ===============================================================================
-# 3. PDF GENERATION (with availability check)
-# ===============================================================================
-
-if REPORTLAB_AVAILABLE:
-
-    def generate_pdf_report(scan_data, patient_data, hospital_data, output_path):
-        """Generate comprehensive PDF report"""
-        try:
-            doc = SimpleDocTemplate(
-                output_path,
-                pagesize=letter,
-                rightMargin=72,
-                leftMargin=72,
-                topMargin=72,
-                bottomMargin=18
-            )
-
-            elements = []
-            styles = getSampleStyleSheet()
-
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=24,
-                textColor=colors.HexColor('#1e40af'),
-                spaceAfter=30,
-                alignment=TA_CENTER,
-                fontName='Helvetica-Bold'
-            )
-
-            heading_style = ParagraphStyle(
-                'CustomHeading',
-                parent=styles['Heading2'],
-                fontSize=16,
-                textColor=colors.HexColor('#1e40af'),
-                spaceAfter=12,
-                spaceBefore=12,
-                fontName='Helvetica-Bold'
-            )
-
-            # Header
-            elements.append(Paragraph("NEUROSCAN", title_style))
-            elements.append(Paragraph("Brain Tumor Detection Report", styles['Heading2']))
-            elements.append(Spacer(1, 0.2 * inch))
-
-            # Report metadata
-            report_info = [
-                ['Report Generated:', datetime.now().strftime('%B %d, %Y at %I:%M %p')],
-                ['Report ID:', f"RPT-{scan_data['id']:06d}"],
-                ['Hospital:', hospital_data.get('hospital_name', 'N/A')]
-            ]
-
-            report_table = Table(report_info, colWidths=[2 * inch, 4 * inch])
-            report_table.setStyle(TableStyle([
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ]))
-
-            elements.append(report_table)
-            elements.append(Spacer(1, 0.3 * inch))
-
-            # Patient Information
-            elements.append(Paragraph("Patient Information", heading_style))
-
-            patient_info = [
-                ['Patient Name:', patient_data.get('full_name', 'N/A')],
-                ['Patient ID:', patient_data.get('patient_code', 'N/A')],
-                ['Date of Birth:', patient_data.get('date_of_birth', 'N/A')],
-                ['Gender:', patient_data.get('gender', 'N/A')],
-                ['Phone:', patient_data.get('phone', 'N/A')],
-            ]
-
-            patient_table = Table(patient_info, colWidths=[2 * inch, 4 * inch])
-            patient_table.setStyle(TableStyle([
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ]))
-
-            elements.append(patient_table)
-            elements.append(Spacer(1, 0.3 * inch))
-
-            # Diagnosis
-            elements.append(Paragraph("Diagnosis Results", heading_style))
-
-            prediction = scan_data['prediction']
-            confidence = float(scan_data['confidence'])
-
-            if prediction.lower() == 'no tumor':
-                result_color = colors.HexColor('#10b981')
-                result_text = '✓ No Tumor Detected'
-            else:
-                result_color = colors.HexColor('#ef4444')
-                result_text = f'⚠ {prediction.title()} Detected'
-
-            diagnosis_style = ParagraphStyle(
-                'Diagnosis',
-                parent=styles['Normal'],
-                fontSize=18,
-                textColor=result_color,
-                spaceAfter=12,
-                fontName='Helvetica-Bold',
-                alignment=TA_CENTER
-            )
-
-            elements.append(Paragraph(result_text, diagnosis_style))
-            elements.append(Paragraph(f"Confidence: {confidence:.1f}%", styles['Normal']))
-            elements.append(Spacer(1, 0.2 * inch))
-
-            # Probabilities
-            if scan_data.get('probabilities'):
-                probs = scan_data['probabilities']
-
-                prob_data = [
-                    ['Classification', 'Probability'],
-                    ['Glioma', f"{float(probs.get('glioma', 0)):.2f}%"],
-                    ['Meningioma', f"{float(probs.get('meningioma', 0)):.2f}%"],
-                    ['Pituitary Tumor', f"{float(probs.get('pituitary', 0)):.2f}%"],
-                    ['No Tumor', f"{float(probs.get('no_tumor', 0)):.2f}%"],
-                ]
-
-                prob_table = Table(prob_data, colWidths=[3 * inch, 2 * inch])
-                prob_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                ]))
-
-                elements.append(prob_table)
-
-            # Build PDF
-            doc.build(elements)
-            logger.info(f"✅ PDF generated: {output_path}")
-            return output_path
-
-        except Exception as e:
-            logger.error(f"❌ PDF generation failed: {e}")
-            raise
-
-
-# ===============================================================================
-# 4. PDF DOWNLOAD ENDPOINT
-# ===============================================================================
-
-@app.route("/scan/<int:scan_id>/download-report", methods=["GET"])
-@hospital_required
-def download_scan_report(scan_id):
-    """Generate and download PDF report"""
-
-    if not REPORTLAB_AVAILABLE:
-        return jsonify({
-            "error": "PDF generation not available. Install reportlab package."
-        }), 503
-
-    try:
-        hospital_id = session.get("hospital_id")
-
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT s.*, p.*, h.hospital_name
-            FROM mri_scans s
-            JOIN patients p ON s.patient_id = p.id
-            JOIN hospitals h ON p.hospital_id = h.id
-            WHERE s.id = ? AND p.hospital_id = ?
-        """, (scan_id, hospital_id))
-
-        row = c.fetchone()
-        conn.close()
-
-        if not row:
-            return jsonify({"error": "Scan not found"}), 404
-
-        data = dict(row)
-
-        scan_data = {
-            'id': data['id'],
-            'prediction': data['prediction'],
-            'confidence': data['confidence'],
-            'probabilities': json.loads(data.get('probabilities', '{}')),
-            'created_at': data['created_at'],
-            'image_path': data.get('image_path', '')
-        }
-
-        patient_data = {
-            'full_name': data['full_name'],
-            'patient_code': data['patient_code'],
-            'date_of_birth': data.get('date_of_birth', 'N/A'),
-            'gender': data.get('gender', 'N/A'),
-            'phone': data.get('phone', 'N/A')
-        }
-
-        hospital_data = {
-            'hospital_name': data['hospital_name']
-        }
-
-        pdf_dir = "reports"
-        os.makedirs(pdf_dir, exist_ok=True)
-
-        pdf_filename = f"NeuroScan_Report_Scan{scan_id}.pdf"
-        pdf_path = os.path.join(pdf_dir, pdf_filename)
-
-        generate_pdf_report(scan_data, patient_data, hospital_data, pdf_path)
-
-        return send_file(
-            pdf_path,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=pdf_filename
-        )
-
-    except Exception as e:
-        logger.error(f"❌ PDF download error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ===============================================================================
-# 5. TUMOR PROGRESSION ENDPOINT (No special dependencies)
-# ===============================================================================
-
-@app.route("/patient/<int:patient_id>/progression", methods=["GET"])
-@hospital_required
-def get_tumor_progression(patient_id):
-    """Get tumor progression analysis"""
-    try:
-        hospital_id = session.get("hospital_id")
-
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT id FROM patients 
-            WHERE id = ? AND hospital_id = ?
-        """, (patient_id, hospital_id))
-
-        if not c.fetchone():
-            conn.close()
-            return jsonify({"error": "Patient not found"}), 404
-
-        c.execute("""
-            SELECT id, prediction, confidence, probabilities, created_at
-            FROM mri_scans
-            WHERE patient_id = ?
-            ORDER BY created_at ASC
-        """, (patient_id,))
-
-        scans = [dict(row) for row in c.fetchall()]
-        conn.close()
-
-        if len(scans) < 2:
-            return jsonify({
-                "message": "At least 2 scans required for progression analysis",
-                "scans_count": len(scans)
-            })
-
-        progression_data = []
-
-        for i in range(1, len(scans)):
-            prev_scan = scans[i - 1]
-            curr_scan = scans[i]
-
-            prev_probs = json.loads(prev_scan.get('probabilities', '{}'))
-            curr_probs = json.loads(curr_scan.get('probabilities', '{}'))
-
-            prev_tumor_prob = (
-                    float(prev_probs.get('glioma', 0)) +
-                    float(prev_probs.get('meningioma', 0)) +
-                    float(prev_probs.get('pituitary', 0))
-            )
-
-            curr_tumor_prob = (
-                    float(curr_probs.get('glioma', 0)) +
-                    float(curr_probs.get('meningioma', 0)) +
-                    float(curr_probs.get('pituitary', 0))
-            )
-
-            tumor_prob_change = curr_tumor_prob - prev_tumor_prob
-            confidence_change = float(curr_scan['confidence']) - float(prev_scan['confidence'])
-
-            prev_date = datetime.fromisoformat(prev_scan['created_at'].replace('Z', '+00:00'))
-            curr_date = datetime.fromisoformat(curr_scan['created_at'].replace('Z', '+00:00'))
-            days_between = (curr_date - prev_date).days
-
-            if tumor_prob_change > 5:
-                trend = 'increasing'
-                severity = 'high' if tumor_prob_change > 15 else 'medium'
-            elif tumor_prob_change < -5:
-                trend = 'decreasing'
-                severity = 'low'
-            else:
-                trend = 'stable'
-                severity = 'low'
-
-            progression_data.append({
-                'scan_index': i,
-                'previous_scan_id': prev_scan['id'],
-                'current_scan_id': curr_scan['id'],
-                'days_between': days_between,
-                'tumor_probability_change': round(tumor_prob_change, 2),
-                'confidence_change': round(confidence_change, 2),
-                'trend': trend,
-                'severity': severity
-            })
-
-        latest_metric = progression_data[-1]
-
-        summary = {
-            'total_scans': len(scans),
-            'latest_trend': latest_metric['trend'],
-            'requires_attention': latest_metric['trend'] == 'increasing'
-        }
-
-        return jsonify({
-            'summary': summary,
-            'progression': progression_data,
-            'scans': scans
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Progression tracking error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-    @app.route('/health', methods=['GET'])
-    def health_check():
-        """Health check endpoint for Render"""
-        return jsonify({
-            'status': 'healthy',
-            'message': 'NeuroScan backend is running',
-            'timestamp': datetime.now().isoformat()
-        }), 200
-
-    @app.route('/hospital/upload-scan', methods=['POST'])
-    @hospital_required
-    def hospital_upload_scan():
-        """Upload and analyze MRI scan for a patient"""
-        try:
-            hospital_id = session.get('hospital_id')
-
-            # Get file and patient_id
-            if 'file' not in request.files:
-                return jsonify({'error': 'No file provided'}), 400
-
-            file = request.files['file']
-            patient_id = request.form.get('patient_id')
-
-            if not patient_id:
-                return jsonify({'error': 'Patient ID required'}), 400
-
-            if file.filename == '':
-                return jsonify({'error': 'No file selected'}), 400
-
-            # Verify patient belongs to hospital
-            conn = get_db()
-            c = conn.cursor()
-            c.execute("SELECT id FROM patients WHERE id=? AND hospital_id=?", (patient_id, hospital_id))
-
-            if not c.fetchone():
-                conn.close()
-                return jsonify({'error': 'Patient not found'}), 404
-
-            # Save file
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            unique_filename = f"{timestamp}_{filename}"
-            filepath = os.path.join('uploads', 'scans', unique_filename)
-
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            file.save(filepath)
-
-            # Load and preprocess image
-            image = Image.open(filepath).convert('RGB')
-            transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
-            input_tensor = transform(image).unsqueeze(0)
-
-            # Get model and predict
-            model = get_model()
-            model.eval()
-
-            with torch.no_grad():
-                output = model(input_tensor)
-                probabilities = torch.nn.functional.softmax(output[0], dim=0)
-                confidence, predicted_class = torch.max(probabilities, 0)
-
-            # Map class to tumor type
-            class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
-            prediction = class_names[predicted_class.item()]
-            is_tumor = prediction != 'notumor'
-
-            # Save to database
-            c.execute("""
-                INSERT INTO mri_scans (
-                    patient_id, hospital_id, image_path, prediction, 
-                    confidence, is_tumor, scan_type, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                patient_id, hospital_id, filepath, prediction,
-                float(confidence.item() * 100), is_tumor, 'MRI',
-                datetime.now().isoformat()
-            ))
-
-            scan_id = c.lastrowid
-            conn.commit()
-            conn.close()
-
-            logger.info(
-                f"✅ Scan uploaded: ID={scan_id}, prediction={prediction}, confidence={confidence.item() * 100:.2f}%")
-
-            return jsonify({
-                'success': True,
-                'scan_id': scan_id,
-                'prediction': prediction,
-                'confidence': float(confidence.item() * 100),
-                'is_tumor': is_tumor,
-                'message': 'Scan uploaded and analyzed successfully'
-            }), 201
-
-        except Exception as e:
-            logger.error(f"❌ Upload scan error: {e}")
-            return jsonify({'error': str(e)}), 500
 # ==============================================
 # RUN SERVER WITH SOCKETIO
 # ==============================================
-migrate_database_schema()
+
 if __name__ == "__main__":
-    init_database()           # Create tables FIRST
-    migrate_database_schema()  # Then alter them
-    socketio.run(app, host="0.0.0.0", port=5000)
+    print("🚀 Starting NeuroScan Platform with Real-time Chat...")
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        use_reloader=True,
+        allow_unsafe_werkzeug=True  # Needed for debug mode with SocketIO
+    )

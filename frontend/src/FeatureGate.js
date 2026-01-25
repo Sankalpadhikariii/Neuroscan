@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Lock, Crown, ArrowRight, X } from 'lucide-react';
-
+import UpgradeButton from './UpgradeButton'; // Add this at the top of FeatureGate.js
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 export function FeatureGate({ feature, children, darkMode, fallback }) {
