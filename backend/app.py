@@ -5225,8 +5225,10 @@ def me():
             return jsonify({"error": "Patient not found"}), 404
 
         profile_picture_url = None
-        if patient["profile_picture"] and patient["profile_picture_mime"]:
-            profile_picture_url = f"data:{patient['profile_picture_mime']};base64,{patient['profile_picture']}"
+        profile_pic = dict(patient).get("profile_picture")
+        profile_mime = dict(patient).get("profile_picture_mime")
+        if profile_pic and profile_mime:
+            profile_picture_url = f"data:{profile_mime};base64,{profile_pic}"
 
         return jsonify({
             "user": {
