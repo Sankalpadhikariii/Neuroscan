@@ -4428,6 +4428,92 @@ def get_usage_status():
     return jsonify(usage_info)
 
 
+@app.route("/hospital/dashboard-stats", methods=["GET"])
+@hospital_required
+def get_dashboard_stats():
+    """
+    Get summary statistics for the hospital dashboard
+    """
+    hospital_id = session["hospital_id"]
+    
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        # 1. Total Patients
+        c.execute("SELECT COUNT(*) FROM patients WHERE hospital_id = ?", (hospital_id,))
+        total_patients = c.fetchone()[0]
+        
+        # 2. Total Scans
+        c.execute("SELECT COUNT(*) FROM scans WHERE hospital_id = ?", (hospital_id,))
+        total_scans = c.fetchone()[0]
+        
+        # 3. Tumor vs No-Tumor counts (unique patients affected)
+        # Assuming a patient is "infected" if they had at least one tumor scan
+        c.execute("""
+            SELECT 
+                COUNT(DISTINCT CASE WHEN is_tumor = 1 THEN patient_id END) as tumor_patients,
+                COUNT(DISTINCT CASE WHEN is_tumor = 0 THEN patient_id END) as normal_patients
+            FROM scans 
+            WHERE hospital_id = ?
+        """, (hospital_id,))
+        res = c.fetchone()
+        tumor_patients = res[0] or 0
+        normal_patients = res[1] or 0
+        
+        # 4. Chart data - Last 14 days (daily)
+        chart_data_daily = []
+        for i in range(13, -1, -1):
+            date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+            c.execute("""
+                SELECT 
+                    SUM(CASE WHEN is_tumor = 1 THEN 1 ELSE 0 END) as infected,
+                    SUM(CASE WHEN is_tumor = 0 THEN 1 ELSE 0 END) as normal
+                FROM scans 
+                WHERE hospital_id = ? AND date(scan_date) = ?
+            """, (hospital_id, date))
+            daily_res = c.fetchone()
+            chart_data_daily.append({
+                'name': date,
+                'infected': daily_res[0] or 0,
+                'normal': daily_res[1] or 0
+            })
+            
+        # 5. Chart data - Last 8 weeks (weekly)
+        chart_data_weekly = []
+        for i in range(7, -1, -1):
+            start_date = (datetime.now() - timedelta(weeks=i+1)).strftime('%Y-%m-%d')
+            end_date = (datetime.now() - timedelta(weeks=i)).strftime('%Y-%m-%d')
+            c.execute("""
+                SELECT 
+                    SUM(CASE WHEN is_tumor = 1 THEN 1 ELSE 0 END) as infected,
+                    SUM(CASE WHEN is_tumor = 0 THEN 1 ELSE 0 END) as normal
+                FROM scans 
+                WHERE hospital_id = ? AND date(scan_date) > ? AND date(scan_date) <= ?
+            """, (hospital_id, start_date, end_date))
+            weekly_res = c.fetchone()
+            chart_data_weekly.append({
+                'name': f"Week -{i}",
+                'infected': weekly_res[0] or 0,
+                'normal': weekly_res[1] or 0
+            })
+            
+        conn.close()
+        
+        return jsonify({
+            'total_patients': total_patients,
+            'total_scans': total_scans,
+            'tumor_patients': tumor_patients,
+            'normal_patients': normal_patients,
+            'daily_stats': chart_data_daily,
+            'weekly_stats': chart_data_weekly
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching dashboard stats: {e}")
+        return jsonify({'error': 'Failed to fetch dashboard statistics'}), 500
+
+
 # ==============================================
 # COOLDOWN SYSTEM (Optional)
 # ==============================================
@@ -4610,7 +4696,8 @@ def hospital_patients():
 
     if request.method == "GET":
         c.execute("""
-            SELECT p.*, hu.full_name as doctor_name, COUNT(s.id) as scan_count
+            SELECT p.*, hu.full_name as doctor_name, COUNT(s.id) as scan_count,
+                   (SELECT is_tumor FROM scans WHERE patient_id = p.id ORDER BY scan_date DESC LIMIT 1) as latest_is_tumor
             FROM patients p
             LEFT JOIN hospital_users hu ON p.assigned_doctor_id = hu.id
             LEFT JOIN scans s ON p.id = s.patient_id

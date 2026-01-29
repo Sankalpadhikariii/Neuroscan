@@ -280,13 +280,22 @@ export default function EnhancedChatPanel({
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
-                  background: selectedPatient?.id === patient.id ? 'rgba(255,255,255,0.2)' : '#6366f1',
+                  background: patient.latest_is_tumor === 1 
+                    ? (darkMode ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2')
+                    : patient.latest_is_tumor === 0 
+                      ? (darkMode ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7')
+                      : (selectedPatient?.id === patient.id ? 'rgba(255,255,255,0.2)' : '#6366f1'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: 'white',
+                  color: patient.latest_is_tumor === 1 
+                    ? '#ef4444' 
+                    : (patient.latest_is_tumor === 0 ? '#10b981' : 'white'),
                   fontWeight: 'bold',
-                  fontSize: '16px'
+                  fontSize: '16px',
+                  border: (patient.latest_is_tumor === 1 || patient.latest_is_tumor === 0)
+                    ? `1px solid ${patient.latest_is_tumor === 1 ? '#ef4444' : '#10b981'}`
+                    : 'none'
                 }}>
                   {patient.full_name?.charAt(0)?.toUpperCase() || 'P'}
                 </div>
@@ -347,13 +356,22 @@ export default function EnhancedChatPanel({
                   width: '48px',
                   height: '48px',
                   borderRadius: '50%',
-                  background: '#6366f1',
+                  background: selectedPatient.latest_is_tumor === 1 
+                    ? (darkMode ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2')
+                    : selectedPatient.latest_is_tumor === 0 
+                      ? (darkMode ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7')
+                      : '#6366f1',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: 'white',
+                  color: (selectedPatient.latest_is_tumor === 1 || selectedPatient.latest_is_tumor === 0)
+                    ? (selectedPatient.latest_is_tumor === 1 ? '#ef4444' : '#10b981')
+                    : 'white',
                   fontWeight: 'bold',
-                  fontSize: '18px'
+                  fontSize: '18px',
+                  border: (selectedPatient.latest_is_tumor === 1 || selectedPatient.latest_is_tumor === 0)
+                    ? `1px solid ${selectedPatient.latest_is_tumor === 1 ? '#ef4444' : '#10b981'}`
+                    : 'none'
                 }}>
                   {selectedPatient.full_name?.charAt(0)?.toUpperCase() || 'P'}
                 </div>

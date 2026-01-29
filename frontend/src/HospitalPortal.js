@@ -26,7 +26,22 @@ import {
   Image as ImageIcon,
   Video,
   Phone,
+  LayoutDashboard,
 } from "lucide-react";
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  Legend,
+  AreaChart,
+  Area
+} from 'recharts';
 import { io } from "socket.io-client";
 import EnhancedChat from "./EnhancedChat";
 import NotificationCentre from "./NotificationCentre";
@@ -43,9 +58,11 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
     localStorage.getItem("hospitalTheme") === "dark",
   );
 
-  const [view, setView] = useState("scan");
+  const [view, setView] = useState("dashboard");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [chartFilter, setChartFilter] = useState("daily");
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -76,6 +93,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
     loadPatients();
     loadUsageStatus();
     loadNotifications();
+    loadDashboardStats();
     setupSocketListeners();
 
     return () => {
@@ -118,6 +136,12 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
       });
       const data = await res.json();
       setPatients(data.patients || []);
+      
+      // Update selected patient info if one is active
+      if (selectedPatient) {
+        const updated = data.patients.find(p => p.id === selectedPatient.id);
+        if (updated) setSelectedPatient(updated);
+      }
     } catch (err) {
       console.error("Error loading patients:", err);
     }
@@ -149,6 +173,20 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
       }
     } catch (err) {
       console.error("Error loading notifications:", err);
+    }
+  }
+
+  async function loadDashboardStats() {
+    try {
+      const res = await fetch(`${API_BASE}/hospital/dashboard-stats`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardStats(data);
+      }
+    } catch (err) {
+      console.error("Error loading dashboard stats:", err);
     }
   }
 
@@ -377,6 +415,9 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
         // Refresh patient scans to show progression
         await loadPatientScans(selectedPatient.id);
+        
+        // Refresh patients list to update status indicators
+        await loadPatients();
 
         // Send notification
         const notif = {
@@ -540,6 +581,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
         }
 
         await loadPatientScans(patientId);
+        await loadPatients();
       }
 
       await loadUsageStatus();
@@ -599,7 +641,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
   return (
     <div className={darkMode ? "dark" : ""}>
-      <div style={{ display: "flex", minHeight: "100vh", background: bgColor }}>
+      <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: bgColor }}>
         {/* Sidebar */}
         <aside
           style={{
@@ -635,50 +677,6 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
             </p>
           </div>
 
-          {/* Notification Bell */}
-          <div
-            style={{
-              position: "relative",
-              marginBottom: "20px",
-              display: "flex",
-              justifyContent: "flex-end",
-            }}
-          >
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              style={{
-                padding: "10px",
-                background: darkMode ? "#334155" : "#f1f5f9",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              <Bell size={20} color={textPrimary} />
-              {unreadCount > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: "-5px",
-                    right: "-5px",
-                    background: "#ef4444",
-                    color: "white",
-                    borderRadius: "50%",
-                    width: "20px",
-                    height: "20px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "11px",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          </div>
 
           {/* Business Model Banner */}
           {usage && (
@@ -739,7 +737,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
             </div>
           )}
 
-          <nav style={{ flex: 1 }}>
+          <nav style={{ flex: 1, overflowY: "auto" }}>
+            <NavItem
+              icon={<LayoutDashboard size={20} />}
+              label="Dashboard"
+              active={view === "dashboard"}
+              onClick={() => setView("dashboard")}
+            />
             <NavItem
               icon={<Upload size={20} />}
               label="New Scan"
@@ -757,13 +761,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               label="Chat"
               active={view === "chat"}
               onClick={() => setView("chat")}
-              badge={showChat && unreadCount > 0 ? unreadCount : null}
-            />
-            <NavItem
-              icon={<BarChart3 size={20} />}
-              label="Analytics"
-              active={view === "analytics"}
-              onClick={() => setView("analytics")}
+              badge={unreadCount > 0 ? unreadCount : null}
             />
             <NavItem
               icon={<Settings size={20} />}
@@ -798,8 +796,303 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
         {/* Main Content */}
         <main style={{ flex: 1, padding: "32px", overflowY: "auto" }}>
+          {/* Header with Notifications */}
+          <div style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center",
+            marginBottom: "32px"
+          }}>
+            <div>
+              <h2 style={{ fontSize: "28px", fontWeight: "700", color: textPrimary, margin: 0 }}>
+                {view.charAt(0).toUpperCase() + view.slice(1)}
+              </h2>
+              <p style={{ margin: "4px 0 0 0", color: textSecondary, fontSize: "14px" }}>
+                Welcome back, {user.full_name}
+              </p>
+            </div>
+            
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              style={{
+                padding: "12px",
+                background: darkMode ? "#1e293b" : "#ffffff",
+                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                borderRadius: "12px",
+                cursor: "pointer",
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                color: textPrimary,
+                boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
+              }}
+            >
+              <Bell size={20} />
+              <span style={{ fontWeight: "600", fontSize: "14px" }}>Notifications</span>
+              {unreadCount > 0 && (
+                <span style={{
+                  background: "#ef4444",
+                  color: "white",
+                  borderRadius: "50%",
+                  minWidth: "20px",
+                  height: "20px",
+                  padding: "0 6px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Dashboard View */}
+          {view === "dashboard" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {/* Stats Cards */}
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", 
+                gap: "20px" 
+              }}>
+                <DashboardCard 
+                  title="Total Patients" 
+                  value={dashboardStats?.total_patients || 0} 
+                  icon={<Users color="#6366f1" size={24} />}
+                  darkMode={darkMode}
+                />
+                <DashboardCard 
+                  title="Total Scans" 
+                  value={dashboardStats?.total_scans || 0} 
+                  icon={<Brain color="#8b5cf6" size={24} />}
+                  darkMode={darkMode}
+                />
+                <DashboardCard 
+                  title="Tumor Positive" 
+                  value={dashboardStats?.tumor_patients || 0} 
+                  icon={<AlertCircle color="#ef4444" size={24} />}
+                  darkMode={darkMode}
+                  subtitle="Unique patients"
+                />
+                <DashboardCard 
+                  title="Tumor Negative" 
+                  value={dashboardStats?.normal_patients || 0} 
+                  icon={<CheckCircle color="#10b981" size={24} />}
+                  darkMode={darkMode}
+                  subtitle="Unique patients"
+                />
+              </div>
+
+              {/* Chart Section */}
+              <div style={{ 
+                background: darkMode ? "#1e293b" : "white",
+                padding: "24px",
+                borderRadius: "16px",
+                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                    Patient Analysis Trends
+                  </h3>
+                  <div style={{ display: "flex", background: darkMode ? "#0f172a" : "#f1f5f9", padding: "4px", borderRadius: "8px" }}>
+                    <button 
+                      onClick={() => setChartFilter("daily")}
+                      style={{
+                        padding: "6px 12px",
+                        background: chartFilter === "daily" ? (darkMode ? "#334155" : "white") : "transparent",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        color: chartFilter === "daily" ? "#6366f1" : textSecondary,
+                        boxShadow: chartFilter === "daily" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                      }}
+                    >
+                      Daily
+                    </button>
+                    <button 
+                      onClick={() => setChartFilter("weekly")}
+                      style={{
+                        padding: "6px 12px",
+                        background: chartFilter === "weekly" ? (darkMode ? "#334155" : "white") : "transparent",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        color: chartFilter === "weekly" ? "#6366f1" : textSecondary,
+                        boxShadow: chartFilter === "weekly" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                      }}
+                    >
+                      Weekly
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ height: "350px", width: "100%" }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={chartFilter === "daily" ? dashboardStats?.daily_stats : dashboardStats?.weekly_stats}
+                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorInfected" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorNormal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#f1f5f9"} />
+                      <XAxis 
+                        dataKey="name" 
+                        stroke={textSecondary} 
+                        fontSize={12} 
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(value) => chartFilter === "daily" ? value.split('-').slice(1).join('/') : value}
+                      />
+                      <YAxis stroke={textSecondary} fontSize={12} tickLine={false} axisLine={false} />
+                      <RechartsTooltip 
+                        contentStyle={{ 
+                          background: darkMode ? "#1e293b" : "white", 
+                          border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                          borderRadius: "8px",
+                          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)"
+                        }}
+                      />
+                      <Legend />
+                      <Area 
+                        type="monotone" 
+                        dataKey="infected" 
+                        name="Tumor Detected"
+                        stroke="#ef4444" 
+                        strokeWidth={3}
+                        fillOpacity={1} 
+                        fill="url(#colorInfected)" 
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="normal" 
+                        name="No Tumor"
+                        stroke="#10b981" 
+                        strokeWidth={3}
+                        fillOpacity={1} 
+                        fill="url(#colorNormal)" 
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Bottom Row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }}>
+                {/* Recent Patients */}
+                <div style={{ 
+                  background: darkMode ? "#1e293b" : "white",
+                  padding: "24px",
+                  borderRadius: "16px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                      Recent Patients
+                    </h3>
+                    <button 
+                      onClick={() => setView("patients")}
+                      style={{ background: "none", border: "none", color: "#6366f1", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+                    >
+                      View All
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    {patients.slice(0, 5).map(p => (
+                      <div key={p.id} style={{ 
+                        display: "flex", 
+                        alignItems: "center", 
+                        gap: "12px", 
+                        padding: "12px",
+                        borderRadius: "12px",
+                        background: darkMode ? "#0f172a" : "#f8fafc",
+                        border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`
+                      }}>
+                        <div style={{ 
+                          width: "40px", height: "40px", borderRadius: "10px", background: "#e0e7ff",
+                          display: "flex", alignItems: "center", justifyContent: "center", color: "#6366f1", fontWeight: "bold"
+                        }}>
+                          {p.full_name?.charAt(0)}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontWeight: "600", color: textPrimary, fontSize: "14px" }}>{p.full_name}</p>
+                          <p style={{ margin: 0, fontSize: "12px", color: textSecondary }}>{p.email}</p>
+                        </div>
+                        <button 
+                          onClick={() => { setSelectedPatient(p); setView("scan"); }}
+                          style={{ padding: "6px 12px", background: "#6366f1", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                        >
+                          Analyze
+                        </button>
+                      </div>
+                    ))}
+                    {patients.length === 0 && <p style={{ textAlign: "center", color: textSecondary }}>No patients found</p>}
+                  </div>
+                </div>
+
+                {/* Quick Actions */}
+                <div style={{ 
+                  background: darkMode ? "#1e293b" : "white",
+                  padding: "24px",
+                  borderRadius: "16px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`
+                }}>
+                  <h3 style={{ margin: "0 0 20px 0", fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                    Quick Actions
+                  </h3>
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    <ActionButton 
+                      icon={<Plus size={20} />} 
+                      label="Add New Patient" 
+                      onClick={() => setShowAddPatientModal(true)} 
+                      color="#10b981"
+                      darkMode={darkMode}
+                    />
+                    <ActionButton 
+                      icon={<Upload size={20} />} 
+                      label="Upload MRI Scan" 
+                      onClick={() => setView("scan")} 
+                      color="#6366f1"
+                      darkMode={darkMode}
+                    />
+                    <ActionButton 
+                      icon={<MessageCircle size={20} />} 
+                      label="Open Messages" 
+                      onClick={() => setView("chat")} 
+                      color="#8b5cf6"
+                      darkMode={darkMode}
+                    />
+                    <ActionButton 
+                      icon={<FileText size={20} />} 
+                      label="Generate Reports" 
+                      onClick={() => setView("patients")} 
+                      color="#f59e0b"
+                      darkMode={darkMode}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick Action Bar for Selected Patient */}
-          {selectedPatient && (
+          {(view === "scan" || view === "patients") && selectedPatient && (
             <div
               style={{
                 marginBottom: "24px",
@@ -1781,5 +2074,65 @@ function FixedAnalysisResults({ prediction, darkMode, onDownloadPDF }) {
         verified by a qualified medical professional.
       </div>
     </div>
+  );
+}
+function DashboardCard({ title, value, icon, darkMode, subtitle }) {
+  return (
+    <div style={{ 
+      background: darkMode ? "#1e293b" : "white",
+      padding: "24px",
+      borderRadius: "16px",
+      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+      display: "flex",
+      alignItems: "center",
+      gap: "20px"
+    }}>
+      <div style={{ 
+        width: "56px", height: "56px", borderRadius: "14px", 
+        background: darkMode ? "#0f172a" : "#f1f5f9",
+        display: "flex", alignItems: "center", justifyContent: "center"
+      }}>
+        {icon}
+      </div>
+      <div>
+        <p style={{ margin: 0, fontSize: "14px", color: darkMode ? "#94a3b8" : "#64748b", fontWeight: "500" }}>{title}</p>
+        <h3 style={{ margin: "4px 0 0 0", fontSize: "28px", fontWeight: "700", color: darkMode ? "#f1f5f9" : "#1e293b" }}>{value}</h3>
+        {subtitle && <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: darkMode ? "#64748b" : "#94a3b8" }}>{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({ icon, label, onClick, color, darkMode }) {
+  return (
+    <button 
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "16px",
+        background: darkMode ? "#0f172a" : "white",
+        border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+        borderRadius: "12px",
+        cursor: "pointer",
+        textAlign: "left",
+        width: "100%",
+        transition: "all 0.2s",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.02)"
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = color;
+        e.currentTarget.style.transform = "translateY(-2px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = darkMode ? "#334155" : "#e5e7eb";
+        e.currentTarget.style.transform = "translateY(0)";
+      }}
+    >
+      <div style={{ color: color }}>{icon}</div>
+      <span style={{ fontWeight: "600", color: darkMode ? "#f1f5f9" : "#1e293b", fontSize: "14px" }}>{label}</span>
+    </button>
   );
 }
