@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   User, LogOut, FileText, Calendar, Activity,
-  Brain, Bell, MessageCircle
+  Brain, Bell, MessageCircle, TrendingUp, AlertCircle, CheckCircle
 } from 'lucide-react';
 import io from 'socket.io-client';
 import EnhancedChat from './components/EnhancedChat';
 import ScanHistoryCard from './ScanHistoryCard';
+import TumorProgressionTracker from './TumourProgressionTracker';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -229,7 +230,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </h2>
 
         {/* Render views */}
-        {view === 'overview' && <Overview />}
+        {view === 'overview' && <Overview scans={scans} loading={loading} darkMode={darkMode} patientName={patientName} />}
         {view === 'scans' && <Scans scans={scans} loading={loading} error={error} darkMode={darkMode} />}
         {view === 'appointments' && <Appointments />}
         {view === 'profile' && <Profile patient={patient} onProfileUpdate={onProfileUpdate} />}
@@ -326,14 +327,246 @@ function NavItem({ icon, label, active, onClick, badge }) {
   );
 }
 
-// Skeleton placeholders
-function Overview() { 
+function Overview({ scans, loading, darkMode, patientName }) {
+  const latestScan = scans && scans.length > 0 ? scans[0] : null;
+  const totalScans = scans ? scans.length : 0;
+  const tumorScans = scans ? scans.filter(s => s.is_tumor).length : 0;
+  const normalScans = totalScans - tumorScans;
+
+  const colors = {
+    glioma: '#ef4444',
+    meningioma: '#f59e0b',
+    pituitary: '#8b5cf6',
+    notumor: '#10b981'
+  };
+
+  const labels = {
+    glioma: 'Glioma',
+    meningioma: 'Meningioma',
+    pituitary: 'Pituitary Tumor',
+    notumor: 'No Tumor Detected'
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div style={{ 
+          width: '40px', 
+          height: '40px', 
+          border: '4px solid #e5e7eb',
+          borderTopColor: '#6366f1',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          margin: '0 auto 16px'
+        }} />
+        <p style={{ color: '#6b7280' }}>Loading your health overview...</p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <h3>Welcome to your dashboard</h3>
-      <p>Overview content will be displayed here</p>
+    <div>
+      {/* Welcome Message */}
+      <div style={{
+        padding: '24px',
+        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+        borderRadius: '16px',
+        color: 'white',
+        marginBottom: '24px'
+      }}>
+        <h3 style={{ margin: '0 0 8px 0', fontSize: '24px', fontWeight: '700' }}>
+          Welcome back, {patientName}!
+        </h3>
+        <p style={{ margin: 0, opacity: 0.9, fontSize: '15px' }}>
+          Here's your health status and scan history overview.
+        </p>
+      </div>
+
+      {/* Stats Cards */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(3, 1fr)', 
+        gap: '20px',
+        marginBottom: '24px'
+      }}>
+        {/* Total Scans */}
+        <div style={{
+          padding: '24px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: '#eef2ff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Brain size={24} color="#6366f1" />
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Total Scans</p>
+              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#1e293b' }}>{totalScans}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Normal Scans */}
+        <div style={{
+          padding: '24px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: '#dcfce7',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <CheckCircle size={24} color="#10b981" />
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Normal Results</p>
+              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#10b981' }}>{normalScans}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tumor Detected */}
+        <div style={{
+          padding: '24px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: '#fee2e2',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <AlertCircle size={24} color="#ef4444" />
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Tumor Detected</p>
+              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#ef4444' }}>{tumorScans}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Current Status Card */}
+      {latestScan && (
+        <div style={{
+          padding: '24px',
+          background: 'white',
+          borderRadius: '16px',
+          border: '1px solid #e2e8f0',
+          marginBottom: '24px'
+        }}>
+          <h4 style={{ 
+            margin: '0 0 20px 0', 
+            fontSize: '18px', 
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}>
+            <Activity size={20} color="#6366f1" />
+            Latest Scan Result
+          </h4>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <div style={{
+              width: '80px',
+              height: '80px',
+              borderRadius: '16px',
+              background: `${colors[latestScan.prediction] || '#6366f1'}22`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Brain size={40} color={colors[latestScan.prediction] || '#6366f1'} />
+            </div>
+            
+            <div style={{ flex: 1 }}>
+              <h3 style={{ 
+                margin: '0 0 8px 0', 
+                fontSize: '24px', 
+                fontWeight: '700',
+                color: colors[latestScan.prediction] || '#1e293b'
+              }}>
+                {labels[latestScan.prediction] || latestScan.prediction}
+              </h3>
+              <p style={{ margin: '0 0 4px 0', color: '#64748b', fontSize: '14px' }}>
+                Confidence: <strong>{parseFloat(latestScan.confidence).toFixed(1)}%</strong>
+              </p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
+                Scan Date: {new Date(latestScan.created_at || latestScan.scan_date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </p>
+            </div>
+
+            <div style={{
+              padding: '12px 20px',
+              background: latestScan.is_tumor ? '#fee2e2' : '#dcfce7',
+              borderRadius: '12px',
+              color: latestScan.is_tumor ? '#dc2626' : '#16a34a',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}>
+              {latestScan.is_tumor ? '⚠️ Requires Attention' : '✓ All Clear'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tumor Progression Tracker */}
+      {scans && scans.length >= 2 && (
+        <div style={{ marginBottom: '24px' }}>
+          <TumorProgressionTracker scans={scans} darkMode={darkMode} />
+        </div>
+      )}
+
+      {/* No Scans Message */}
+      {totalScans === 0 && (
+        <div style={{
+          textAlign: 'center',
+          padding: '60px 20px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <Brain size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
+          <p style={{ color: '#6b7280', fontSize: '16px', margin: 0 }}>
+            No scans available yet
+          </p>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '8px 0 0 0' }}>
+            Your scan history will appear here once your doctor performs analyses
+          </p>
+        </div>
+      )}
     </div>
-  ); 
+  );
 }
 
 function Scans({ scans, loading, error, darkMode }) { 

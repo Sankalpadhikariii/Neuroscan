@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Shield, Building2, User, Loader } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, Building2, User, Loader, ChevronDown } from 'lucide-react';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -8,17 +8,36 @@ export default function UniversalLogin({ onLogin }) {
   const [credentials, setCredentials] = useState({
     username: '',
     password: '',
-    hospitalCode: '',
+    hospitalId: '',
     patientCode: '',
-    accessCode: '',
-    verificationCode: ''
+    accessCode: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [step, setStep] = useState(1); // For patient verification flow
-  const [emailHint, setEmailHint] = useState('');
-  const [resendEmail, setResendEmail] = useState('');
-  const [resendStatus, setResendStatus] = useState(''); // success or error message
+  const [hospitals, setHospitals] = useState([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(false);
+
+  // Fetch hospitals list when patient tab is selected
+  useEffect(() => {
+    if (loginType === 'patient') {
+      fetchHospitals();
+    }
+  }, [loginType]);
+
+  const fetchHospitals = async () => {
+    try {
+      setHospitalsLoading(true);
+      const res = await fetch(`${API_BASE}/public/hospitals`);
+      if (res.ok) {
+        const data = await res.json();
+        setHospitals(data.hospitals || []);
+      }
+    } catch (err) {
+      console.error('Error fetching hospitals:', err);
+    } finally {
+      setHospitalsLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -42,40 +61,13 @@ export default function UniversalLogin({ onLogin }) {
           password: credentials.password
         };
       } else if (loginType === 'patient') {
-        if (step === 1) {
-          // Step 1: Request verification code
-          endpoint = '/patient/verify';
-          body = {
-            hospital_code: credentials.hospitalCode,
-            patient_code: credentials.patientCode,
-            access_code: credentials.accessCode
-          };
-
-          const res = await fetch(`${API_BASE}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(body)
-          });
-
-          if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'Verification failed');
-          }
-
-          const data = await res.json();
-          setEmailHint(data.email_hint);
-          setStep(2);
-          setLoading(false);
-          return;
-        } else {
-          // Step 2: Login with verification code
-          endpoint = '/patient/login';
-          body = {
-            patient_code: credentials.patientCode,
-            verification_code: credentials.verificationCode
-          };
-        }
+        // Direct login with hospital_id, patient_code, access_code
+        endpoint = '/patient/verify';
+        body = {
+          hospital_id: credentials.hospitalId,
+          patient_code: credentials.patientCode,
+          access_code: credentials.accessCode
+        };
       }
 
       const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -105,50 +97,6 @@ export default function UniversalLogin({ onLogin }) {
       ...credentials,
       [e.target.name]: e.target.value
     });
-  };
-
-  const resetPatientFlow = () => {
-    setStep(1);
-    setEmailHint('');
-    setResendStatus('');
-    setCredentials({
-      ...credentials,
-      verificationCode: ''
-    });
-  };
-
-  const handleResendAccess = async () => {
-    setResendStatus('');
-
-    if (!credentials.hospitalCode || !credentials.patientCode) {
-      setResendStatus('Please enter hospital code and patient code first');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/patient/resend-access`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hospital_code: credentials.hospitalCode,
-          patient_code: credentials.patientCode,
-          email: resendEmail || undefined
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Unable to resend access code');
-      }
-
-      setResendStatus(data.message || 'Access code sent to your email');
-      if (data.email_hint) setEmailHint(data.email_hint);
-    } catch (err) {
-      setResendStatus(err.message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
@@ -230,7 +178,7 @@ export default function UniversalLogin({ onLogin }) {
             Admin
           </button>
           <button
-            onClick={() => { setLoginType('patient'); setStep(1); }}
+            onClick={() => setLoginType('patient')}
             style={{
               flex: 1,
               padding: '16px',
@@ -339,31 +287,60 @@ export default function UniversalLogin({ onLogin }) {
             </>
           )}
 
-          {loginType === 'patient' && step === 1 && (
+          {loginType === 'patient' && (
             <>
               <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '20px' }}>
-                Enter the details provided by your doctor
+                Enter the details from your medical report
               </p>
+              
+              {/* Hospital Dropdown */}
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
-                  Hospital Code
+                  Select Hospital
                 </label>
-                <input
-                  type="text"
-                  name="hospitalCode"
-                  value={credentials.hospitalCode}
-                  onChange={handleChange}
-                  required
-                  placeholder="e.g., Q3GWW3UM"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <select
+                    name="hospitalId"
+                    value={credentials.hospitalId}
+                    onChange={handleChange}
+                    required
+                    disabled={hospitalsLoading}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      paddingRight: '40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      backgroundColor: 'white',
+                      appearance: 'none',
+                      cursor: hospitalsLoading ? 'wait' : 'pointer'
+                    }}
+                  >
+                    <option value="">
+                      {hospitalsLoading ? 'Loading hospitals...' : '-- Select your hospital --'}
+                    </option>
+                    {hospitals.map(hospital => (
+                      <option key={hospital.id} value={hospital.id}>
+                        {hospital.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown 
+                    size={20} 
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      pointerEvents: 'none',
+                      color: '#6b7280'
+                    }}
+                  />
+                </div>
               </div>
+
+              {/* Patient Code */}
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
                   Patient Code
@@ -374,7 +351,7 @@ export default function UniversalLogin({ onLogin }) {
                   value={credentials.patientCode}
                   onChange={handleChange}
                   required
-                  placeholder="6-digit code"
+                  placeholder="Enter your patient code"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -384,6 +361,8 @@ export default function UniversalLogin({ onLogin }) {
                   }}
                 />
               </div>
+
+              {/* Access Code */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
                   Access Code
@@ -394,7 +373,7 @@ export default function UniversalLogin({ onLogin }) {
                   value={credentials.accessCode}
                   onChange={handleChange}
                   required
-                  placeholder="8-character code"
+                  placeholder="Enter your access code"
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -403,115 +382,10 @@ export default function UniversalLogin({ onLogin }) {
                     fontSize: '14px'
                   }}
                 />
-              </div>
-
-              <div style={{
-                marginBottom: '20px',
-                padding: '12px',
-                border: '1px dashed #d1d5db',
-                borderRadius: '8px',
-                background: '#f9fafb'
-              }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#4b5563' }}>
-                  No access code? Enter your email to resend it.
+                <p style={{ fontSize: '12px', color: '#9ca3af', marginTop: '6px' }}>
+                  Your patient code and access code are printed on your medical report.
                 </p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <input
-                    type="email"
-                    value={resendEmail}
-                    onChange={(e) => setResendEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    style={{
-                      flex: 1,
-                      minWidth: '180px',
-                      padding: '10px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '8px',
-                      fontSize: '13px'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleResendAccess}
-                    style={{
-                      padding: '10px 14px',
-                      background: '#6366f1',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontWeight: '600'
-                    }}
-                  >
-                    Resend access code
-                  </button>
-                </div>
-                {resendStatus && (
-                  <p style={{
-                    margin: '8px 0 0 0',
-                    fontSize: '12px',
-                    color: resendStatus.toLowerCase().includes('unable') || resendStatus.toLowerCase().includes('error') ? '#b91c1c' : '#166534'
-                  }}>
-                    {resendStatus}
-                  </p>
-                )}
               </div>
-            </>
-          )}
-
-          {loginType === 'patient' && step === 2 && (
-            <>
-              <div style={{
-                padding: '12px',
-                background: '#dbeafe',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                fontSize: '13px',
-                color: '#1e40af'
-              }}>
-                ✉️ Verification code sent to {emailHint}
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
-                  Verification Code
-                </label>
-                <input
-                  type="text"
-                  name="verificationCode"
-                  value={credentials.verificationCode}
-                  onChange={handleChange}
-                  required
-                  placeholder="6-digit code"
-                  maxLength={6}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    textAlign: 'center',
-                    letterSpacing: '4px',
-                    fontSize: '20px'
-                  }}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={resetPatientFlow}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  marginBottom: '12px',
-                  background: 'transparent',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  color: '#6b7280'
-                }}
-              >
-                ← Back
-              </button>
             </>
           )}
 
@@ -554,7 +428,7 @@ export default function UniversalLogin({ onLogin }) {
                 Processing...
               </>
             ) : (
-              loginType === 'patient' && step === 1 ? 'Get Verification Code' : 'Login'
+              'Login'
             )}
           </button>
         </form>
@@ -575,7 +449,7 @@ export default function UniversalLogin({ onLogin }) {
             <p style={{ margin: 0 }}>Username: dr.smith • Password: doctor123</p>
           )}
           {loginType === 'patient' && (
-            <p style={{ margin: 0 }}>Check with your hospital for access codes</p>
+            <p style={{ margin: 0 }}>Use the patient code and access code from your medical report</p>
           )}
         </div>
       </div>

@@ -248,7 +248,23 @@ export default function ScanHistoryCard({ scan, darkMode = false }) {
             gap: '8px',
             marginTop: '12px'
           }}>
-            <button style={{
+            <button 
+              onClick={async () => {
+                try {
+                  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+                  const response = await fetch(`${API_BASE}/generate-report/${scan.id}`, {
+                    credentials: 'include'
+                  });
+                  if (!response.ok) throw new Error('Failed to generate report');
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  window.open(url, '_blank');
+                } catch (err) {
+                  console.error('Error viewing report:', err);
+                  alert('Failed to load report. Please try again.');
+                }
+              }}
+              style={{
               flex: 1,
               padding: '10px',
               background: '#6366f1',
@@ -266,7 +282,29 @@ export default function ScanHistoryCard({ scan, darkMode = false }) {
               <FileText size={14} />
               View Report
             </button>
-            <button style={{
+            <button 
+              onClick={async () => {
+                try {
+                  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+                  const response = await fetch(`${API_BASE}/generate-report/${scan.id}`, {
+                    credentials: 'include'
+                  });
+                  if (!response.ok) throw new Error('Failed to generate report');
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `NeuroScan_Report_${scan.id}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                } catch (err) {
+                  console.error('Error downloading report:', err);
+                  alert('Failed to download report. Please try again.');
+                }
+              }}
+              style={{
               flex: 1,
               padding: '10px',
               background: bgSecondary,

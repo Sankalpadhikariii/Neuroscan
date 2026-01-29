@@ -117,6 +117,7 @@ def generate_pdf_report(scan_data, patient_data, hospital_data):
     patient_info = [
         ["Patient Name:", patient_data.get('full_name', 'N/A')],
         ["Patient Code:", patient_data.get('patient_code', 'N/A')],
+        ["Access Code:", patient_data.get('access_code', 'N/A')],
         ["Email:", patient_data.get('email', 'N/A')],
         ["Phone:", patient_data.get('phone', 'N/A') or 'N/A'],
         ["Date of Birth:", patient_data.get('date_of_birth', 'N/A') or 'N/A'],

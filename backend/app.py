@@ -4756,12 +4756,15 @@ def generate_report(scan_id):
         c = conn.cursor()
 
         c.execute("""
-            SELECT s.*, p.*, h.hospital_name, h.hospital_code, hu.full_name as doctor_name
+            SELECT s.*, p.*, h.hospital_name, h.hospital_code, hu.full_name as doctor_name,
+                   pac.access_code
             FROM scans s
             JOIN patients p ON s.patient_id = p.id
             JOIN hospitals h ON s.hospital_id = h.id
             LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+            LEFT JOIN patient_access_codes pac ON p.id = pac.patient_id
             WHERE s.id=?
+            ORDER BY pac.id DESC LIMIT 1
         """, (scan_id,))
 
         row = c.fetchone()
@@ -4814,6 +4817,7 @@ def generate_report(scan_id):
         patient_data = {
             "full_name": row["full_name"],
             "patient_code": row["patient_code"],
+            "access_code": row["access_code"] or "N/A",
             "email": row["email"],
             "phone": row["phone"],
             "date_of_birth": row["date_of_birth"],
@@ -4841,59 +4845,80 @@ def generate_report(scan_id):
 
 
 # ==============================================
+# PUBLIC ROUTES (No authentication required)
+# ==============================================
+
+@app.route("/public/hospitals", methods=["GET"])
+def get_public_hospitals():
+    """Get list of hospitals for patient login dropdown"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, hospital_name 
+            FROM hospitals 
+            ORDER BY hospital_name ASC
+        """)
+        hospitals = [{"id": row["id"], "name": row["hospital_name"]} for row in c.fetchall()]
+        conn.close()
+        return jsonify({"hospitals": hospitals})
+    except Exception as e:
+        logger.error(f"Error fetching hospitals: {e}")
+        return jsonify({"error": "Failed to fetch hospitals"}), 500
+
+
+# ==============================================
 # PATIENT ROUTES
 # ==============================================
 
 @app.route("/patient/verify", methods=["POST"])
 def patient_verify():
-    """Step 2: Verify patient"""
+    """Direct patient login with hospital_id, patient_code, and access_code"""
     data = request.json
-    hospital_code = data.get("hospital_code")
+    hospital_id = data.get("hospital_id")
     patient_code = data.get("patient_code")
     access_code = data.get("access_code")
+
+    if not hospital_id or not patient_code or not access_code:
+        return jsonify({"error": "Hospital, patient code, and access code are required"}), 400
 
     conn = get_db()
     c = conn.cursor()
 
+    # Find patient with matching credentials (no expiry check - access codes are permanent)
     c.execute("""
-        SELECT p.*, h.hospital_name, pac.id as access_id
+        SELECT p.*, h.hospital_name, h.id as hospital_id
         FROM patients p
         JOIN hospitals h ON p.hospital_id = h.id
         JOIN patient_access_codes pac ON p.id = pac.patient_id
-        WHERE h.hospital_code=? AND p.patient_code=? AND pac.access_code=?
-            AND pac.expires_at > datetime('now')
-    """, (hospital_code, patient_code, access_code))
+        WHERE h.id=? AND p.patient_code=? AND pac.access_code=?
+    """, (hospital_id, patient_code, access_code))
 
     patient = c.fetchone()
 
     if not patient:
         conn.close()
-        return jsonify({"error": "Invalid credentials or expired"}), 401
+        return jsonify({"error": "Invalid credentials. Please check your hospital, patient code, and access code."}), 401
 
-    # Generate verification code
-    verification_code = ''.join(random.choices(string.digits, k=6))
-
-    c.execute("UPDATE patient_access_codes SET verification_code=? WHERE id=?",
-              (verification_code, patient["access_id"]))
-    conn.commit()
     conn.close()
 
-    # Send email
-    try:
-        send_verification_email(
-            to_email=patient['email'],
-            verification_code=verification_code,
-            patient_name=patient['full_name'],
-            hospital_name=patient['hospital_name']
-        )
-    except Exception as e:
-        logger.error(f"Email error: {e}")
+    # Set session for logged-in patient
+    session["patient_id"] = patient["id"]
+    session["patient_type"] = "patient"
+    session["user_id"] = patient["id"]
+    session["user_type"] = "patient"
+    session["hospital_id"] = patient["hospital_id"]
 
-    logger.info(f"Verification code: {verification_code}")
+    log_activity("patient", patient["id"], "login", hospital_id=patient["hospital_id"])
 
     return jsonify({
-        "message": "Verification code sent to email",
-        "email_hint": patient["email"][:3] + "***" + patient["email"][-10:]
+        "patient": {
+            "id": patient["id"],
+            "full_name": patient["full_name"],
+            "patient_code": patient["patient_code"],
+            "hospital_name": patient["hospital_name"],
+            "type": "patient"
+        }
     })
 
 
@@ -5029,6 +5054,46 @@ def patient_login():
             "type": "patient"
         }
     })
+
+
+# DUPLICATE - @app.route("/patient/scans", methods=["GET"])
+@app.route("/patient/scans", methods=["GET"])
+def get_patient_own_scans():
+    """Get patient's scans"""
+    patient_id = session.get("patient_id")
+    
+    if not patient_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute("""
+            SELECT s.*, h.hospital_name, hu.full_name as doctor_name
+            FROM scans s
+            JOIN hospitals h ON s.hospital_id = h.id
+            LEFT JOIN hospital_users hu ON s.uploaded_by = hu.id
+            WHERE s.patient_id=?
+            ORDER BY s.created_at DESC
+        """, (patient_id,))
+        
+        scans = []
+        for row in c.fetchall():
+            scan = dict(row)
+            # Parse probabilities if stored as JSON string
+            if scan.get('probabilities') and isinstance(scan['probabilities'], str):
+                try:
+                    scan['probabilities'] = json.loads(scan['probabilities'])
+                except:
+                    pass
+            scans.append(scan)
+        
+        conn.close()
+        return jsonify({"scans": scans})
+    except Exception as e:
+        logger.error(f"Error fetching patient scans: {e}")
+        return jsonify({"error": "Failed to fetch scans"}), 500
 
 
 # DUPLICATE - @app.route("/patient/scans", methods=["GET"])
