@@ -30,6 +30,9 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const [notificationsError, setNotificationsError] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [appointments, setAppointments] = useState([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(false);
+  const [appointmentsError, setAppointmentsError] = useState(null);
 
   // Toast/Notification states
   const [showToast, setShowToast] = useState(false);
@@ -100,6 +103,23 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
     }
   }
 
+  // Load appointments
+  async function loadAppointments() {
+    setLoadingAppointments(true);
+    setAppointmentsError(null);
+    try {
+      const res = await fetch(`${API_BASE}/patient/appointments`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load appointments');
+      const data = await res.json();
+      setAppointments(data.appointments || []);
+    } catch (err) {
+      console.error(err);
+      setAppointmentsError(err.message);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  }
+
   // Placeholder functions for fetchNotifications and fetchUnreadCount
   const fetchNotifications = async () => {
     await loadNotifications();
@@ -127,6 +147,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
     loadPatientData();
     loadNotifications();
     loadDoctorInfo();
+    loadAppointments();
     setProfilePicture(patient?.profile_picture || null);
 
     // Initialize socket connection
@@ -232,7 +253,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         {/* Render views */}
         {view === 'overview' && <Overview scans={scans} loading={loading} darkMode={darkMode} patientName={patientName} />}
         {view === 'scans' && <Scans scans={scans} loading={loading} error={error} darkMode={darkMode} />}
-        {view === 'appointments' && <Appointments />}
+        {view === 'appointments' && <Appointments appointments={appointments} loading={loadingAppointments} error={appointmentsError} />}
         {view === 'profile' && <Profile patient={patient} onProfileUpdate={onProfileUpdate} />}
         {view === 'notifications' && <Notifications notifications={notifications} loading={loadingNotifications} error={notificationsError} />}
         {view === 'chat' && doctorInfo && (
@@ -642,10 +663,81 @@ function Scans({ scans, loading, error, darkMode }) {
   );
 }
 
-function Appointments() { 
+function Appointments({ appointments, loading, error }) {
+  if (loading) return <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>Loading appointments...</div>;
+  if (error) return <div style={{ padding: "20px", color: "#dc2626", background: "#fee2e2", borderRadius: "8px" }}>Error: {error}</div>;
+
   return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <p>Appointments content will be displayed here</p>
+    <div style={{ background: "white", borderRadius: "16px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+      <h3 style={{ margin: "0 0 20px 0", fontSize: "20px", color: "#1e293b" }}>Upcoming Appointments</h3>
+      
+      {appointments.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
+          <Calendar size={48} style={{ opacity: 0.2, marginBottom: "16px" }} />
+          <p>No upcoming appointments scheduled.</p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: "16px" }}>
+          {appointments.map((appt) => (
+            <div 
+              key={appt.id} 
+              style={{ 
+                padding: "20px", 
+                border: "1px solid #e2e8f0", 
+                borderRadius: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "20px"
+              }}
+            >
+              <div style={{ 
+                width: "60px", 
+                height: "60px", 
+                background: "#eff6ff", 
+                borderRadius: "12px", 
+                display: "flex", 
+                flexDirection: "column", 
+                alignItems: "center", 
+                justifyContent: "center",
+                color: "#3b82f6",
+                fontWeight: "bold"
+              }}>
+                <span style={{ fontSize: "12px", textTransform: "uppercase" }}>
+                  {new Date(appt.appointment_date).toLocaleString('default', { month: 'short' })}
+                </span>
+                <span style={{ fontSize: "20px" }}>
+                  {new Date(appt.appointment_date).getDate()}
+                </span>
+              </div>
+              
+              <div style={{ flex: 1 }}>
+                <h4 style={{ margin: "0 0 4px 0", fontSize: "16px", color: "#1e293b" }}>
+                  Appointment with {appt.doctor_name || "Doctor"}
+                </h4>
+                <p style={{ margin: "0 0 4px 0", fontSize: "14px", color: "#64748b" }}>
+                  {appt.hospital_name}
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", color: "#6366f1", fontWeight: "500" }}>
+                  <Activity size={16} />
+                  {appt.appointment_time}
+                </div>
+              </div>
+
+              <div style={{
+                padding: "6px 12px",
+                background: "#f0fdf4",
+                color: "#16a34a",
+                borderRadius: "20px",
+                fontSize: "12px",
+                fontWeight: "600",
+                textTransform: "capitalize"
+              }}>
+                {appt.status}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   ); 
 }

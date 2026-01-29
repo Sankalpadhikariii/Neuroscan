@@ -32,7 +32,7 @@ import EnhancedChat from "./EnhancedChat";
 import NotificationCentre from "./NotificationCentre";
 import GradCamvisualization from "./GradCamvisualization";
 import TumourProgressionTracker from "./TumourProgressionTracker";
-import VideoCall from "./Videocall";
+// import VideoCall from "./Videocall";
 import AddPatientModal from "./AddPatientModal";
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
@@ -66,9 +66,9 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
   const [validationWarning, setValidationWarning] = useState(null);
   const [patientScans, setPatientScans] = useState([]);
 
-  // Video call states
-  const [showVideoCall, setShowVideoCall] = useState(false);
-  const [callType, setCallType] = useState("video");
+  // Video call states (removed)
+  // const [showVideoCall, setShowVideoCall] = useState(false);
+  // const [callType, setCallType] = useState("video");
 
   const fileInputRef = useRef(null);
 
@@ -575,23 +575,23 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
     }, 3000);
   }
 
-  function startVideoCall() {
-    if (!selectedPatient) {
-      showToast("Please select a patient first", "error");
-      return;
-    }
-    setCallType("video");
-    setShowVideoCall(true);
-  }
+  // function startVideoCall() {
+  //   if (!selectedPatient) {
+  //     showToast("Please select a patient first", "error");
+  //     return;
+  //   }
+  //   setCallType("video");
+  //   setShowVideoCall(true);
+  // }
 
-  function startAudioCall() {
-    if (!selectedPatient) {
-      showToast("Please select a patient first", "error");
-      return;
-    }
-    setCallType("audio");
-    setShowVideoCall(true);
-  }
+  // function startAudioCall() {
+  //   if (!selectedPatient) {
+  //     showToast("Please select a patient first", "error");
+  //     return;
+  //   }
+  //   setCallType("audio");
+  //   setShowVideoCall(true);
+  // }
 
   const bgColor = darkMode ? "#0f172a" : "#f8fafc";
   const textPrimary = darkMode ? "#f1f5f9" : "#0f172a";
@@ -834,59 +834,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               </div>
 
               <div style={{ display: "flex", gap: "12px" }}>
-                <button
-                  onClick={startVideoCall}
-                  style={{
-                    padding: "10px 20px",
-                    background: "#10b981",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontSize: "14px",
-                    fontWeight: "500",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#059669")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#10b981")
-                  }
-                >
-                  <Video size={18} />
-                  Video Call
-                </button>
-
-                <button
-                  onClick={startAudioCall}
-                  style={{
-                    padding: "10px 20px",
-                    background: "#3b82f6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontSize: "14px",
-                    fontWeight: "500",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#2563eb")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#3b82f6")
-                  }
-                >
-                  <Phone size={18} />
-                  Audio Call
-                </button>
+{/* Video and Audio call buttons removed */}
 
                 <button
                   onClick={() => {
@@ -1394,34 +1342,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       </div>
 
                       <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            startVideoCall();
-                          }}
-                          style={{
-                            padding: "8px",
-                            background: "#10b981",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            transition: "all 0.2s",
-                          }}
-                          title="Video Call"
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background = "#059669")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#10b981")
-                          }
-                        >
-                          <Video size={18} />
-                        </button>
+{/* Video Call button removed */}
 
                         <button
                           onClick={(e) => {
@@ -1516,8 +1437,8 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
         />
       )}
 
-      {/* Video Call Modal */}
-      {showVideoCall && selectedPatient && (
+      {/* Video Call Modal (removed) */}
+      {/* {showVideoCall && selectedPatient && (
         <VideoCall
           currentUserId={user?.id}
           currentUserType="hospital"
@@ -1527,7 +1448,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
           darkMode={darkMode}
           audioOnly={callType === "audio"}
         />
-      )}
+      )} */}
 
       {showAddPatientModal && (
         <AddPatientModal

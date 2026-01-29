@@ -377,6 +377,32 @@ def create_messages_table():
 create_notifications_table()
 create_messages_table()
 
+def create_appointments_table():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS appointments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hospital_user_id INTEGER NOT NULL,
+            patient_id INTEGER NOT NULL,
+            appointment_date DATE NOT NULL,
+            appointment_time TIME NOT NULL,
+            status TEXT DEFAULT 'scheduled',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (hospital_user_id) REFERENCES hospital_users(id) ON DELETE CASCADE,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+        )
+    """)
+    c.execute("""
+        CREATE INDEX IF NOT EXISTS idx_appointments_patient
+        ON appointments(patient_id, appointment_date)
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("✅ Appointments table created")
+
+create_appointments_table()
+
 # SocketIO connected users (for private messaging)
 connected_users = {}  # {user_id: sid} for both patient and hospital users
 
@@ -903,15 +929,36 @@ def create_notification_full(user_id, notif_type, message, scan_id=None, user_ty
 # ==============================================
 
 @app.route('/messages/<int:patient_id>', methods=['GET'])
+@login_required
 def get_messages(patient_id):
     """Get all messages between hospital and patient"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-
-    hospital_user_id = session['user_id']
+    user_type = session.get('user_type')
+    
+    # If hospital, patient_id is from URL, hospital_user_id is from session
+    if user_type == 'hospital':
+        hospital_user_id = session.get('user_id')
+    else:  # patient
+        # If patient, patient_id in URL must match their session
+        if session.get('patient_id') != patient_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        hospital_user_id = request.args.get('hospital_user_id')
+        if not hospital_user_id:
+            # Fallback: get first doctor this patient has messages with
+            try:
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("SELECT DISTINCT hospital_user_id FROM messages WHERE patient_id = ?", (patient_id,))
+                row = c.fetchone()
+                if row:
+                    hospital_user_id = row[0]
+                else:
+                    return jsonify({'messages': []})
+                conn.close()
+            except:
+                return jsonify({'messages': []})
 
     try:
-        conn = get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -923,104 +970,107 @@ def get_messages(patient_id):
 
         messages = []
         for row in cursor.fetchall():
+            m = dict(row)
             messages.append({
-                'id': row[0],
-                'patient_id': row[1],
-                'hospital_user_id': row[2],
-                'sender_type': row[3],
-                'sender_id': row[1] if row[3] == 'patient' else row[2],  # For compatibility
-                'recipient_id': row[2] if row[3] == 'patient' else row[1],  # For compatibility
-                'message': row[4],
-                'attachment_url': None,
-                'created_at': row[5],
-                'read': bool(row[6])
+                'id': m['id'],
+                'patient_id': m['patient_id'],
+                'hospital_user_id': m['hospital_user_id'],
+                'sender_type': m['sender_type'],
+                'sender_id': m['patient_id'] if m['sender_type'] == 'patient' else m['hospital_user_id'],
+                'recipient_id': m['hospital_user_id'] if m['sender_type'] == 'patient' else m['patient_id'],
+                'message': m['message'],
+                'attachment_url': None, # Add logic if needed
+                'created_at': m['created_at'],
+                'read': bool(m['is_read'])
             })
 
-        # Mark messages from patient as read
-        cursor.execute('''
-            UPDATE messages 
-            SET is_read = 1
-            WHERE patient_id = ? AND hospital_user_id = ? AND sender_type = 'patient'
-        ''', (patient_id, hospital_user_id))
+        # Mark messages as read
+        if user_type == 'hospital':
+            cursor.execute('''
+                UPDATE messages 
+                SET is_read = 1
+                WHERE patient_id = ? AND hospital_user_id = ? AND sender_type = 'patient'
+            ''', (patient_id, hospital_user_id))
+        else:
+             cursor.execute('''
+                UPDATE messages 
+                SET is_read = 1
+                WHERE patient_id = ? AND hospital_user_id = ? AND sender_type = 'hospital'
+            ''', (patient_id, hospital_user_id))
 
         conn.commit()
         conn.close()
-
         return jsonify({'messages': messages})
 
     except Exception as e:
-        logging.error(f"Error fetching messages: {e}")
+        logger.error(f"Error fetching messages: {e}")
         return jsonify({'error': 'Failed to fetch messages'}), 500
 
 
 @app.route('/send-message', methods=['POST'])
+@login_required
 def send_message():
-    """Send a message to a patient"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
+    """Send a message"""
+    user_type = session.get('user_type') or session.get('patient_type', 'patient')
+    
+    if user_type == 'hospital':
+        hospital_user_id = session.get('user_id')
+        patient_id = request.form.get('recipient_id')
+        sender_type = 'hospital'
+    else:
+        patient_id = session.get('patient_id')
+        hospital_user_id = request.form.get('recipient_id')
+        sender_type = 'patient'
 
-    hospital_user_id = session['user_id']
-    patient_id = request.form.get('recipient_id')  # Still accepting recipient_id for compatibility
     message_text = request.form.get('message')
     attachment = request.files.get('attachment')
 
-    if not patient_id or not message_text:
+    if not patient_id or not hospital_user_id or not message_text:
         return jsonify({'error': 'Missing required fields'}), 400
 
     attachment_url = None
-
-    # Handle file attachment
     if attachment and attachment.filename:
         filename = secure_filename(attachment.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{timestamp}_{filename}"
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
         filepath = os.path.join(CHAT_UPLOAD_FOLDER, filename)
-
         attachment.save(filepath)
         attachment_url = f'/uploads/chat_attachments/{filename}'
 
     try:
-        conn = get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
-
         cursor.execute('''
-            INSERT INTO messages (patient_id, hospital_user_id, sender_type, message, created_at, is_read)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 0)
-        ''', (patient_id, hospital_user_id, 'hospital', message_text))
-
+            INSERT INTO messages (patient_id, hospital_user_id, sender_type, message, is_read)
+            VALUES (?, ?, ?, ?, 0)
+        ''', (patient_id, hospital_user_id, sender_type, message_text))
         message_id = cursor.lastrowid
         conn.commit()
 
-        # Get the created message
-        cursor.execute('''
-            SELECT id, patient_id, hospital_user_id, sender_type, message, created_at, is_read
-            FROM messages
-            WHERE id = ?
-        ''', (message_id,))
-
-        row = cursor.fetchone()
-        new_message = {
-            'id': row[0],
-            'patient_id': row[1],
-            'hospital_user_id': row[2],
-            'sender_type': row[3],
-            'sender_id': row[2],  # hospital_user_id for compatibility
-            'recipient_id': row[1],  # patient_id for compatibility
-            'message': row[4],
-            'attachment_url': attachment_url,
-            'created_at': row[5],
-            'read': bool(row[6])
-        }
-
+        cursor.execute('SELECT * FROM messages WHERE id = ?', (message_id,))
+        row = dict(cursor.fetchone())
         conn.close()
 
+        new_message = {
+            'id': row['id'],
+            'patient_id': row['patient_id'],
+            'hospital_user_id': row['hospital_user_id'],
+            'sender_type': row['sender_type'],
+            'sender_id': row['patient_id'] if row['sender_type'] == 'patient' else row['hospital_user_id'],
+            'recipient_id': row['hospital_user_id'] if row['sender_type'] == 'patient' else row['patient_id'],
+            'message': row['message'],
+            'attachment_url': attachment_url,
+            'created_at': row['created_at'],
+            'read': bool(row['is_read'])
+        }
+
         # Emit socket event
-        socketio.emit('receive_message', new_message,
-                      room=f'patient_{patient_id}')
-        socketio.emit('receive_message', new_message,
-                      room=f'hospital_{hospital_user_id}')
+        room = f"hospital_{hospital_user_id}_patient_{patient_id}"
+        socketio.emit('receive_message', new_message, room=room)
 
         return jsonify({'success': True, 'message': new_message})
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        return jsonify({'error': str(e)}), 500
 
     except Exception as e:
         logging.error(f"Error sending message: {e}")
@@ -5563,6 +5613,117 @@ def get_conversations():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/messages/<int:patient_id>', methods=['DELETE'])
+@hospital_required
+def delete_conversation(patient_id):
+    """Delete conversation with a specific patient"""
+    try:
+        hospital_user_id = session.get('user_id')
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute("""
+            DELETE FROM messages 
+            WHERE patient_id = ? AND hospital_user_id = ?
+        """, (patient_id, hospital_user_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"🗑️ Chat deleted between hospital user {hospital_user_id} and patient {patient_id}")
+        
+        return jsonify({'message': 'Conversation deleted successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error deleting conversation: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/appointments', methods=['POST'])
+@hospital_required
+def create_appointment():
+    """Schedule a new appointment"""
+    try:
+        data = request.json
+        hospital_user_id = session.get('user_id')
+        patient_id = data.get('patient_id')
+        appointment_date = data.get('date')  # YYYY-MM-DD
+        appointment_time = data.get('time')  # HH:MM
+        
+        if not all([patient_id, appointment_date, appointment_time]):
+            return jsonify({'error': 'Missing required fields'}), 400
+            
+        # Validate date is in future
+        appt_dt = datetime.strptime(f"{appointment_date} {appointment_time}", "%Y-%m-%d %H:%M")
+        if appt_dt < datetime.now():
+            return jsonify({'error': 'Cannot schedule appointments in the past'}), 400
+            
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute("""
+            INSERT INTO appointments (hospital_user_id, patient_id, appointment_date, appointment_time)
+            VALUES (?, ?, ?, ?)
+        """, (hospital_user_id, patient_id, appointment_date, appointment_time))
+        
+        appt_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Notify patient
+        create_notification(
+            user_id=patient_id,
+            user_type='patient',
+            notification_type='appointment',
+            title='New Appointment Scheduled',
+            message=f"Doctor scheduled an appointment for {appointment_date} at {appointment_time}",
+            patient_id=patient_id,
+            action_url='/appointments'
+        )
+        
+        return jsonify({
+            'message': 'Appointment scheduled successfully',
+            'id': appt_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating appointment: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/patient/appointments', methods=['GET'])
+@login_required
+def get_patient_appointments():
+    """Get appointments for the logged-in patient"""
+    try:
+        patient_id = session.get('patient_id')
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute("""
+            SELECT 
+                a.*,
+                h.hospital_name,
+                hu.username as doctor_name
+            FROM appointments a
+            JOIN hospital_users hu ON a.hospital_user_id = hu.id
+            JOIN hospitals h ON hu.hospital_id = h.id
+            WHERE a.patient_id = ?
+            ORDER BY a.appointment_date, a.appointment_time
+        """, (patient_id,))
+        
+        appointments = [dict(row) for row in c.fetchall()]
+        conn.close()
+        
+        return jsonify({'appointments': appointments})
+        
+    except Exception as e:
+        logger.error(f"Error getting appointments: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def create_notification(user_id, user_type, notification_type, title, message,
                         hospital_id=None, patient_id=None, scan_id=None,
                         priority='normal', action_url=None):
@@ -5734,202 +5895,202 @@ def handle_mark_read(data):
 
 
 # ==============================================
-# WEBRTC SIGNALING FOR AUDIO/VIDEO CALLS
+# WEBRTC SIGNALING FOR AUDIO/VIDEO CALLS (DISABLED)
 # ==============================================
 
-@socketio.on('call_user')
-def handle_call_user(data):
-    """Initiate a call to another user"""
-    try:
-        caller_id = data.get('caller_id')
-        caller_type = data.get('caller_type')  # 'patient' or 'hospital'
-        callee_id = data.get('callee_id')
-        callee_type = data.get('callee_type')
-        call_type = data.get('call_type', 'video')  # 'audio' or 'video'
-        offer = data.get('offer')
+# @socketio.on('call_user')
+# def handle_call_user(data):
+#     """Initiate a call to another user"""
+#     try:
+#         caller_id = data.get('caller_id')
+#         caller_type = data.get('caller_type')  # 'patient' or 'hospital'
+#         callee_id = data.get('callee_id')
+#         callee_type = data.get('callee_type')
+#         call_type = data.get('call_type', 'video')  # 'audio' or 'video'
+#         offer = data.get('offer')
 
-        # Create unique call room
-        call_room = f"call_{caller_id}_{callee_id}_{datetime.now().timestamp()}"
+#         # Create unique call room
+#         call_room = f"call_{caller_id}_{callee_id}_{datetime.now().timestamp()}"
 
-        # Notify the callee about incoming call
-        callee_room = f"{callee_type}_{callee_id}"
-        emit('incoming_call', {
-            'caller_id': caller_id,
-            'caller_type': caller_type,
-            'call_type': call_type,
-            'call_room': call_room,
-            'offer': offer
-        }, room=callee_room)
+#         # Notify the callee about incoming call
+#         callee_room = f"{callee_type}_{callee_id}"
+#         emit('incoming_call', {
+#             'caller_id': caller_id,
+#             'caller_type': caller_type,
+#             'call_type': call_type,
+#             'call_room': call_room,
+#             'offer': offer
+#         }, room=callee_room)
 
-        logger.info(f"📞 Call initiated: {caller_type}_{caller_id} -> {callee_type}_{callee_id}")
+#         logger.info(f"📞 Call initiated: {caller_type}_{caller_id} -> {callee_type}_{callee_id}")
 
-    except Exception as e:
-        logger.error(f"Error initiating call: {e}")
-        emit('call_error', {'error': str(e)})
-
-
-@socketio.on('answer_call')
-def handle_answer_call(data):
-    """Answer an incoming call"""
-    try:
-        caller_id = data.get('caller_id')
-        caller_type = data.get('caller_type')
-        callee_id = data.get('callee_id')
-        call_room = data.get('call_room')
-        answer = data.get('answer')
-
-        # Join the call room
-        join_room(call_room)
-
-        # Send answer back to caller
-        caller_room = f"{caller_type}_{caller_id}"
-        emit('call_answered', {
-            'callee_id': callee_id,
-            'answer': answer,
-            'call_room': call_room
-        }, room=caller_room)
-
-        logger.info(f"✅ Call answered: {callee_id} -> {caller_id}")
-
-    except Exception as e:
-        logger.error(f"Error answering call: {e}")
-        emit('call_error', {'error': str(e)})
+#     except Exception as e:
+#         logger.error(f"Error initiating call: {e}")
+#         emit('call_error', {'error': str(e)})
 
 
-@socketio.on('reject_call')
-def handle_reject_call(data):
-    """Reject an incoming call"""
-    try:
-        caller_id = data.get('caller_id')
-        caller_type = data.get('caller_type')
-        callee_id = data.get('callee_id')
+# @socketio.on('answer_call')
+# def handle_answer_call(data):
+#     """Answer an incoming call"""
+#     try:
+#         caller_id = data.get('caller_id')
+#         caller_type = data.get('caller_type')
+#         callee_id = data.get('callee_id')
+#         call_room = data.get('call_room')
+#         answer = data.get('answer')
 
-        # Notify caller that call was rejected
-        caller_room = f"{caller_type}_{caller_id}"
-        emit('call_rejected', {
-            'callee_id': callee_id
-        }, room=caller_room)
+#         # Join the call room
+#         join_room(call_room)
 
-        logger.info(f"❌ Call rejected: {callee_id} rejected {caller_id}")
+#         # Send answer back to caller
+#         caller_room = f"{caller_type}_{caller_id}"
+#         emit('call_answered', {
+#             'callee_id': callee_id,
+#             'answer': answer,
+#             'call_room': call_room
+#         }, room=caller_room)
 
-    except Exception as e:
-        logger.error(f"Error rejecting call: {e}")
+#         logger.info(f"✅ Call answered: {callee_id} -> {caller_id}")
 
-
-@socketio.on('ice_candidate')
-def handle_ice_candidate(data):
-    """Exchange ICE candidates for WebRTC connection"""
-    try:
-        call_room = data.get('call_room')
-        candidate = data.get('candidate')
-        sender_id = data.get('sender_id')
-
-        # Broadcast ICE candidate to other peer in the call room
-        emit('ice_candidate', {
-            'candidate': candidate,
-            'sender_id': sender_id
-        }, room=call_room, include_self=False)
-
-    except Exception as e:
-        logger.error(f"Error handling ICE candidate: {e}")
+#     except Exception as e:
+#         logger.error(f"Error answering call: {e}")
+#         emit('call_error', {'error': str(e)})
 
 
-@socketio.on('join_call')
-def handle_join_call(data):
-    """Join a call room"""
-    try:
-        call_room = data.get('call_room')
-        user_id = data.get('user_id')
-        user_type = data.get('user_type')
+# @socketio.on('reject_call')
+# def handle_reject_call(data):
+#     """Reject an incoming call"""
+#     try:
+#         caller_id = data.get('caller_id')
+#         caller_type = data.get('caller_type')
+#         callee_id = data.get('callee_id')
 
-        join_room(call_room)
+#         # Notify caller that call was rejected
+#         caller_room = f"{caller_type}_{caller_id}"
+#         emit('call_rejected', {
+#             'callee_id': callee_id
+#         }, room=caller_room)
 
-        # Notify others in the call
-        emit('user_joined_call', {
-            'user_id': user_id,
-            'user_type': user_type
-        }, room=call_room, include_self=False)
+#         logger.info(f"❌ Call rejected: {callee_id} rejected {caller_id}")
 
-        logger.info(f"👤 User joined call: {user_type}_{user_id} in {call_room}")
-
-    except Exception as e:
-        logger.error(f"Error joining call: {e}")
+#     except Exception as e:
+#         logger.error(f"Error rejecting call: {e}")
 
 
-@socketio.on('leave_call')
-def handle_leave_call(data):
-    """Leave a call room"""
-    try:
-        call_room = data.get('call_room')
-        user_id = data.get('user_id')
-        user_type = data.get('user_type')
+# @socketio.on('ice_candidate')
+# def handle_ice_candidate(data):
+#     """Exchange ICE candidates for WebRTC connection"""
+#     try:
+#         call_room = data.get('call_room')
+#         candidate = data.get('candidate')
+#         sender_id = data.get('sender_id')
 
-        # Notify others that user left
-        emit('user_left_call', {
-            'user_id': user_id,
-            'user_type': user_type
-        }, room=call_room, include_self=False)
+#         # Broadcast ICE candidate to other peer in the call room
+#         emit('ice_candidate', {
+#             'candidate': candidate,
+#             'sender_id': sender_id
+#         }, room=call_room, include_self=False)
 
-        leave_room(call_room)
-
-        logger.info(f"👋 User left call: {user_type}_{user_id} from {call_room}")
-
-    except Exception as e:
-        logger.error(f"Error leaving call: {e}")
+#     except Exception as e:
+#         logger.error(f"Error handling ICE candidate: {e}")
 
 
-@socketio.on('end_call')
-def handle_end_call(data):
-    """End an active call"""
-    try:
-        call_room = data.get('call_room')
-        user_id = data.get('user_id')
+# @socketio.on('join_call')
+# def handle_join_call(data):
+#     """Join a call room"""
+#     try:
+#         call_room = data.get('call_room')
+#         user_id = data.get('user_id')
+#         user_type = data.get('user_type')
 
-        # Notify all participants that call ended
-        emit('call_ended', {
-            'ended_by': user_id
-        }, room=call_room)
+#         join_room(call_room)
 
-        logger.info(f"📴 Call ended by {user_id} in {call_room}")
+#         # Notify others in the call
+#         emit('user_joined_call', {
+#             'user_id': user_id,
+#             'user_type': user_type
+#         }, room=call_room, include_self=False)
 
-    except Exception as e:
-        logger.error(f"Error ending call: {e}")
+#         logger.info(f"👤 User joined call: {user_type}_{user_id} in {call_room}")
 
-
-@socketio.on('toggle_audio')
-def handle_toggle_audio(data):
-    """Toggle audio mute/unmute"""
-    try:
-        call_room = data.get('call_room')
-        user_id = data.get('user_id')
-        audio_enabled = data.get('audio_enabled')
-
-        # Notify other participants
-        emit('peer_audio_toggled', {
-            'user_id': user_id,
-            'audio_enabled': audio_enabled
-        }, room=call_room, include_self=False)
-
-    except Exception as e:
-        logger.error(f"Error toggling audio: {e}")
+#     except Exception as e:
+#         logger.error(f"Error joining call: {e}")
 
 
-@socketio.on('toggle_video')
-def handle_toggle_video(data):
-    """Toggle video on/off"""
-    try:
-        call_room = data.get('call_room')
-        user_id = data.get('user_id')
-        video_enabled = data.get('video_enabled')
+# @socketio.on('leave_call')
+# def handle_leave_call(data):
+#     """Leave a call room"""
+#     try:
+#         call_room = data.get('call_room')
+#         user_id = data.get('user_id')
+#         user_type = data.get('user_type')
 
-        # Notify other participants
-        emit('peer_video_toggled', {
-            'user_id': user_id,
-            'video_enabled': video_enabled
-        }, room=call_room, include_self=False)
+#         # Notify others that user left
+#         emit('user_left_call', {
+#             'user_id': user_id,
+#             'user_type': user_type
+#         }, room=call_room, include_self=False)
 
-    except Exception as e:
-        logger.error(f"Error toggling video: {e}")
+#         leave_room(call_room)
+
+#         logger.info(f"👋 User left call: {user_type}_{user_id} from {call_room}")
+
+#     except Exception as e:
+#         logger.error(f"Error leaving call: {e}")
+
+
+# @socketio.on('end_call')
+# def handle_end_call(data):
+#     """End an active call"""
+#     try:
+#         call_room = data.get('call_room')
+#         user_id = data.get('user_id')
+
+#         # Notify all participants that call ended
+#         emit('call_ended', {
+#             'ended_by': user_id
+#         }, room=call_room)
+
+#         logger.info(f"📴 Call ended by {user_id} in {call_room}")
+
+#     except Exception as e:
+#         logger.error(f"Error ending call: {e}")
+
+
+# @socketio.on('toggle_audio')
+# def handle_toggle_audio(data):
+#     """Toggle audio mute/unmute"""
+#     try:
+#         call_room = data.get('call_room')
+#         user_id = data.get('user_id')
+#         audio_enabled = data.get('audio_enabled')
+
+#         # Notify other participants
+#         emit('peer_audio_toggled', {
+#             'user_id': user_id,
+#             'audio_enabled': audio_enabled
+#         }, room=call_room, include_self=False)
+
+#     except Exception as e:
+#         logger.error(f"Error toggling audio: {e}")
+
+
+# @socketio.on('toggle_video')
+# def handle_toggle_video(data):
+#     """Toggle video on/off"""
+#     try:
+#         call_room = data.get('call_room')
+#         user_id = data.get('user_id')
+#         video_enabled = data.get('video_enabled')
+
+#         # Notify other participants
+#         emit('peer_video_toggled', {
+#             'user_id': user_id,
+#             'video_enabled': video_enabled
+#         }, room=call_room, include_self=False)
+
+#     except Exception as e:
+#         logger.error(f"Error toggling video: {e}")
 
         @app.route('/analyze', methods=['POST'])
         @hospital_required  # This ensures only logged-in hospitals can use it

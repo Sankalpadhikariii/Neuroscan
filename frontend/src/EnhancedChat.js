@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Send, Paperclip, X, Image as ImageIcon, FileText, 
-  Download, Check, CheckCheck, Search, Phone, Video 
+  Download, Check, CheckCheck, Search, Calendar, Plus
 } from 'lucide-react';
 
 export default function EnhancedChatPanel({ 
@@ -17,6 +17,9 @@ export default function EnhancedChatPanel({
   const [attachedFile, setAttachedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [appointmentTime, setAppointmentTime] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -108,6 +111,75 @@ export default function EnhancedChatPanel({
       }
     } catch (err) {
       console.error('Failed to send message:', err);
+    }
+  }
+
+  async function deleteChat() {
+    if (!selectedPatient || !window.confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/messages/${selectedPatient.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        setMessages([]);
+        alert('Conversation deleted successfully');
+      } else {
+        alert('Failed to delete conversation');
+      }
+    } catch (err) {
+      console.error('Error deleting chat:', err);
+      alert('An error occurred while deleting the chat');
+    }
+  }
+
+  async function scheduleAppointment(e) {
+    e.preventDefault();
+    if (!appointmentDate || !appointmentTime) return;
+
+    if (!window.confirm(`Confirm appointment with ${selectedPatient.full_name} on ${appointmentDate} at ${appointmentTime}?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          patient_id: selectedPatient.id,
+          date: appointmentDate,
+          time: appointmentTime
+        })
+      });
+
+      if (res.ok) {
+        alert('Appointment scheduled successfully');
+        setShowAppointmentModal(false);
+        setAppointmentDate('');
+        setAppointmentTime('');
+        
+        // Optionally send a system message to chat
+        const systemMsg = `📅 Appointment scheduled for ${appointmentDate} at ${appointmentTime}`;
+        socket.emit('send_message', {
+            room: `hospital_${user.id}_patient_${selectedPatient.id}`,
+            message: systemMsg
+        });
+        setMessages(prev => [...prev, { 
+            sender_id: user.id, 
+            message: systemMsg,
+            created_at: new Date().toISOString()
+        }]);
+
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to schedule appointment');
+      }
+    } catch (err) {
+      console.error('Error scheduling appointment:', err);
+      alert('Error scheduling appointment');
     }
   }
 
@@ -296,25 +368,26 @@ export default function EnhancedChatPanel({
               </div>
 
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button style={{
-                  padding: '10px',
-                  background: bgSecondary,
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: textPrimary
-                }}>
-                  <Phone size={18} />
-                </button>
-                <button style={{
-                  padding: '10px',
-                  background: bgSecondary,
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: textPrimary
-                }}>
-                  <Video size={18} />
+                <button 
+                  onClick={() => setShowAppointmentModal(true)}
+                  title="Schedule Appointment"
+                  style={{
+                    padding: '10px',
+                    background: '#e0e7ff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    color: '#4f46e5',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#c7d2fe'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#e0e7ff'}
+                >
+                  <Calendar size={18} style={{ marginRight: '4px' }} />
+                  <Plus size={14} />
                 </button>
               </div>
             </div>
@@ -558,6 +631,106 @@ export default function EnhancedChatPanel({
           </div>
         )}
       </div>
+
+      {/* Appointment Modal */}
+      {showAppointmentModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, 
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '24px',
+            borderRadius: '16px',
+            width: '400px',
+            maxWidth: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+          }}>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#1e293b' }}>
+              Schedule Appointment
+            </h3>
+            
+            <form onSubmit={scheduleAppointment}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#475569' }}>Date</label>
+                <input 
+                  type="date" 
+                  required
+                  min={new Date().toISOString().split('T')[0]}
+                  value={appointmentDate}
+                  onChange={e => setAppointmentDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#475569' }}>Time</label>
+                <input 
+                  type="time" 
+                  required
+                  value={appointmentTime}
+                  onChange={e => setAppointmentTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAppointmentModal(false)}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: 'white',
+                    cursor: 'pointer',
+                    color: '#475569',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#4f46e5',
+                    color: 'white',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  Confirm
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
