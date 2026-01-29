@@ -589,6 +589,7 @@ def handle_connect():
         return False
 
     user_key = f"{user_type}_{user_id}"
+    join_room(user_key)
     online_users[user_key] = {
         'sid': request.sid,
         'user_id': user_id,
@@ -597,7 +598,7 @@ def handle_connect():
         'hospital_user_id': hospital_user_id
     }
 
-    print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
+    print(f"✅ {user_type.capitalize()} {user_id} connected and joined room {user_key} (SID: {request.sid})")
 
     emit('connected', {'status': 'connected', 'user_type': user_type, 'user_id': user_id})
 
@@ -808,42 +809,58 @@ def mark_messages_read(patient_id, hospital_user_id, reader_type):
 # ==============================================
 
 @app.route('/notifications', methods=['GET'])
+@app.route('/api/notifications', methods=['GET'])
+@login_required
 def get_notifications_api():
-    """Get all notifications for the current user"""
-    if 'user_id' not in session:
+    """Get all notifications for the current user (patient or hospital)"""
+    user_id = session.get('patient_id') or session.get('user_id')
+    user_type = 'patient' if 'patient_id' in session else 'hospital'
+    
+    if not user_id:
         return jsonify({'error': 'Not logged in'}), 401
 
-    user_id = session['user_id']
-
     try:
-        conn = get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
 
         cursor.execute('''
-            SELECT id, user_id, type, message, scan_id, is_read, created_at
+            SELECT id, user_id, user_type, type, title, message, scan_id, is_read, created_at
             FROM notifications
-            WHERE user_id = ?
+            WHERE user_id = ? AND user_type = ?
             ORDER BY created_at DESC
             LIMIT 50
-        ''', (user_id,))
+        ''', (user_id, user_type))
 
         notifications = []
         for row in cursor.fetchall():
+            n = dict(row)
             notifications.append({
-                'id': row[0],
-                'user_id': row[1],
-                'type': row[2],
-                'message': row[3],
-                'scan_id': row[4],
-                'read': bool(row[5]),
-                'created_at': row[6]
+                'id': n['id'],
+                'user_id': n['user_id'],
+                'user_type': n['user_type'],
+                'type': n['type'],
+                'title': n['title'],
+                'message': n['message'],
+                'scan_id': n['scan_id'],
+                'read': bool(n['is_read']),
+                'is_read': bool(n['is_read']),
+                'created_at': n['created_at']
             })
-
+        
+        # Get unread count
+        cursor.execute("""
+            SELECT COUNT(*) FROM notifications 
+            WHERE user_id = ? AND user_type = ? AND is_read = 0
+        """, (user_id, user_type))
+        unread_count = cursor.fetchone()[0]
+        
         conn.close()
-        return jsonify({'notifications': notifications})
-
+        return jsonify({
+            'notifications': notifications,
+            'unread_count': unread_count
+        })
     except Exception as e:
-        logging.error(f"Error fetching notifications: {e}")
+        logger.error(f"Error fetching notifications: {e}")
         return jsonify({'error': 'Failed to fetch notifications'}), 500
 
 
@@ -915,7 +932,7 @@ def create_notification_full(user_id, notif_type, message, scan_id=None, user_ty
         conn.close()
 
         # Emit socket event to the specific user
-        socketio.emit('new_notification', notification, room=f'{user_type}_{user_id}')
+        socketio.emit('notification', notification, room=f'{user_type}_{user_id}')
 
         return notification
 
@@ -1066,6 +1083,29 @@ def send_message():
         # Emit socket event
         room = f"hospital_{hospital_user_id}_patient_{patient_id}"
         socketio.emit('receive_message', new_message, room=room)
+
+        # Create notification for recipient
+        if sender_type == 'hospital':
+            create_notification(
+                user_id=patient_id,
+                user_type='patient',
+                notification_type='chat',
+                title='New Message from Doctor',
+                message=f"You received a new message: {message_text[:50]}...",
+                hospital_id=None,
+                patient_id=patient_id
+            )
+        else:
+            # Notify the doctor/hospital user
+            create_notification(
+                user_id=hospital_user_id,
+                user_type='hospital',
+                notification_type='chat',
+                title='New Message from Patient',
+                message=f"Message from patient: {message_text[:50]}...",
+                hospital_id=None,
+                patient_id=patient_id
+            )
 
         return jsonify({'success': True, 'message': new_message})
     except Exception as e:

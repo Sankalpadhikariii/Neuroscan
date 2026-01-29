@@ -742,20 +742,22 @@ export default function EnhancedChat({
               }}
               placeholder="Type a message..."
               rows={1}
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                borderRadius: '24px',
-                border: `1px solid ${borderColor}`,
-                background: bgSecondary,
-                color: textPrimary,
-                fontSize: '14px',
-                resize: 'none',
-                outline: 'none',
-                fontFamily: 'inherit',
-                minHeight: '44px',
-                maxHeight: '120px'
-              }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: '24px',
+                  border: `1px solid ${borderColor}`,
+                  background: bgSecondary,
+                  color: textPrimary,
+                  fontSize: '14px',
+                  resize: 'none',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  minHeight: '44px',
+                  maxHeight: '120px',
+                  boxSizing: 'border-box',
+                  display: 'block'
+                }}
             />
           </div>
           
