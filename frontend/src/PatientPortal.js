@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   User, LogOut, FileText, Calendar, Activity,
-  Brain, Bell, MessageCircle, TrendingUp, AlertCircle, CheckCircle
+  Brain, Bell, MessageCircle, TrendingUp, AlertCircle, CheckCircle, Menu, X
 } from 'lucide-react';
 import io from 'socket.io-client';
 import EnhancedChat from './components/EnhancedChat';
 import ScanHistoryCard from './ScanHistoryCard';
 import TumorProgressionTracker from './TumourProgressionTracker';
+import NotificationCentre from './NotificationCentre';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -17,6 +18,10 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
     localStorage.getItem('patientTheme') === 'dark'
   );
   const [showImageUpload, setShowImageUpload] = useState(false);
+
+  // Mobile responsive states
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Data states
   const [doctorInfo, setDoctorInfo] = useState(null);
@@ -33,6 +38,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [appointmentsError, setAppointmentsError] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Toast/Notification states
   const [showToast, setShowToast] = useState(false);
@@ -42,6 +48,17 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const textSecondary = '#6b7280';
 
   const socketRef = useRef();
+
+  // Mobile detection effect
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setSidebarOpen(false); // Close sidebar when switching to desktop
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Load doctor info
   async function loadDoctorInfo() {
@@ -129,6 +146,40 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
     await loadDoctorInfo();
   };
 
+  const handleMarkAsRead = async (notifId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications/read/${notifId}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, is_read: true, read: true } : n));
+      }
+    } catch (err) {
+      console.error('Error marking as read:', err);
+    }
+  };
+
+  const handleNotificationAction = (notif) => {
+    setShowNotifications(false);
+    
+    const type = (notif.type || '').toLowerCase();
+    const message = (notif.message || '').toLowerCase();
+
+    if (type.includes('chat') || type.includes('message') || message.includes('message') || message.includes('chat')) {
+      setView('chat');
+    } else if (type.includes('appointment') || message.includes('appointment')) {
+      setView('appointments');
+    } else if (type.includes('scan') || type.includes('analysis') || message.includes('scan') || message.includes('analysis')) {
+      setView('scans');
+    }
+  };
+
+  const handleDeleteAllNotifications = async () => {
+    // Optional: add backend endpoint for delete all
+    setNotifications([]);
+  };
+
   // Send message
   const sendMessage = () => {
     if (!newMessage.trim()) return;
@@ -191,14 +242,55 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc' }}>
+      {/* Mobile Overlay */}
+      {isMobile && sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 40
+          }}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside style={{ width: '280px', background: 'white', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '32px 24px', borderBottom: '1px solid #e2e8f0' }}>
-          <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '800', color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Brain size={32} /> NeuroScan
-          </h1>
-          <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#64748b' }}>Patient Portal</p>
+      <aside style={{ 
+        width: '280px', 
+        background: 'white', 
+        borderRight: '1px solid #e2e8f0', 
+        display: 'flex', 
+        flexDirection: 'column',
+        ...(isMobile ? {
+          position: 'fixed',
+          top: 0,
+          left: sidebarOpen ? 0 : '-280px',
+          bottom: 0,
+          zIndex: 50,
+          transition: 'left 0.3s ease',
+          boxShadow: sidebarOpen ? '4px 0 20px rgba(0,0,0,0.15)' : 'none'
+        } : {})
+      }}>
+        <div style={{ padding: '32px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '800', color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Brain size={32} /> NeuroScan
+            </h1>
+            <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#64748b' }}>Patient Portal</p>
+          </div>
+          {isMobile && (
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px', color: '#64748b' }}
+            >
+              <X size={24} />
+            </button>
+          )}
         </div>
 
         {/* Patient Card */}
@@ -216,18 +308,16 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '8px 16px' }}>
-          <NavItem icon={<Activity size={20} />} label="Overview" active={view === 'overview'} onClick={() => setView('overview')} />
-          <NavItem icon={<FileText size={20} />} label="My Scans" active={view === 'scans'} onClick={() => setView('scans')} />
-          <NavItem icon={<Calendar size={20} />} label="Appointments" active={view === 'appointments'} onClick={() => setView('appointments')} />
-          <NavItem icon={<User size={20} />} label="Profile" active={view === 'profile'} onClick={() => setView('profile')} />
-          <NavItem icon={<Bell size={20} />} label="Notifications" badge={unreadCount > 0 ? unreadCount : null} active={view === 'notifications'} onClick={() => setView('notifications')} />
+        <nav style={{ flex: 1, padding: '8px 16px', overflowY: 'auto' }}>
+          <NavItem icon={<Activity size={20} />} label="Overview" active={view === 'overview'} onClick={() => { setView('overview'); if (isMobile) setSidebarOpen(false); }} />
+          <NavItem icon={<FileText size={20} />} label="My Scans" active={view === 'scans'} onClick={() => { setView('scans'); if (isMobile) setSidebarOpen(false); }} />
+          <NavItem icon={<Calendar size={20} />} label="Appointments" active={view === 'appointments'} onClick={() => { setView('appointments'); if (isMobile) setSidebarOpen(false); }} />
           <NavItem 
             icon={<MessageCircle size={20} />} 
             label="Chat"
             badge={unreadMessages > 0 ? unreadMessages : null}
             active={view === 'chat'} 
-            onClick={() => setView('chat')} 
+            onClick={() => { setView('chat'); if (isMobile) setSidebarOpen(false); }} 
           />
         </nav>
 
@@ -240,13 +330,136 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
       </aside>
 
       {/* Main */}
-      <main style={{ flex: 1, overflow: 'auto', padding: '40px' }}>
-        <h2 style={{ fontSize: '28px', fontWeight: '700', color: '#1e293b', marginBottom: '32px' }}>
+      <main style={{ flex: 1, overflow: view === 'chat' ? 'hidden' : 'auto', padding: isMobile ? '20px' : '40px', position: 'relative' }}>
+        {/* Mobile Header */}
+        {isMobile && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '20px',
+            paddingBottom: '16px',
+            borderBottom: '1px solid #e2e8f0'
+          }}>
+            <button
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '12px',
+                background: 'white',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#64748b'
+              }}
+            >
+              <Menu size={22} />
+            </button>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Brain size={24} /> NeuroScan
+            </h1>
+            <button
+              onClick={() => setShowNotifications(true)}
+              style={{
+                position: 'relative',
+                width: '44px',
+                height: '44px',
+                borderRadius: '12px',
+                background: 'white',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#64748b'
+              }}
+            >
+              <Bell size={22} />
+              {unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  right: '-6px',
+                  background: '#ef4444',
+                  color: 'white',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  minWidth: '20px',
+                  height: '20px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid #f8fafc'
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Desktop Notification Bell */}
+        {!isMobile && (
+        <div style={{
+          position: 'absolute',
+          top: '32px',
+          right: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          zIndex: 10
+        }}>
+          <button
+            onClick={() => setShowNotifications(true)}
+            style={{
+              position: 'relative',
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#64748b',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Bell size={22} />
+            {unreadCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-6px',
+                background: '#ef4444',
+                color: 'white',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                minWidth: '20px',
+                height: '20px',
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '2px solid #f8fafc'
+              }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
+        )}
+
+        <h2 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: '700', color: '#1e293b', marginBottom: isMobile ? '20px' : '32px' }}>
           {view === 'overview' && 'Overview'}
           {view === 'scans' && 'My Scans'}
           {view === 'appointments' && 'Appointments'}
-          {view === 'profile' && 'Profile'}
-          {view === 'notifications' && 'Notifications'}
           {view === 'chat' && 'Chat'}
         </h2>
 
@@ -254,22 +467,18 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         {view === 'overview' && <Overview scans={scans} loading={loading} darkMode={darkMode} patientName={patientName} />}
         {view === 'scans' && <Scans scans={scans} loading={loading} error={error} darkMode={darkMode} />}
         {view === 'appointments' && <Appointments appointments={appointments} loading={loadingAppointments} error={appointmentsError} />}
-        {view === 'profile' && <Profile patient={patient} onProfileUpdate={onProfileUpdate} />}
-        {view === 'notifications' && <Notifications notifications={notifications} loading={loadingNotifications} error={notificationsError} />}
         {view === 'chat' && doctorInfo && (
-          <div>
-            <h3 style={{ marginBottom: '20px', color: '#475569' }}>
-              Chat with {doctorInfo.name}
-            </h3>
-            
-            <EnhancedChat
-              patientId={patient.id}
-              hospitalUserId={doctorInfo.id}
-              userType="patient"
-              currentUserId={patient.id}
-              recipientName={doctorInfo.name}
-              darkMode={darkMode}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', height: isMobile ? 'calc(100vh - 180px)' : 'calc(100vh - 120px)' }}>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <EnhancedChat
+                patientId={patient.id}
+                hospitalUserId={doctorInfo.id}
+                userType="patient"
+                currentUserId={patient.id}
+                recipientName={doctorInfo.name}
+                darkMode={darkMode}
+              />
+            </div>
           </div>
         )}
         {view === 'chat' && !doctorInfo && (
@@ -286,6 +495,18 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
       </main>
 
       {/* Toast Notification */}
+      {/* Notification Centre */}
+      {showNotifications && (
+        <NotificationCentre
+          notifications={notifications}
+          onClose={() => setShowNotifications(false)}
+          onMarkRead={handleMarkAsRead}
+          onAction={handleNotificationAction}
+          onDeleteAll={handleDeleteAllNotifications}
+          darkMode={darkMode}
+        />
+      )}
+
       {showToast && (
         <div style={{
           position: 'fixed',
@@ -742,47 +963,6 @@ function Appointments({ appointments, loading, error }) {
   ); 
 }
 
-function Profile({ patient, onProfileUpdate }) { 
-  return (
-    <div style={{ padding: '20px', background: 'white', borderRadius: '12px' }}>
-      <h3>Profile Information</h3>
-      <p><strong>Name:</strong> {patient?.full_name || 'N/A'}</p>
-      <p><strong>Email:</strong> {patient?.email || 'N/A'}</p>
-      {/* Add more profile fields and edit functionality here */}
-    </div>
-  ); 
-}
-
-function Notifications({ notifications, loading, error }) { 
-  if (loading) return <div>Loading notifications...</div>;
-  if (error) return <div style={{ color: '#ef4444' }}>Error: {error}</div>;
-  
-  return (
-    <div>
-      {notifications.length === 0 ? (
-        <p>No notifications</p>
-      ) : (
-        <div style={{ display: 'grid', gap: '12px' }}>
-          {notifications.map((notif, idx) => (
-            <div 
-              key={idx} 
-              style={{ 
-                padding: '16px', 
-                background: notif.is_read ? 'white' : '#f0f9ff', 
-                borderRadius: '12px', 
-                border: '1px solid #e2e8f0' 
-              }}
-            >
-              <p style={{ fontWeight: notif.is_read ? 'normal' : 'bold' }}>
-                {notif.message || 'Notification'}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  ); 
-}
 
 function ImageUploadModal() { 
   return (

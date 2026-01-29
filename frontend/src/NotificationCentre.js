@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Bell, AlertTriangle, CheckCircle, Info, Trash2 } from 'lucide-react';
 
-export default function NotificationCenter({ notifications, onClose, onMarkRead, darkMode }) {
+export default function NotificationCenter({ notifications, onClose, onMarkRead, onAction, onDeleteAll, darkMode }) {
   const bgColor = darkMode ? '#1e293b' : '#ffffff';
   const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
   const textSecondary = darkMode ? '#94a3b8' : '#64748b';
@@ -104,7 +104,20 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
             {notifications.map((notif, idx) => (
               <div
                 key={notif.id || idx}
-                onClick={() => !notif.read && onMarkRead(notif.id)}
+                onClick={() => {
+                  if (!notif.read) onMarkRead(notif.id);
+                  if (onAction) onAction(notif);
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = darkMode ? '#334155' : '#f1f5f9';
+                  e.currentTarget.style.transform = 'translateX(-4px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = notif.read 
+                    ? (darkMode ? '#0f172a' : '#f8fafc')
+                    : getNotificationColor(notif.type);
+                  e.currentTarget.style.transform = 'translateX(0)';
+                }}
                 style={{
                   padding: '16px',
                   background: notif.read 
@@ -112,7 +125,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                     : getNotificationColor(notif.type),
                   borderRadius: '12px',
                   border: `1px solid ${borderColor}`,
-                  cursor: notif.read ? 'default' : 'pointer',
+                  cursor: 'pointer',
                   transition: 'all 0.2s',
                   position: 'relative'
                 }}
@@ -204,6 +217,8 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
             Mark all as read
           </button>
           <button
+            onClick={onDeleteAll}
+            title="Clear all notifications"
             style={{
               padding: '10px',
               background: darkMode ? '#334155' : '#f1f5f9',

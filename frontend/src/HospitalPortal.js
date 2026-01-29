@@ -97,7 +97,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
     setupSocketListeners();
 
     return () => {
-      socket.off("new_notification");
+      socket.off("notification");
       socket.off("new_message");
       socket.off("patient_update");
     };
@@ -110,7 +110,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
   }, [selectedPatient]);
 
   function setupSocketListeners() {
-    socket.on("new_notification", (notification) => {
+    socket.on("notification", (notification) => {
       setNotifications((prev) => [notification, ...prev]);
       setUnreadCount((prev) => prev + 1);
       showToast(notification.message, "info");
