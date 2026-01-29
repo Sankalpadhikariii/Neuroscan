@@ -13,9 +13,23 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
   const borderColor = darkMode ? '#334155' : '#e2e8f0';
 
   // Sort scans by date
-  const sortedScans = [...scans].sort((a, b) => 
-    new Date(a.created_at) - new Date(b.created_at)
-  );
+  const sortedScans = Array.isArray(scans) 
+    ? [...scans]
+        .filter(scan => !!scan && (!!scan.created_at || !!scan.scan_date))
+        .map(scan => ({
+            ...scan,
+            created_at: scan.created_at || scan.scan_date // Normalize date
+        }))
+        .sort((a, b) => {
+            try {
+                const dateA = new Date(a.created_at);
+                const dateB = new Date(b.created_at);
+                return dateA - dateB;
+            } catch (e) {
+                return 0;
+            }
+        })
+    : [];
 
   // Calculate progression metrics
   const calculateProgression = () => {
