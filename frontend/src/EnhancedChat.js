@@ -222,9 +222,10 @@ export default function EnhancedChatPanel({
   return (
     <div style={{ 
       display: 'grid', 
-      gridTemplateColumns: '320px 1fr', 
-      gap: '20px',
-      height: 'calc(100vh - 100px)'
+      gridTemplateColumns: 'minmax(280px, 320px) 1fr', 
+      gap: '16px',
+      height: '100%',
+      minHeight: 0
     }}>
       {/* Patient List */}
       <div style={{

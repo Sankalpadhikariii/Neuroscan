@@ -8,6 +8,7 @@ import EnhancedChat from './components/EnhancedChat';
 import ScanHistoryCard from './ScanHistoryCard';
 import TumorProgressionTracker from './TumourProgressionTracker';
 import NotificationCentre from './NotificationCentre';
+import AppointmentCalendar from './AppointmentCalendar';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -242,7 +243,7 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#1e293b', padding: '20px 20px 0 0' }}>
       {/* Mobile Overlay */}
       {isMobile && sidebarOpen && (
         <div 
@@ -262,10 +263,12 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
       {/* Sidebar */}
       <aside style={{ 
         width: '280px', 
-        background: 'white', 
-        borderRight: '1px solid #e2e8f0', 
+        background: 'linear-gradient(180deg, #1e293b 0%, #334155 100%)', 
         display: 'flex', 
         flexDirection: 'column',
+        position: 'relative',
+        overflow: 'hidden',
+        zIndex: 10,
         ...(isMobile ? {
           position: 'fixed',
           top: 0,
@@ -273,20 +276,43 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
           bottom: 0,
           zIndex: 50,
           transition: 'left 0.3s ease',
-          boxShadow: sidebarOpen ? '4px 0 20px rgba(0,0,0,0.15)' : 'none'
+          boxShadow: sidebarOpen ? '4px 0 20px rgba(0,0,0,0.3)' : 'none'
         } : {})
       }}>
-        <div style={{ padding: '32px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Decorative Glow Orbs */}
+        <div style={{
+          position: 'absolute',
+          top: '-20%',
+          left: '-30%',
+          width: '200px',
+          height: '200px',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+          borderRadius: '50%',
+          pointerEvents: 'none'
+        }} />
+        <div style={{
+          position: 'absolute',
+          bottom: '10%',
+          right: '-20%',
+          width: '150px',
+          height: '150px',
+          background: 'radial-gradient(circle, rgba(56, 189, 248, 0.08) 0%, transparent 70%)',
+          borderRadius: '50%',
+          pointerEvents: 'none'
+        }} />
+
+        {/* Logo Section */}
+        <div style={{ padding: '28px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '800', color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Brain size={32} /> NeuroScan
+            <h1 style={{ margin: 0, fontSize: '26px', fontWeight: '800', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '10px', textShadow: '0 0 30px rgba(96, 165, 250, 0.4)' }}>
+              <Brain size={30} /> NeuroScan
             </h1>
-            <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#64748b' }}>Patient Portal</p>
+            <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'rgba(148, 163, 184, 0.9)', fontWeight: '500', letterSpacing: '0.5px' }}>Patient Portal</p>
           </div>
           {isMobile && (
             <button
               onClick={() => setSidebarOpen(false)}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px', color: '#64748b' }}
+              style={{ background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', padding: '8px', color: '#94a3b8', borderRadius: '8px' }}
             >
               <X size={24} />
             </button>
@@ -294,21 +320,31 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </div>
 
         {/* Patient Card */}
-        <div style={{ margin: '24px 20px', padding: '24px', background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', borderRadius: '16px', color: 'white' }}>
-          <div style={{ position: 'relative', marginBottom: '16px' }}>
+        <div style={{ 
+          margin: '16px 20px', 
+          padding: '20px', 
+          background: 'rgba(59, 130, 246, 0.15)', 
+          backdropFilter: 'blur(10px)',
+          borderRadius: '16px', 
+          color: 'white',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
+          position: 'relative',
+          zIndex: 1
+        }}>
+          <div style={{ position: 'relative', marginBottom: '12px' }}>
             {profilePicture ? (
-              <img src={profilePicture} alt={patientName} style={{ width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,255,255,0.3)' }} />
+              <img src={profilePicture} alt={patientName} style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(96, 165, 250, 0.5)' }} />
             ) : (
-              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 'bold' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', color: '#60a5fa' }}>
                 {patientInitial}
               </div>
             )}
           </div>
-          <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700' }}>{patientName}</h3>
+          <h3 style={{ margin: '0', fontSize: '18px', fontWeight: '600', color: '#f1f5f9' }}>{patientName}</h3>
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '8px 16px', overflowY: 'auto' }}>
+        <nav style={{ flex: 1, padding: '8px 16px', overflowY: 'auto', position: 'relative', zIndex: 1 }}>
           <NavItem icon={<Activity size={20} />} label="Overview" active={view === 'overview'} onClick={() => { setView('overview'); if (isMobile) setSidebarOpen(false); }} />
           <NavItem icon={<FileText size={20} />} label="My Scans" active={view === 'scans'} onClick={() => { setView('scans'); if (isMobile) setSidebarOpen(false); }} />
           <NavItem icon={<Calendar size={20} />} label="Appointments" active={view === 'appointments'} onClick={() => { setView('appointments'); if (isMobile) setSidebarOpen(false); }} />
@@ -322,15 +358,52 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </nav>
 
         {/* Logout */}
-        <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
-          <button onClick={onLogout} style={{ width: '100%', padding: '14px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+        <div style={{ padding: '20px', position: 'relative', zIndex: 1 }}>
+          <button 
+            onClick={onLogout} 
+            style={{ 
+              width: '100%', 
+              padding: '14px', 
+              background: 'rgba(239, 68, 68, 0.15)', 
+              color: '#fca5a5', 
+              border: '1px solid rgba(239, 68, 68, 0.2)', 
+              borderRadius: '12px', 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '10px',
+              fontWeight: '600',
+              transition: 'all 0.25s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+            }}
+          >
             <LogOut size={20} /> Logout
           </button>
         </div>
       </aside>
 
       {/* Main */}
-      <main style={{ flex: 1, overflow: view === 'chat' ? 'hidden' : 'auto', padding: isMobile ? '20px' : '40px', position: 'relative' }}>
+      <main style={{ 
+        flex: 1, 
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: view === 'chat' ? 'hidden' : 'auto',
+        overflowX: 'hidden', 
+        padding: isMobile ? '20px 20px 0' : (view === 'chat' ? '20px 40px 0' : '40px 40px 0'), 
+        position: 'relative',
+        background: '#f8fafc',
+        borderRadius: isMobile ? '0' : '32px 0 0 0',
+        zIndex: 5,
+        boxShadow: isMobile ? 'none' : '-5px 5px 30px rgba(0, 0, 0, 0.05)'
+      }}>
         {/* Mobile Header */}
         {isMobile && (
           <div style={{
@@ -456,7 +529,12 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </div>
         )}
 
-        <h2 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: '700', color: '#1e293b', marginBottom: isMobile ? '20px' : '32px' }}>
+        <h2 style={{ 
+          fontSize: isMobile ? '24px' : '28px', 
+          fontWeight: '700', 
+          color: '#1e293b', 
+          marginBottom: view === 'chat' ? '16px' : (isMobile ? '20px' : '32px') 
+        }}>
           {view === 'overview' && 'Overview'}
           {view === 'scans' && 'My Scans'}
           {view === 'appointments' && 'Appointments'}
@@ -464,21 +542,19 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
         </h2>
 
         {/* Render views */}
-        {view === 'overview' && <Overview scans={scans} loading={loading} darkMode={darkMode} patientName={patientName} />}
+        {view === 'overview' && <Overview scans={scans} loading={loading} darkMode={darkMode} patientName={patientName} appointments={appointments} isMobile={isMobile} />}
         {view === 'scans' && <Scans scans={scans} loading={loading} error={error} darkMode={darkMode} />}
         {view === 'appointments' && <Appointments appointments={appointments} loading={loadingAppointments} error={appointmentsError} />}
         {view === 'chat' && doctorInfo && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: isMobile ? 'calc(100vh - 180px)' : 'calc(100vh - 120px)' }}>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <EnhancedChat
-                patientId={patient.id}
-                hospitalUserId={doctorInfo.id}
-                userType="patient"
-                currentUserId={patient.id}
-                recipientName={doctorInfo.name}
-                darkMode={darkMode}
-              />
-            </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <EnhancedChat
+              patientId={patient.id}
+              hospitalUserId={doctorInfo.id}
+              userType="patient"
+              currentUserId={patient.id}
+              recipientName={doctorInfo.name}
+              darkMode={darkMode}
+            />
           </div>
         )}
         {view === 'chat' && !doctorInfo && (
@@ -530,37 +606,52 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
 /* ---------------- Components ---------------- */
 
 function NavItem({ icon, label, active, onClick, badge }) {
+  const [hovered, setHovered] = React.useState(false);
+
   return (
     <button 
       onClick={onClick} 
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{ 
         width: '100%', 
         padding: '14px 16px', 
-        marginBottom: '6px', 
+        marginBottom: '8px', 
         display: 'flex', 
         alignItems: 'center', 
         gap: '14px', 
-        background: active ? '#6366f1' : 'transparent', 
-        color: active ? 'white' : '#64748b', 
-        border: 'none', 
+        background: active
+          ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+          : hovered
+            ? 'rgba(255, 255, 255, 0.08)'
+            : 'transparent',
+        color: active ? 'white' : hovered ? '#e2e8f0' : 'rgba(148, 163, 184, 0.9)', 
+        border: active ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid transparent', 
         borderRadius: '12px', 
         cursor: 'pointer', 
         position: 'relative',
-        transition: 'all 0.2s'
+        transition: 'all 0.25s ease',
+        boxShadow: active ? '0 0 20px rgba(59, 130, 246, 0.4)' : 'none',
+        fontWeight: active ? '600' : '500',
+        fontSize: '14px',
+        backdropFilter: hovered && !active ? 'blur(8px)' : 'none',
       }}
     >
       {icon}
       <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
       {badge && (
         <span style={{ 
-          background: '#ef4444', 
+          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 
           color: 'white', 
-          fontSize: '12px', 
+          fontSize: '11px', 
           fontWeight: 'bold', 
-          padding: '2px 8px', 
-          borderRadius: '999px', 
-          minWidth: '20px',
-          textAlign: 'center'
+          width: '22px',
+          height: '22px',
+          borderRadius: '50%', 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
         }}>
           {badge > 99 ? '99+' : badge}
         </span>
@@ -569,7 +660,7 @@ function NavItem({ icon, label, active, onClick, badge }) {
   );
 }
 
-function Overview({ scans, loading, darkMode, patientName }) {
+function Overview({ scans, loading, darkMode, patientName, appointments, isMobile }) {
   const latestScan = scans && scans.length > 0 ? scans[0] : null;
   const totalScans = scans ? scans.length : 0;
   const tumorScans = scans ? scans.filter(s => s.is_tumor).length : 0;
@@ -631,84 +722,183 @@ function Overview({ scans, loading, darkMode, patientName }) {
         gap: '20px',
         marginBottom: '24px'
       }}>
-        {/* Total Scans */}
-        <div style={{
-          padding: '24px',
-          background: 'white',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '12px',
-              background: '#eef2ff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Brain size={24} color="#6366f1" />
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Total Scans</p>
-              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#1e293b' }}>{totalScans}</p>
-            </div>
+        {/* Total Scans - Lavender */}
+        <div 
+          style={{
+            padding: '24px',
+            background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+            borderRadius: '20px',
+            position: 'relative',
+            overflow: 'hidden',
+            minHeight: '140px',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.3s ease',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.12)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.08)';
+          }}
+        >
+          {/* Decorative Elements */}
+          <div style={{
+            position: 'absolute', top: '20%', right: '10%',
+            width: '80px', height: '80px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            borderRadius: '12px', transform: 'rotate(15deg)',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute', bottom: '10%', right: '25%',
+            width: '40px', height: '40px',
+            background: 'rgba(255, 255, 255, 0.15)',
+            borderRadius: '8px', transform: 'rotate(-10deg)',
+            pointerEvents: 'none'
+          }} />
+          
+          {/* Icon */}
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '14px',
+            background: 'white',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: '16px', position: 'relative', zIndex: 1
+          }}>
+            <Brain size={24} color="#6366f1" />
+          </div>
+          
+          {/* Content */}
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>
+              Total Scans
+            </h3>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: '600', color: '#475569' }}>
+              {totalScans}
+            </p>
           </div>
         </div>
 
-        {/* Normal Scans */}
-        <div style={{
-          padding: '24px',
-          background: 'white',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '12px',
-              background: '#dcfce7',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <CheckCircle size={24} color="#10b981" />
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Normal Results</p>
-              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#10b981' }}>{normalScans}</p>
-            </div>
+        {/* Normal Results - Mint */}
+        <div 
+          style={{
+            padding: '24px',
+            background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
+            borderRadius: '20px',
+            position: 'relative',
+            overflow: 'hidden',
+            minHeight: '140px',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.3s ease',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.12)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.08)';
+          }}
+        >
+          {/* Decorative Elements */}
+          <div style={{
+            position: 'absolute', top: '20%', right: '10%',
+            width: '80px', height: '80px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            borderRadius: '12px', transform: 'rotate(15deg)',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute', bottom: '10%', right: '25%',
+            width: '40px', height: '40px',
+            background: 'rgba(255, 255, 255, 0.15)',
+            borderRadius: '8px', transform: 'rotate(-10deg)',
+            pointerEvents: 'none'
+          }} />
+          
+          {/* Icon */}
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '14px',
+            background: 'white',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: '16px', position: 'relative', zIndex: 1
+          }}>
+            <CheckCircle size={24} color="#059669" />
+          </div>
+          
+          {/* Content */}
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>
+              Normal Results
+            </h3>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: '600', color: '#475569' }}>
+              {normalScans}
+            </p>
           </div>
         </div>
 
-        {/* Tumor Detected */}
-        <div style={{
-          padding: '24px',
-          background: 'white',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '12px',
-              background: '#fee2e2',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <AlertCircle size={24} color="#ef4444" />
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Tumor Detected</p>
-              <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#ef4444' }}>{tumorScans}</p>
-            </div>
+        {/* Tumor Detected - Rose */}
+        <div 
+          style={{
+            padding: '24px',
+            background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+            borderRadius: '20px',
+            position: 'relative',
+            overflow: 'hidden',
+            minHeight: '140px',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.3s ease',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.12)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.08)';
+          }}
+        >
+          {/* Decorative Elements */}
+          <div style={{
+            position: 'absolute', top: '20%', right: '10%',
+            width: '80px', height: '80px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            borderRadius: '12px', transform: 'rotate(15deg)',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute', bottom: '10%', right: '25%',
+            width: '40px', height: '40px',
+            background: 'rgba(255, 255, 255, 0.15)',
+            borderRadius: '8px', transform: 'rotate(-10deg)',
+            pointerEvents: 'none'
+          }} />
+          
+          {/* Icon */}
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '14px',
+            background: 'white',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: '16px', position: 'relative', zIndex: 1
+          }}>
+            <AlertCircle size={24} color="#e11d48" />
+          </div>
+          
+          {/* Content */}
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>
+              Tumor Detected
+            </h3>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: '600', color: '#475569' }}>
+              {tumorScans}
+            </p>
           </div>
         </div>
       </div>
@@ -782,12 +972,42 @@ function Overview({ scans, loading, darkMode, patientName }) {
         </div>
       )}
 
-      {/* Tumor Progression Tracker */}
-      {scans && scans.length >= 2 && (
-        <div style={{ marginBottom: '24px' }}>
-          <TumorProgressionTracker scans={scans} darkMode={darkMode} />
+      {/* Appointment Calendar & Tumor Progression Row */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: isMobile ? '1fr' : '1.5fr 1fr', 
+        gap: '24px',
+        marginBottom: '24px'
+      }}>
+        {/* Tumor Progression Tracker */}
+        <div>
+          {scans && scans.length >= 2 ? (
+            <TumorProgressionTracker scans={scans} darkMode={darkMode} />
+          ) : (
+            <div style={{
+              padding: '24px',
+              background: 'white',
+              borderRadius: '16px',
+              border: '1px solid #e2e8f0',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              textAlign: 'center'
+            }}>
+              <TrendingUp size={40} color="#94a3b8" style={{ marginBottom: '16px' }} />
+              <p style={{ color: '#6b7280', margin: 0 }}>Progression insights will appear here once you have multiple scans.</p>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Appointment Calendar */}
+        <div style={{ height: 'auto' }}>
+          <AppointmentCalendar appointments={appointments} darkMode={darkMode} />
+        </div>
+      </div>
+
 
       {/* No Scans Message */}
       {totalScans === 0 && (

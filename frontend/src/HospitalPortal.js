@@ -47,6 +47,7 @@ import EnhancedChat from "./EnhancedChat";
 import NotificationCentre from "./NotificationCentre";
 import GradCamvisualization from "./GradCamvisualization";
 import TumourProgressionTracker from "./TumourProgressionTracker";
+import AppointmentCalendar from "./AppointmentCalendar";
 // import VideoCall from "./Videocall";
 import AddPatientModal from "./AddPatientModal";
 
@@ -82,6 +83,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
   const [gradcamData, setGradcamData] = useState(null);
   const [validationWarning, setValidationWarning] = useState(null);
   const [patientScans, setPatientScans] = useState([]);
+  const [appointments, setAppointments] = useState([]);
 
   // Video call states (removed)
   // const [showVideoCall, setShowVideoCall] = useState(false);
@@ -94,6 +96,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
     loadUsageStatus();
     loadNotifications();
     loadDashboardStats();
+    loadHospitalAppointments();
     setupSocketListeners();
 
     return () => {
@@ -187,6 +190,20 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
       }
     } catch (err) {
       console.error("Error loading dashboard stats:", err);
+    }
+  }
+
+  async function loadHospitalAppointments() {
+    try {
+      const res = await fetch(`${API_BASE}/hospital/appointments`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAppointments(data.appointments || []);
+      }
+    } catch (err) {
+      console.error("Error loading hospital appointments:", err);
     }
   }
 
@@ -639,38 +656,96 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
   const textPrimary = darkMode ? "#f1f5f9" : "#0f172a";
   const textSecondary = darkMode ? "#94a3b8" : "#64748b";
 
+  const DashboardTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{
+          background: darkMode ? '#1e293b' : '#ffffff',
+          padding: '12px 16px',
+          borderRadius: '12px',
+          border: `1px solid ${darkMode ? '#334155' : '#e2e8f0'}`,
+          boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+          color: textPrimary
+        }}>
+          <p style={{ margin: '0 0 8px 0', fontSize: '11px', fontWeight: '600', color: textSecondary, textTransform: 'uppercase' }}>
+            {label}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {payload.map((entry, index) => (
+              <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: entry.color }} />
+                <span style={{ fontSize: '14px', fontWeight: '600', color: textPrimary }}>
+                  {entry.name}: {entry.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className={darkMode ? "dark" : ""}>
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: bgColor }}>
+    <div style={{ display: "flex", height: "100vh", width: "100vw", overflow: "hidden", background: "#1e293b", padding: "20px 20px 0 0" }}>
         {/* Sidebar */}
         <aside
           style={{
-            width: 260,
-            background: darkMode ? "#1e293b" : "white",
-            padding: "20px",
+            width: 280,
+            background: 'linear-gradient(180deg, #1e293b 0%, #334155 100%)',
+            padding: "24px 20px",
             display: "flex",
             flexDirection: "column",
-            borderRight: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+            position: 'relative',
+            overflow: 'hidden',
+            zIndex: 10
           }}
         >
-          <div style={{ marginBottom: "32px" }}>
+          {/* Decorative Glow Orbs */}
+          <div style={{
+            position: 'absolute',
+            top: '-20%',
+            left: '-30%',
+            width: '200px',
+            height: '200px',
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)',
+            borderRadius: '50%',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute',
+            bottom: '10%',
+            right: '-20%',
+            width: '150px',
+            height: '150px',
+            background: 'radial-gradient(circle, rgba(56, 189, 248, 0.08) 0%, transparent 70%)',
+            borderRadius: '50%',
+            pointerEvents: 'none'
+          }} />
+
+          {/* Logo Section */}
+          <div style={{ marginBottom: "32px", position: 'relative', zIndex: 1 }}>
             <h1
               style={{
-                fontSize: "24px",
-                fontWeight: "bold",
-                color: "#6366f1",
+                fontSize: "26px",
+                fontWeight: "800",
+                color: "#60a5fa",
                 display: "flex",
                 alignItems: "center",
-                gap: "8px",
+                gap: "10px",
+                textShadow: '0 0 30px rgba(96, 165, 250, 0.4)'
               }}
             >
-              <Brain size={28} /> NeuroScan
+              <Brain size={30} /> NeuroScan
             </h1>
             <p
               style={{
-                fontSize: "14px",
-                color: textSecondary,
-                marginTop: "4px",
+                fontSize: "13px",
+                color: "rgba(148, 163, 184, 0.9)",
+                marginTop: "6px",
+                fontWeight: '500',
+                letterSpacing: '0.5px'
               }}
             >
               Hospital Portal
@@ -683,10 +758,14 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
             <div
               style={{
                 padding: "16px",
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                borderRadius: "12px",
+                background: "rgba(59, 130, 246, 0.15)",
+                backdropFilter: "blur(10px)",
+                borderRadius: "14px",
                 marginBottom: "24px",
                 color: "white",
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+                position: 'relative',
+                zIndex: 1
               }}
             >
               <div
@@ -780,13 +859,23 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               alignItems: "center",
               justifyContent: "center",
               gap: "10px",
-              background: "#ef4444",
-              color: "white",
-              border: "none",
+              background: "rgba(239, 68, 68, 0.15)",
+              color: "#fca5a5",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
               borderRadius: "12px",
               cursor: "pointer",
               fontWeight: "600",
-              transition: "all 0.2s",
+              transition: "all 0.25s ease",
+              position: 'relative',
+              zIndex: 1
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)";
+              e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.4)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(239, 68, 68, 0.15)";
+              e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.2)";
             }}
           >
             <LogOut size={20} />
@@ -795,7 +884,17 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
         </aside>
 
         {/* Main Content */}
-        <main style={{ flex: 1, padding: "32px", overflowY: "auto" }}>
+        <main style={{ 
+          flex: 1, 
+          padding: "40px 40px 0 40px", 
+          overflowY: "auto",
+          overflowX: "hidden",
+          background: "#f8fafc",
+          borderRadius: "32px 0 0 0",
+          position: "relative",
+          zIndex: 5,
+          boxShadow: "-5px 5px 30px rgba(0, 0, 0, 0.05)"
+        }}>
           {/* Header with Notifications */}
           <div style={{ 
             display: "flex", 
@@ -864,133 +963,152 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   value={dashboardStats?.total_patients || 0} 
                   icon={<Users color="#6366f1" size={24} />}
                   darkMode={darkMode}
+                  bgGradient="linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)"
                 />
                 <DashboardCard 
                   title="Total Scans" 
                   value={dashboardStats?.total_scans || 0} 
-                  icon={<Brain color="#8b5cf6" size={24} />}
+                  icon={<Brain color="#0891b2" size={24} />}
                   darkMode={darkMode}
+                  bgGradient="linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)"
                 />
                 <DashboardCard 
                   title="Tumor Positive" 
                   value={dashboardStats?.tumor_patients || 0} 
-                  icon={<AlertCircle color="#ef4444" size={24} />}
+                  icon={<AlertCircle color="#e11d48" size={24} />}
                   darkMode={darkMode}
                   subtitle="Unique patients"
+                  bgGradient="linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)"
                 />
                 <DashboardCard 
                   title="Tumor Negative" 
                   value={dashboardStats?.normal_patients || 0} 
-                  icon={<CheckCircle color="#10b981" size={24} />}
+                  icon={<CheckCircle color="#059669" size={24} />}
                   darkMode={darkMode}
                   subtitle="Unique patients"
+                  bgGradient="linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)"
                 />
               </div>
 
-              {/* Chart Section */}
+              {/* Charts & Calendar Area */}
               <div style={{ 
-                background: darkMode ? "#1e293b" : "white",
-                padding: "24px",
-                borderRadius: "16px",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+                display: "grid", 
+                gridTemplateColumns: "1.6fr 1fr", 
+                gap: "24px",
+                alignItems: "stretch"
               }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
-                    Patient Analysis Trends
-                  </h3>
-                  <div style={{ display: "flex", background: darkMode ? "#0f172a" : "#f1f5f9", padding: "4px", borderRadius: "8px" }}>
-                    <button 
-                      onClick={() => setChartFilter("daily")}
-                      style={{
-                        padding: "6px 12px",
-                        background: chartFilter === "daily" ? (darkMode ? "#334155" : "white") : "transparent",
-                        border: "none",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        color: chartFilter === "daily" ? "#6366f1" : textSecondary,
-                        boxShadow: chartFilter === "daily" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
-                      }}
-                    >
-                      Daily
-                    </button>
-                    <button 
-                      onClick={() => setChartFilter("weekly")}
-                      style={{
-                        padding: "6px 12px",
-                        background: chartFilter === "weekly" ? (darkMode ? "#334155" : "white") : "transparent",
-                        border: "none",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        color: chartFilter === "weekly" ? "#6366f1" : textSecondary,
-                        boxShadow: chartFilter === "weekly" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
-                      }}
-                    >
-                      Weekly
-                    </button>
+                {/* Chart Section */}
+                <div style={{ 
+                  background: darkMode ? "#1e293b" : "white",
+                  padding: "24px",
+                  borderRadius: "16px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                  display: "flex",
+                  flexDirection: "column"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                      Patient Analysis Trends
+                    </h3>
+                    <div style={{ display: "flex", background: darkMode ? "#0f172a" : "#f1f5f9", padding: "4px", borderRadius: "8px" }}>
+                      <button 
+                        onClick={() => setChartFilter("daily")}
+                        style={{
+                          padding: "6px 12px",
+                          background: chartFilter === "daily" ? (darkMode ? "#334155" : "white") : "transparent",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          color: chartFilter === "daily" ? "#6366f1" : textSecondary,
+                          boxShadow: chartFilter === "daily" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                        }}
+                      >
+                        Daily
+                      </button>
+                      <button 
+                        onClick={() => setChartFilter("weekly")}
+                        style={{
+                          padding: "6px 12px",
+                          background: chartFilter === "weekly" ? (darkMode ? "#334155" : "white") : "transparent",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          color: chartFilter === "weekly" ? "#6366f1" : textSecondary,
+                          boxShadow: chartFilter === "weekly" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                        }}
+                      >
+                        Weekly
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ height: "350px", width: "100%", flex: 1 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={chartFilter === "daily" ? dashboardStats?.daily_stats : dashboardStats?.weekly_stats}
+                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient id="colorInfected" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorNormal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#f1f5f9"} opacity={0.5} />
+                        <XAxis 
+                          dataKey="name" 
+                          stroke={textSecondary} 
+                          fontSize={11} 
+                          tickLine={false}
+                          axisLine={false}
+                          dy={10}
+                          tickFormatter={(value) => chartFilter === "daily" ? value.split('-').slice(1).join('/') : value}
+                        />
+                        <YAxis stroke={textSecondary} fontSize={11} tickLine={false} axisLine={false} dx={-10} />
+                        <RechartsTooltip content={<DashboardTooltip />} />
+                        <Legend 
+                          verticalAlign="top" 
+                          align="right" 
+                          height={36} 
+                          iconType="circle"
+                          wrapperStyle={{ fontSize: '12px', fontWeight: '500', color: textSecondary, paddingBottom: '20px' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="infected" 
+                          name="Tumor Detected"
+                          stroke="#ef4444" 
+                          strokeWidth={3}
+                          fillOpacity={1} 
+                          fill="url(#colorInfected)" 
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#ef4444' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="normal" 
+                          name="No Tumor"
+                          stroke="#10b981" 
+                          strokeWidth={3}
+                          fillOpacity={1} 
+                          fill="url(#colorNormal)" 
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
-                <div style={{ height: "350px", width: "100%" }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={chartFilter === "daily" ? dashboardStats?.daily_stats : dashboardStats?.weekly_stats}
-                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="colorInfected" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorNormal" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#f1f5f9"} />
-                      <XAxis 
-                        dataKey="name" 
-                        stroke={textSecondary} 
-                        fontSize={12} 
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(value) => chartFilter === "daily" ? value.split('-').slice(1).join('/') : value}
-                      />
-                      <YAxis stroke={textSecondary} fontSize={12} tickLine={false} axisLine={false} />
-                      <RechartsTooltip 
-                        contentStyle={{ 
-                          background: darkMode ? "#1e293b" : "white", 
-                          border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                          borderRadius: "8px",
-                          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)"
-                        }}
-                      />
-                      <Legend />
-                      <Area 
-                        type="monotone" 
-                        dataKey="infected" 
-                        name="Tumor Detected"
-                        stroke="#ef4444" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorInfected)" 
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="normal" 
-                        name="No Tumor"
-                        stroke="#10b981" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorNormal)" 
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                {/* Calendar Section */}
+                <AppointmentCalendar appointments={appointments} darkMode={darkMode} />
               </div>
 
               {/* Bottom Row */}
@@ -1786,23 +1904,35 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 }
 
 function NavItem({ icon, label, active, onClick, badge }) {
+  const [hovered, setHovered] = React.useState(false);
+
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         width: "100%",
         padding: "14px 16px",
-        marginBottom: "6px",
+        marginBottom: "8px",
         display: "flex",
         alignItems: "center",
         gap: "14px",
-        background: active ? "#6366f1" : "transparent",
-        color: active ? "white" : "#64748b",
-        border: "none",
+        background: active
+          ? "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
+          : hovered
+            ? "rgba(255, 255, 255, 0.08)"
+            : "transparent",
+        color: active ? "white" : hovered ? "#e2e8f0" : "rgba(148, 163, 184, 0.9)",
+        border: active ? "1px solid rgba(59, 130, 246, 0.5)" : "1px solid transparent",
         borderRadius: "12px",
         cursor: "pointer",
-        transition: "all 0.2s",
+        transition: "all 0.25s ease",
         position: "relative",
+        boxShadow: active ? "0 0 20px rgba(59, 130, 246, 0.4)" : "none",
+        fontWeight: active ? "600" : "500",
+        fontSize: "14px",
+        backdropFilter: hovered && !active ? "blur(8px)" : "none",
       }}
     >
       {icon}
@@ -1810,16 +1940,17 @@ function NavItem({ icon, label, active, onClick, badge }) {
       {badge && (
         <span
           style={{
-            background: "#ef4444",
+            background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
             color: "white",
             borderRadius: "50%",
-            width: "20px",
-            height: "20px",
+            width: "22px",
+            height: "22px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontSize: "11px",
             fontWeight: "bold",
+            boxShadow: "0 0 10px rgba(239, 68, 68, 0.5)",
           }}
         >
           {badge}
@@ -2076,29 +2207,119 @@ function FixedAnalysisResults({ prediction, darkMode, onDownloadPDF }) {
     </div>
   );
 }
-function DashboardCard({ title, value, icon, darkMode, subtitle }) {
+function DashboardCard({ title, value, icon, darkMode, subtitle, bgGradient, iconBg }) {
+  // Default pastel gradient if not provided
+  const gradient = bgGradient || (darkMode 
+    ? 'linear-gradient(135deg, #1e293b 0%, #334155 100%)' 
+    : 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)');
+  
   return (
     <div style={{ 
-      background: darkMode ? "#1e293b" : "white",
-      padding: "24px",
-      borderRadius: "16px",
-      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-      display: "flex",
-      alignItems: "center",
-      gap: "20px"
-    }}>
+      background: gradient,
+      padding: "14px 20px",
+      borderRadius: "20px",
+      position: "relative",
+      overflow: "hidden",
+      minHeight: "100px",
+      boxShadow: "0 4px 15px rgba(0, 0, 0, 0.08)",
+      transition: "all 0.3s ease"
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.transform = 'translateY(-4px)';
+      e.currentTarget.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.12)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.transform = 'translateY(0)';
+      e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.08)';
+    }}
+    >
+      {/* Hexagonal Pattern Overlay */}
+      <div style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        width: "60%",
+        height: "100%",
+        opacity: 0.4,
+        backgroundImage: `
+          radial-gradient(circle, rgba(255,255,255,0.3) 1px, transparent 1px),
+          radial-gradient(circle, rgba(255,255,255,0.2) 1px, transparent 1px)
+        `,
+        backgroundSize: "20px 35px, 20px 35px",
+        backgroundPosition: "0 0, 10px 17px",
+        pointerEvents: "none"
+      }} />
+      
+      {/* Decorative Hexagons */}
+      <div style={{
+        position: "absolute",
+        top: "20%",
+        right: "10%",
+        width: "80px",
+        height: "80px",
+        background: "rgba(255, 255, 255, 0.15)",
+        borderRadius: "12px",
+        transform: "rotate(15deg)",
+        pointerEvents: "none"
+      }} />
+      <div style={{
+        position: "absolute",
+        bottom: "10%",
+        right: "25%",
+        width: "40px",
+        height: "40px",
+        background: "rgba(255, 255, 255, 0.1)",
+        borderRadius: "8px",
+        transform: "rotate(-10deg)",
+        pointerEvents: "none"
+      }} />
+      
+      {/* Icon Container */}
       <div style={{ 
-        width: "56px", height: "56px", borderRadius: "14px", 
-        background: darkMode ? "#0f172a" : "#f1f5f9",
-        display: "flex", alignItems: "center", justifyContent: "center"
+        width: "36px", 
+        height: "36px", 
+        borderRadius: "10px", 
+        background: "white",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center",
+        marginBottom: "8px",
+        position: "relative",
+        zIndex: 1
       }}>
         {icon}
       </div>
-      <div>
-        <p style={{ margin: 0, fontSize: "14px", color: darkMode ? "#94a3b8" : "#64748b", fontWeight: "500" }}>{title}</p>
-        <h3 style={{ margin: "4px 0 0 0", fontSize: "28px", fontWeight: "700", color: darkMode ? "#f1f5f9" : "#1e293b" }}>{value}</h3>
-        {subtitle && <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: darkMode ? "#64748b" : "#94a3b8" }}>{subtitle}</p>}
+      
+      {/* Content */}
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <h3 style={{ 
+          margin: "0 0 2px 0", 
+          fontSize: "14px", 
+          fontWeight: "700", 
+          color: "#1e293b",
+          letterSpacing: "-0.01em",
+          opacity: 0.7
+        }}>
+          {title}
+        </h3>
+        <p style={{ 
+          margin: 0, 
+          fontSize: "22px", 
+          fontWeight: "800", 
+          color: "#1e293b" 
+        }}>
+          {value}
+        </p>
+        {subtitle && (
+          <p style={{ 
+            margin: "4px 0 0 0", 
+            fontSize: "12px", 
+            color: "#64748b" 
+          }}>
+            {subtitle}
+          </p>
+        )}
       </div>
     </div>
   );

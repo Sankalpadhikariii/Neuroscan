@@ -5851,6 +5851,37 @@ def get_patient_appointments():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/hospital/appointments', methods=['GET'])
+@hospital_required
+def get_hospital_appointments():
+    """Get appointments for the logged-in hospital user"""
+    try:
+        hospital_user_id = session.get('user_id')
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        c.execute("""
+            SELECT 
+                a.*,
+                p.full_name as patient_name,
+                p.patient_code
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.id
+            WHERE a.hospital_user_id = ?
+            ORDER BY a.appointment_date, a.appointment_time
+        """, (hospital_user_id,))
+        
+        appointments = [dict(row) for row in c.fetchall()]
+        conn.close()
+        
+        return jsonify({'appointments': appointments})
+        
+    except Exception as e:
+        logger.error(f"Error getting hospital appointments: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def create_notification(user_id, user_type, notification_type, title, message,
                         hospital_id=None, patient_id=None, scan_id=None,
                         priority='normal', action_url=None):

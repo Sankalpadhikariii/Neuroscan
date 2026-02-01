@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Info, Calendar } from 'lucide-react';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer
+} from 'recharts';
 
 export default function TumorProgressionTracker({ scans, darkMode }) {
   const [selectedScanIndex, setSelectedScanIndex] = useState(scans.length - 1);
@@ -11,6 +15,16 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
   const textPrimary = darkMode ? '#f1f5f9' : '#0f172a';
   const textSecondary = darkMode ? '#94a3b8' : '#64748b';
   const borderColor = darkMode ? '#334155' : '#e2e8f0';
+
+  const getTumorProbability = (probabilities) => {
+    if (!probabilities) return 0;
+    
+    const glioma = parseFloat(probabilities.glioma) || 0;
+    const meningioma = parseFloat(probabilities.meningioma) || 0;
+    const pituitary = parseFloat(probabilities.pituitary) || 0;
+    
+    return glioma + meningioma + pituitary;
+  };
 
   // Sort scans by date
   const sortedScans = Array.isArray(scans) 
@@ -30,6 +44,48 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
             }
         })
     : [];
+
+  // Prepare data for Recharts
+  const chartData = sortedScans.map((scan, idx) => ({
+    name: `Scan ${idx + 1}`,
+    probability: getTumorProbability(scan.probabilities),
+    date: new Date(scan.created_at).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    }),
+    fullDate: new Date(scan.created_at).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    }),
+    raw: scan
+  }));
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{
+          background: '#1e293b',
+          padding: '12px 16px',
+          borderRadius: '12px',
+          border: '1px solid #334155',
+          boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)',
+          color: 'white'
+        }}>
+          <p style={{ margin: '0 0 4px 0', fontSize: '11px', opacity: 0.7 }}>
+            {payload[0].payload.fullDate}
+          </p>
+          <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#10b981' }}>
+            Tumor Probability: {payload[0].value.toFixed(2)}%
+          </p>
+          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>
+             {payload[0].payload.name}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   // Calculate progression metrics
   const calculateProgression = () => {
@@ -67,15 +123,6 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
     return metrics;
   };
 
-  const getTumorProbability = (probabilities) => {
-    if (!probabilities) return 0;
-    
-    const glioma = parseFloat(probabilities.glioma) || 0;
-    const meningioma = parseFloat(probabilities.meningioma) || 0;
-    const pituitary = parseFloat(probabilities.pituitary) || 0;
-    
-    return glioma + meningioma + pituitary;
-  };
 
   const progressionMetrics = calculateProgression();
   const latestMetric = progressionMetrics[progressionMetrics.length - 1];
@@ -372,105 +419,42 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
           Tumor Probability Over Time
         </h4>
 
-        <div style={{ position: 'relative', height: '200px', padding: '0 8px' }}>
-          {/* Y-axis labels */}
-          <div style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            fontSize: '11px',
-            color: textSecondary
-          }}>
-            <span>100%</span>
-            <span>75%</span>
-            <span>50%</span>
-            <span>25%</span>
-            <span>0%</span>
-          </div>
-
-          {/* Chart area */}
-          <div style={{
-            marginLeft: '40px',
-            height: '100%',
-            position: 'relative',
-            borderLeft: `1px solid ${borderColor}`,
-            borderBottom: `1px solid ${borderColor}`
-          }}>
-            {/* Grid lines */}
-            {[0, 25, 50, 75].map(percent => (
-              <div
-                key={percent}
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  bottom: `${percent}%`,
-                  height: '1px',
-                  background: borderColor,
-                  opacity: 0.3
-                }}
+        <div style={{ height: '240px', width: '100%', marginTop: '40px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorProb" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={borderColor} opacity={0.3} />
+              <XAxis 
+                dataKey="date" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: textSecondary }}
+                dy={10}
               />
-            ))}
-
-            {/* Line chart */}
-            <svg style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
-              {sortedScans.map((scan, idx) => {
-                if (idx === 0) return null;
-                
-                const prevProb = getTumorProbability(sortedScans[idx - 1].probabilities);
-                const currProb = getTumorProbability(scan.probabilities);
-                
-                const x1 = ((idx - 1) / (sortedScans.length - 1)) * 100;
-                const x2 = (idx / (sortedScans.length - 1)) * 100;
-                const y1 = 100 - prevProb;
-                const y2 = 100 - currProb;
-
-                const color = currProb > prevProb ? '#ef4444' : currProb < prevProb ? '#10b981' : '#6366f1';
-
-                return (
-                  <g key={idx}>
-                    <line
-                      x1={`${x1}%`}
-                      y1={`${y1}%`}
-                      x2={`${x2}%`}
-                      y2={`${y2}%`}
-                      stroke={color}
-                      strokeWidth="2"
-                    />
-                    <circle
-                      cx={`${x2}%`}
-                      cy={`${y2}%`}
-                      r="4"
-                      fill={color}
-                    />
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-        </div>
-
-        {/* X-axis labels */}
-        <div style={{
-          marginLeft: '40px',
-          marginTop: '8px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: '11px',
-          color: textSecondary
-        }}>
-          {sortedScans.map((scan, idx) => (
-            <span key={idx}>
-              {new Date(scan.created_at).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric'
-              })}
-            </span>
-          ))}
+              <YAxis 
+                domain={[0, 100]} 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: textSecondary }}
+                tickFormatter={(value) => `${value}%`}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Area 
+                type="monotone" 
+                dataKey="probability" 
+                stroke="#10b981" 
+                strokeWidth={3}
+                fillOpacity={1} 
+                fill="url(#colorProb)" 
+                activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
