@@ -641,173 +641,358 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
   return (
     <div className={darkMode ? "dark" : ""}>
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: bgColor }}>
-        {/* Sidebar */}
+      <div style={{ 
+        display: "flex", 
+        height: "100vh", 
+        overflow: "hidden", 
+        background: darkMode 
+          ? 'linear-gradient(135deg, #1a2c56ff 0%, #1e293b 50%, #0f172a 100%)'
+          : 'linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #f0f4ff 100%)',
+        fontFamily: "'Inter', sans-serif"
+      }}>
+        {/* Premium Glassmorphic Sidebar - 4-Layer Depth System */}
         <aside
           style={{
-            width: 260,
-            background: darkMode ? "#1e293b" : "white",
+            width: 300,
+            minHeight: '100vh',
             padding: "20px",
             display: "flex",
             flexDirection: "column",
-            borderRight: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+            position: 'relative',
+            /* Layer 1 (z=-4): Background Gradient - Deep medical teal */
+            background: 'linear-gradient(165deg, #0a2540 0%, #0d4f6f 40%, #1a7a8c 100%)',
           }}
         >
-          <div style={{ marginBottom: "32px" }}>
-            <h1
-              style={{
-                fontSize: "24px",
-                fontWeight: "bold",
-                color: "#6366f1",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <Brain size={28} /> NeuroScan
-            </h1>
-            <p
-              style={{
-                fontSize: "14px",
-                color: textSecondary,
-                marginTop: "4px",
-              }}
-            >
-              Hospital Portal
-            </p>
-          </div>
+          {/* Layer 2 (z=-3): Glow Effects */}
+          <div style={{
+            position: 'absolute',
+            top: '5%',
+            left: '10%',
+            width: '180px',
+            height: '180px',
+            background: 'radial-gradient(circle, rgba(79, 179, 191, 0.35) 0%, transparent 70%)',
+            borderRadius: '50%',
+            filter: 'blur(40px)',
+            pointerEvents: 'none',
+            zIndex: 0
+          }} />
+          <div style={{
+            position: 'absolute',
+            bottom: '20%',
+            right: '5%',
+            width: '150px',
+            height: '150px',
+            background: 'radial-gradient(circle, rgba(79, 179, 191, 0.25) 0%, transparent 70%)',
+            borderRadius: '50%',
+            filter: 'blur(35px)',
+            pointerEvents: 'none',
+            zIndex: 0
+          }} />
+          <div style={{
+            position: 'absolute',
+            top: '40%',
+            left: '-5%',
+            width: '120px',
+            height: '120px',
+            background: 'radial-gradient(circle, rgba(100, 200, 220, 0.2) 0%, transparent 70%)',
+            borderRadius: '50%',
+            filter: 'blur(30px)',
+            pointerEvents: 'none',
+            zIndex: 0
+          }} />
 
-
-          {/* Business Model Banner */}
-          {usage && (
-            <div
-              style={{
-                padding: "16px",
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-                borderRadius: "12px",
-                marginBottom: "24px",
-                color: "white",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  marginBottom: "8px",
-                }}
-              >
-                <Zap size={18} />
-                <h3 style={{ margin: 0, fontSize: "14px", fontWeight: "600" }}>
-                  {usage.plan_type === "free"
-                    ? "Free Plan"
-                    : usage.plan_type === "basic"
-                      ? "Basic Plan"
-                      : usage.plan_type === "premium"
-                        ? "Premium Plan"
-                        : "Enterprise Plan"}
-                </h3>
-              </div>
-              <p style={{ margin: "4px 0", fontSize: "12px", opacity: 0.9 }}>
-                {usage.scans_used || 0} /{" "}
-                {usage.scan_limit === -1 ? "∞" : usage.scan_limit} scans used
-              </p>
-              {usage.scan_limit !== -1 && (
-                <div
-                  style={{
-                    width: "100%",
-                    height: "4px",
-                    background: "rgba(255,255,255,0.3)",
-                    borderRadius: "2px",
-                    marginTop: "8px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${Math.min((usage.scans_used / usage.scan_limit) * 100, 100)}%`,
-                      height: "100%",
-                      background: "white",
-                      borderRadius: "2px",
-                      transition: "width 0.3s ease",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          <nav style={{ flex: 1, overflowY: "auto" }}>
-            <NavItem
-              icon={<LayoutDashboard size={20} />}
-              label="Dashboard"
-              active={view === "dashboard"}
-              onClick={() => setView("dashboard")}
-            />
-            <NavItem
-              icon={<Upload size={20} />}
-              label="New Scan"
-              active={view === "scan"}
-              onClick={() => setView("scan")}
-            />
-            <NavItem
-              icon={<Users size={20} />}
-              label="Patients"
-              active={view === "patients"}
-              onClick={() => setView("patients")}
-            />
-            <NavItem
-              icon={<MessageCircle size={20} />}
-              label="Chat"
-              active={view === "chat"}
-              onClick={() => setView("chat")}
-              badge={unreadCount > 0 ? unreadCount : null}
-            />
-            <NavItem
-              icon={<Settings size={20} />}
-              label="Settings"
-              active={view === "settings"}
-              onClick={() => setView("settings")}
-            />
-          </nav>
-
-          <button
-            onClick={onLogout}
+          {/* Layer 3 (z=-2): Floating Glass Container */}
+          <div
             style={{
-              width: "100%",
-              padding: "14px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-              background: "#ef4444",
-              color: "white",
-              border: "none",
-              borderRadius: "12px",
-              cursor: "pointer",
-              fontWeight: "600",
-              transition: "all 0.2s",
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'rgba(255, 255, 255, 0.07)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              borderRadius: '24px',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              padding: '24px 20px',
+              position: 'relative',
+              zIndex: 1,
+              overflow: 'hidden'
             }}
           >
-            <LogOut size={20} />
-            Logout
-          </button>
+            {/* Inner subtle glow */}
+            <div style={{
+              position: 'absolute',
+              top: '-20%',
+              right: '-20%',
+              width: '60%',
+              height: '40%',
+              background: 'radial-gradient(ellipse, rgba(79, 179, 191, 0.15) 0%, transparent 70%)',
+              pointerEvents: 'none'
+            }} />
+
+            {/* Layer 4 (z=-1): Content - Logo & Title */}
+            <div style={{ marginBottom: "28px", position: 'relative', zIndex: 2 }}>
+              <h1
+                style={{
+                  fontSize: "24px",
+                  fontWeight: "700",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  margin: 0,
+                  textShadow: '0 0 20px rgba(79, 179, 191, 0.4)'
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(79, 179, 191, 0.3) 0%, rgba(79, 179, 191, 0.1) 100%)',
+                  border: '1px solid rgba(79, 179, 191, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 0 20px rgba(79, 179, 191, 0.3)'
+                }}>
+                  <Brain size={24} color="#4fb3bf" />
+                </div>
+                NeuroScan
+              </h1>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(255, 255, 255, 0.6)",
+                  marginTop: "8px",
+                  marginLeft: '54px',
+                  fontWeight: '500',
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase'
+                }}
+              >
+                Hospital Portal
+              </p>
+            </div>
+
+            {/* Usage Banner - Glassmorphic Style */}
+            {usage && (
+              <div
+                style={{
+                  padding: "16px",
+                  background: 'rgba(79, 179, 191, 0.15)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: "16px",
+                  marginBottom: "24px",
+                  color: "white",
+                  border: '1px solid rgba(79, 179, 191, 0.25)',
+                  position: 'relative',
+                  zIndex: 2
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <Zap size={16} color="#4fb3bf" />
+                  <h3 style={{ margin: 0, fontSize: "13px", fontWeight: "600", color: '#4fb3bf' }}>
+                    {usage.plan_type === "free"
+                      ? "Free Plan"
+                      : usage.plan_type === "basic"
+                        ? "Basic Plan"
+                        : usage.plan_type === "premium"
+                          ? "Premium Plan"
+                          : "Enterprise Plan"}
+                  </h3>
+                </div>
+                <p style={{ margin: "4px 0", fontSize: "11px", opacity: 0.8 }}>
+                  {usage.scans_used || 0} /{" "}
+                  {usage.scan_limit === -1 ? "∞" : usage.scan_limit} scans used
+                </p>
+                {usage.scan_limit !== -1 && (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "4px",
+                      background: "rgba(255,255,255,0.15)",
+                      borderRadius: "2px",
+                      marginTop: "8px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min((usage.scans_used / usage.scan_limit) * 100, 100)}%`,
+                        height: "100%",
+                        background: "linear-gradient(90deg, #4fb3bf 0%, #64d4e0 100%)",
+                        borderRadius: "2px",
+                        transition: "width 0.3s ease",
+                        boxShadow: '0 0 8px rgba(79, 179, 191, 0.5)'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Navigation Section Label */}
+            <p style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              color: 'rgba(255, 255, 255, 0.4)',
+              textTransform: 'uppercase',
+              letterSpacing: '1.5px',
+              marginBottom: '12px',
+              paddingLeft: '4px',
+              position: 'relative',
+              zIndex: 2
+            }}>
+              Menu
+            </p>
+
+            {/* Navigation Items */}
+            <nav style={{ flex: 1, overflowY: "auto", position: 'relative', zIndex: 2 }}>
+              <NavItem
+                icon={<LayoutDashboard size={20} />}
+                label="Dashboard"
+                active={view === "dashboard"}
+                onClick={() => setView("dashboard")}
+              />
+              <NavItem
+                icon={<Upload size={20} />}
+                label="New Scan"
+                active={view === "scan"}
+                onClick={() => setView("scan")}
+              />
+              <NavItem
+                icon={<Users size={20} />}
+                label="Patients"
+                active={view === "patients"}
+                onClick={() => setView("patients")}
+              />
+              <NavItem
+                icon={<MessageCircle size={20} />}
+                label="Chat"
+                active={view === "chat"}
+                onClick={() => setView("chat")}
+                badge={unreadCount > 0 ? unreadCount : null}
+              />
+              <NavItem
+                icon={<Settings size={20} />}
+                label="Settings"
+                active={view === "settings"}
+                onClick={() => setView("settings")}
+              />
+            </nav>
+
+            {/* Logout Button - Glassmorphic Style */}
+            <button
+              onClick={onLogout}
+              style={{
+                width: "100%",
+                padding: "14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "10px",
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: "#fca5a5",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                borderRadius: "14px",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: '14px',
+                transition: "all 0.25s ease",
+                backdropFilter: 'blur(10px)',
+                position: 'relative',
+                zIndex: 2
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                e.currentTarget.style.color = '#fecaca';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+                e.currentTarget.style.boxShadow = '0 0 20px rgba(239, 68, 68, 0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                e.currentTarget.style.color = '#fca5a5';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              <LogOut size={18} />
+              Logout
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}
-        <main style={{ flex: 1, padding: "32px", overflowY: "auto" }}>
+        <main style={{ 
+          flex: 1, 
+          padding: "32px", 
+          overflowY: "auto",
+          position: 'relative',
+          background: 'linear-gradient(135deg, #0a2540 0%, #0d4f6f 50%, #1a7a8c 100%)',
+        }}>
+          {/* Decorative Glow Orbs */}
+          <div style={{
+            position: 'absolute',
+            top: '5%',
+            right: '15%',
+            width: '350px',
+            height: '350px',
+            background: 'radial-gradient(circle, rgba(79, 179, 191, 0.2) 0%, transparent 70%)',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+            filter: 'blur(60px)'
+          }} />
+          <div style={{
+            position: 'absolute',
+            bottom: '15%',
+            left: '5%',
+            width: '280px',
+            height: '280px',
+            background: 'radial-gradient(circle, rgba(100, 200, 220, 0.15) 0%, transparent 70%)',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+            filter: 'blur(50px)'
+          }} />
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            right: '5%',
+            width: '200px',
+            height: '200px',
+            background: 'radial-gradient(circle, rgba(79, 179, 191, 0.15) 0%, transparent 70%)',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+            filter: 'blur(40px)'
+          }} />
+          
           {/* Header with Notifications */}
           <div style={{ 
             display: "flex", 
             justifyContent: "space-between", 
             alignItems: "center",
-            marginBottom: "32px"
+            marginBottom: "32px",
+            position: 'relative',
+            zIndex: 1
           }}>
             <div>
-              <h2 style={{ fontSize: "28px", fontWeight: "700", color: textPrimary, margin: 0 }}>
+              <h2 style={{ 
+                fontSize: "32px", 
+                fontWeight: "800", 
+                color: "#ffffff", 
+                margin: 0,
+                letterSpacing: '-0.5px',
+                textShadow: '0 0 30px rgba(79, 179, 191, 0.3)'
+              }}>
                 {view.charAt(0).toUpperCase() + view.slice(1)}
               </h2>
-              <p style={{ margin: "4px 0 0 0", color: textSecondary, fontSize: "14px" }}>
+              <p style={{ margin: "6px 0 0 0", color: "rgba(255, 255, 255, 0.6)", fontSize: "14px", fontWeight: '500' }}>
                 Welcome back, {user.full_name}
               </p>
             </div>
@@ -815,34 +1000,47 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
             <button
               onClick={() => setShowNotifications(!showNotifications)}
               style={{
-                padding: "12px",
-                background: darkMode ? "#1e293b" : "#ffffff",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                borderRadius: "12px",
+                padding: "14px 20px",
+                background: "rgba(255, 255, 255, 0.08)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                borderRadius: "14px",
                 cursor: "pointer",
                 position: "relative",
                 display: "flex",
                 alignItems: "center",
                 gap: "10px",
-                color: textPrimary,
-                boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
+                color: "#ffffff",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+                transition: "all 0.25s ease",
+                fontWeight: "600",
+                fontSize: "14px"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.25), 0 0 20px rgba(79, 179, 191, 0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.2)';
               }}
             >
               <Bell size={20} />
-              <span style={{ fontWeight: "600", fontSize: "14px" }}>Notifications</span>
+              <span>Notifications</span>
               {unreadCount > 0 && (
                 <span style={{
-                  background: "#ef4444",
+                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
                   color: "white",
                   borderRadius: "50%",
-                  minWidth: "20px",
-                  height: "20px",
+                  minWidth: "22px",
+                  height: "22px",
                   padding: "0 6px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: "11px",
                   fontWeight: "bold",
+                  boxShadow: "0 0 12px rgba(239, 68, 68, 0.5)"
                 }}>
                   {unreadCount}
                 </span>
@@ -889,29 +1087,30 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
               {/* Chart Section */}
               <div style={{ 
-                background: darkMode ? "#1e293b" : "white",
-                padding: "24px",
-                borderRadius: "16px",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+                background: 'rgba(255, 255, 255, 0.07)',
+                backdropFilter: 'blur(20px)',
+                padding: "28px",
+                borderRadius: "20px",
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: "#ffffff" }}>
                     Patient Analysis Trends
                   </h3>
-                  <div style={{ display: "flex", background: darkMode ? "#0f172a" : "#f1f5f9", padding: "4px", borderRadius: "8px" }}>
+                  <div style={{ display: "flex", background: 'rgba(255, 255, 255, 0.08)', padding: "4px", borderRadius: "10px", border: '1px solid rgba(255, 255, 255, 0.1)' }}>
                     <button 
                       onClick={() => setChartFilter("daily")}
                       style={{
-                        padding: "6px 12px",
-                        background: chartFilter === "daily" ? (darkMode ? "#334155" : "white") : "transparent",
-                        border: "none",
-                        borderRadius: "6px",
+                        padding: "8px 14px",
+                        background: chartFilter === "daily" ? 'rgba(79, 179, 191, 0.3)' : "transparent",
+                        border: chartFilter === "daily" ? '1px solid rgba(79, 179, 191, 0.5)' : "1px solid transparent",
+                        borderRadius: "8px",
                         cursor: "pointer",
                         fontSize: "13px",
                         fontWeight: "600",
-                        color: chartFilter === "daily" ? "#6366f1" : textSecondary,
-                        boxShadow: chartFilter === "daily" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                        color: chartFilter === "daily" ? "#4fb3bf" : "rgba(255, 255, 255, 0.6)",
+                        transition: 'all 0.25s ease'
                       }}
                     >
                       Daily
@@ -919,15 +1118,15 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     <button 
                       onClick={() => setChartFilter("weekly")}
                       style={{
-                        padding: "6px 12px",
-                        background: chartFilter === "weekly" ? (darkMode ? "#334155" : "white") : "transparent",
-                        border: "none",
-                        borderRadius: "6px",
+                        padding: "8px 14px",
+                        background: chartFilter === "weekly" ? 'rgba(79, 179, 191, 0.3)' : "transparent",
+                        border: chartFilter === "weekly" ? '1px solid rgba(79, 179, 191, 0.5)' : "1px solid transparent",
+                        borderRadius: "8px",
                         cursor: "pointer",
                         fontSize: "13px",
                         fontWeight: "600",
-                        color: chartFilter === "weekly" ? "#6366f1" : textSecondary,
-                        boxShadow: chartFilter === "weekly" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+                        color: chartFilter === "weekly" ? "#4fb3bf" : "rgba(255, 255, 255, 0.6)",
+                        transition: 'all 0.25s ease'
                       }}
                     >
                       Weekly
@@ -951,25 +1150,28 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#f1f5f9"} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255, 255, 255, 0.1)" />
                       <XAxis 
                         dataKey="name" 
-                        stroke={textSecondary} 
+                        stroke="rgba(255, 255, 255, 0.5)" 
                         fontSize={12} 
                         tickLine={false}
                         axisLine={false}
                         tickFormatter={(value) => chartFilter === "daily" ? value.split('-').slice(1).join('/') : value}
                       />
-                      <YAxis stroke={textSecondary} fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="rgba(255, 255, 255, 0.5)" fontSize={12} tickLine={false} axisLine={false} />
                       <RechartsTooltip 
                         contentStyle={{ 
-                          background: darkMode ? "#1e293b" : "white", 
-                          border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                          borderRadius: "8px",
-                          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)"
+                          background: 'rgba(10, 37, 64, 0.95)', 
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          borderRadius: "12px",
+                          boxShadow: "0 10px 30px rgba(0, 0, 0, 0.3)",
+                          color: '#ffffff'
                         }}
+                        labelStyle={{ color: '#ffffff' }}
+                        itemStyle={{ color: '#ffffff' }}
                       />
-                      <Legend />
+                      <Legend wrapperStyle={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                       <Area 
                         type="monotone" 
                         dataKey="infected" 
@@ -997,18 +1199,22 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }}>
                 {/* Recent Patients */}
                 <div style={{ 
-                  background: darkMode ? "#1e293b" : "white",
+                  background: 'rgba(255, 255, 255, 0.07)',
+                  backdropFilter: 'blur(20px)',
                   padding: "24px",
-                  borderRadius: "16px",
-                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`
+                  borderRadius: "20px",
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: "#ffffff" }}>
                       Recent Patients
                     </h3>
                     <button 
                       onClick={() => setView("patients")}
-                      style={{ background: "none", border: "none", color: "#6366f1", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+                      style={{ background: "none", border: "none", color: "#4fb3bf", fontSize: "14px", fontWeight: "600", cursor: "pointer", transition: 'all 0.25s ease' }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#6dccd6'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#4fb3bf'}
                     >
                       View All
                     </button>
@@ -1019,41 +1225,70 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                         display: "flex", 
                         alignItems: "center", 
                         gap: "12px", 
-                        padding: "12px",
-                        borderRadius: "12px",
-                        background: darkMode ? "#0f172a" : "#f8fafc",
-                        border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`
-                      }}>
+                        padding: "14px",
+                        borderRadius: "14px",
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        transition: 'all 0.25s ease',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.borderColor = 'rgba(79, 179, 191, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                      }}
+                      >
                         <div style={{ 
-                          width: "40px", height: "40px", borderRadius: "10px", background: "#e0e7ff",
-                          display: "flex", alignItems: "center", justifyContent: "center", color: "#6366f1", fontWeight: "bold"
+                          width: "44px", height: "44px", borderRadius: "12px", 
+                          background: 'linear-gradient(135deg, rgba(79, 179, 191, 0.3) 0%, rgba(13, 79, 111, 0.3) 100%)',
+                          border: '1px solid rgba(79, 179, 191, 0.3)',
+                          display: "flex", alignItems: "center", justifyContent: "center", 
+                          color: "#4fb3bf", fontWeight: "bold", fontSize: "16px"
                         }}>
                           {p.full_name?.charAt(0)}
                         </div>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontWeight: "600", color: textPrimary, fontSize: "14px" }}>{p.full_name}</p>
-                          <p style={{ margin: 0, fontSize: "12px", color: textSecondary }}>{p.email}</p>
+                          <p style={{ margin: 0, fontWeight: "600", color: "#ffffff", fontSize: "14px" }}>{p.full_name}</p>
+                          <p style={{ margin: 0, fontSize: "12px", color: "rgba(255, 255, 255, 0.6)" }}>{p.email}</p>
                         </div>
                         <button 
                           onClick={() => { setSelectedPatient(p); setView("scan"); }}
-                          style={{ padding: "6px 12px", background: "#6366f1", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                          style={{ 
+                            padding: "8px 14px", 
+                            background: 'linear-gradient(135deg, #0d4f6f 0%, #1a7a8c 100%)', 
+                            color: "white", 
+                            border: "none", 
+                            borderRadius: "8px", 
+                            fontSize: "12px", 
+                            fontWeight: '600',
+                            cursor: "pointer",
+                            transition: 'all 0.25s ease',
+                            boxShadow: '0 2px 8px rgba(13, 79, 111, 0.3)'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 16px rgba(79, 179, 191, 0.4)'}
+                          onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 2px 8px rgba(13, 79, 111, 0.3)'}
                         >
                           Analyze
                         </button>
                       </div>
                     ))}
-                    {patients.length === 0 && <p style={{ textAlign: "center", color: textSecondary }}>No patients found</p>}
+                    {patients.length === 0 && <p style={{ textAlign: "center", color: "rgba(255, 255, 255, 0.5)" }}>No patients found</p>}
                   </div>
                 </div>
 
                 {/* Quick Actions */}
                 <div style={{ 
-                  background: darkMode ? "#1e293b" : "white",
+                  background: 'rgba(255, 255, 255, 0.07)',
+                  backdropFilter: 'blur(20px)',
                   padding: "24px",
-                  borderRadius: "16px",
-                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`
+                  borderRadius: "20px",
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
                 }}>
-                  <h3 style={{ margin: "0 0 20px 0", fontSize: "18px", fontWeight: "600", color: textPrimary }}>
+                  <h3 style={{ margin: "0 0 20px 0", fontSize: "18px", fontWeight: "600", color: "#ffffff" }}>
                     Quick Actions
                   </h3>
                   <div style={{ display: "grid", gap: "12px" }}>
@@ -1062,28 +1297,28 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       label="Add New Patient" 
                       onClick={() => setShowAddPatientModal(true)} 
                       color="#10b981"
-                      darkMode={darkMode}
+                      darkMode={true}
                     />
                     <ActionButton 
                       icon={<Upload size={20} />} 
                       label="Upload MRI Scan" 
                       onClick={() => setView("scan")} 
-                      color="#6366f1"
-                      darkMode={darkMode}
+                      color="#4fb3bf"
+                      darkMode={true}
                     />
                     <ActionButton 
                       icon={<MessageCircle size={20} />} 
                       label="Open Messages" 
                       onClick={() => setView("chat")} 
                       color="#8b5cf6"
-                      darkMode={darkMode}
+                      darkMode={true}
                     />
                     <ActionButton 
                       icon={<FileText size={20} />} 
                       label="Generate Reports" 
                       onClick={() => setView("patients")} 
                       color="#f59e0b"
-                      darkMode={darkMode}
+                      darkMode={true}
                     />
                   </div>
                 </div>
@@ -1097,15 +1332,14 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               style={{
                 marginBottom: "24px",
                 padding: "20px",
-                background: darkMode ? "#1e293b" : "#ffffff",
-                borderRadius: "16px",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                background: 'rgba(255, 255, 255, 0.07)',
+                backdropFilter: 'blur(20px)',
+                borderRadius: "20px",
+                border: '1px solid rgba(255, 255, 255, 0.12)',
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                boxShadow: darkMode
-                  ? "0 4px 12px rgba(0,0,0,0.2)"
-                  : "0 4px 12px rgba(0,0,0,0.05)",
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
               }}
             >
               <div>
@@ -1114,13 +1348,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     margin: "0 0 4px 0",
                     fontSize: "18px",
                     fontWeight: "600",
-                    color: textPrimary,
+                    color: "#ffffff",
                   }}
                 >
                   Current Patient: {selectedPatient.full_name}
                 </h3>
                 <p
-                  style={{ margin: 0, fontSize: "14px", color: textSecondary }}
+                  style={{ margin: 0, fontSize: "14px", color: "rgba(255, 255, 255, 0.6)" }}
                 >
                   {selectedPatient.email} • ID: {selectedPatient.id}
                 </p>
@@ -1136,24 +1370,27 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   }}
                   style={{
                     padding: "10px 20px",
-                    background: "#6366f1",
+                    background: 'linear-gradient(135deg, #0d4f6f 0%, #1a7a8c 100%)',
                     color: "white",
                     border: "none",
-                    borderRadius: "8px",
+                    borderRadius: "10px",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
                     gap: "8px",
                     fontSize: "14px",
-                    fontWeight: "500",
-                    transition: "all 0.2s",
+                    fontWeight: "600",
+                    transition: "all 0.25s ease",
+                    boxShadow: '0 4px 12px rgba(13, 79, 111, 0.3)'
                   }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#4f46e5")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#6366f1")
-                  }
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(79, 179, 191, 0.4)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(13, 79, 111, 0.3)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                 >
                   <MessageCircle size={18} />
                   Message
@@ -1170,7 +1407,8 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   fontSize: "32px",
                   fontWeight: "bold",
                   marginBottom: "24px",
-                  color: textPrimary,
+                  color: "#ffffff",
+                  textShadow: '0 0 30px rgba(79, 179, 191, 0.3)'
                 }}
               >
                 Brain Tumor Analysis
@@ -1193,7 +1431,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                         display: "block",
                         marginBottom: "4px",
                         fontWeight: "600",
-                        color: textPrimary,
+                        color: "#ffffff",
                       }}
                     >
                       Select Patient
@@ -1201,7 +1439,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     <p
                       style={{
                         margin: 0,
-                        color: textSecondary,
+                        color: "rgba(255, 255, 255, 0.6)",
                         fontSize: "13px",
                       }}
                     >
@@ -1215,13 +1453,22 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
-                      padding: "10px 14px",
-                      background: "#10b981",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "8px",
+                      padding: "10px 16px",
+                      background: 'rgba(16, 185, 129, 0.2)',
+                      color: "#10b981",
+                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      borderRadius: "10px",
                       cursor: "pointer",
                       fontWeight: "600",
+                      transition: 'all 0.25s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(16, 185, 129, 0.3)';
+                      e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(16, 185, 129, 0.2)';
+                      e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.3)';
                     }}
                   >
                     <Plus size={18} />
@@ -1241,16 +1488,19 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     style={{
                       width: "100%",
                       marginTop: "12px",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                      background: darkMode ? "#1e293b" : "white",
-                      color: textPrimary,
+                      padding: "14px",
+                      borderRadius: "12px",
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      backdropFilter: 'blur(10px)',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      cursor: 'pointer'
                     }}
                   >
-                    <option value="">-- Select a patient --</option>
+                    <option value="" style={{ background: '#0d4f6f' }}>-- Select a patient --</option>
                     {patients.map((p) => (
-                      <option key={p.id} value={p.id}>
+                      <option key={p.id} value={p.id} style={{ background: '#0d4f6f' }}>
                         {p.full_name} - {p.email}
                       </option>
                     ))}
@@ -1259,11 +1509,11 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   <div
                     style={{
                       marginTop: "12px",
-                      padding: "14px",
-                      borderRadius: "8px",
-                      border: `1px dashed ${darkMode ? "#334155" : "#e5e7eb"}`,
-                      background: darkMode ? "#1e293b" : "#ffffff",
-                      color: textSecondary,
+                      padding: "16px",
+                      borderRadius: "12px",
+                      border: '1px dashed rgba(255, 255, 255, 0.2)',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: "rgba(255, 255, 255, 0.6)",
                       fontSize: "14px",
                     }}
                   >
@@ -1348,42 +1598,44 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               <div
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  border: `2px dashed ${darkMode ? "#475569" : "#cbd5e1"}`,
-                  borderRadius: "16px",
+                  border: '2px dashed rgba(255, 255, 255, 0.2)',
+                  borderRadius: "20px",
                   padding: "60px 40px",
                   textAlign: "center",
                   cursor: "pointer",
-                  background: darkMode ? "#1e293b" : "white",
-                  transition: "all 0.3s",
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(10px)',
+                  transition: "all 0.3s ease",
                   marginBottom: "24px",
                 }}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  e.currentTarget.style.borderColor = "#6366f1";
-                  e.currentTarget.style.background = darkMode
-                    ? "#334155"
-                    : "#f1f5f9";
+                  e.currentTarget.style.borderColor = "#4fb3bf";
+                  e.currentTarget.style.background = 'rgba(79, 179, 191, 0.15)';
+                  e.currentTarget.style.boxShadow = '0 0 30px rgba(79, 179, 191, 0.3)';
                 }}
                 onDragLeave={(e) => {
-                  e.currentTarget.style.borderColor = darkMode
-                    ? "#475569"
-                    : "#cbd5e1";
-                  e.currentTarget.style.background = darkMode
-                    ? "#1e293b"
-                    : "white";
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  e.currentTarget.style.borderColor = darkMode
-                    ? "#475569"
-                    : "#cbd5e1";
-                  e.currentTarget.style.background = darkMode
-                    ? "#1e293b"
-                    : "white";
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.boxShadow = 'none';
                   const file = e.dataTransfer.files[0];
                   if (file) {
                     handleFile({ target: { files: [file] } });
                   }
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(79, 179, 191, 0.4)';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                 }}
               >
                 <input
@@ -1395,7 +1647,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 />
                 <Upload
                   size={48}
-                  color={darkMode ? "#94a3b8" : "#64748b"}
+                  color="#4fb3bf"
                   style={{ margin: "0 auto 16px" }}
                 />
                 <p
@@ -1403,12 +1655,12 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     fontSize: "18px",
                     fontWeight: "600",
                     marginBottom: "8px",
-                    color: textPrimary,
+                    color: "#ffffff",
                   }}
                 >
                   Upload MRI Scan
                 </p>
-                <p style={{ fontSize: "14px", color: textSecondary }}>
+                <p style={{ fontSize: "14px", color: "rgba(255, 255, 255, 0.6)" }}>
                   Click or drag & drop an MRI image (JPEG, PNG)
                 </p>
               </div>
@@ -1417,11 +1669,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               {preview && (
                 <div
                   style={{
-                    background: darkMode ? "#1e293b" : "white",
-                    borderRadius: "16px",
+                    background: 'rgba(255, 255, 255, 0.07)',
+                    backdropFilter: 'blur(20px)',
+                    borderRadius: "20px",
                     padding: "24px",
                     marginBottom: "24px",
-                    border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)'
                   }}
                 >
                   <div
@@ -1436,13 +1690,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                         style={{
                           margin: "0 0 16px 0",
                           fontWeight: "600",
-                          color: textPrimary,
+                          color: "#ffffff",
                           display: "flex",
                           alignItems: "center",
                           gap: "8px",
                         }}
                       >
-                        <ImageIcon size={20} />
+                        <ImageIcon size={20} color="#4fb3bf" />
                         Original MRI Scan
                       </h4>
                       <img
@@ -1451,8 +1705,9 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                         style={{
                           width: "100%",
                           height: "auto",
-                          borderRadius: "12px",
-                          border: `2px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                          borderRadius: "14px",
+                          border: '2px solid rgba(255, 255, 255, 0.15)',
+                          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
                         }}
                       />
                     </div>
@@ -1463,13 +1718,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           style={{
                             margin: "0 0 16px 0",
                             fontWeight: "600",
-                            color: textPrimary,
+                            color: "#ffffff",
                             display: "flex",
                             alignItems: "center",
                             gap: "8px",
                           }}
                         >
-                          <Eye size={20} />
+                          <Eye size={20} color="#4fb3bf" />
                           Grad-CAM Visualization
                         </h4>
                         <img
@@ -1478,15 +1733,16 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           style={{
                             width: "100%",
                             height: "auto",
-                            borderRadius: "12px",
-                            border: `2px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                            borderRadius: "14px",
+                            border: '2px solid rgba(255, 255, 255, 0.15)',
+                            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
                           }}
                         />
                         <p
                           style={{
                             marginTop: "12px",
                             fontSize: "13px",
-                            color: textSecondary,
+                            color: "rgba(255, 255, 255, 0.5)",
                             fontStyle: "italic",
                           }}
                         >
@@ -1522,19 +1778,33 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 disabled={!selectedFile || loading}
                 style={{
                   width: "100%",
-                  padding: "16px",
-                  background: loading ? "#94a3b8" : "#6366f1",
+                  padding: "18px",
+                  background: loading ? 'rgba(148, 163, 184, 0.5)' : 'linear-gradient(135deg, #0d4f6f 0%, #1a7a8c 100%)',
                   color: "white",
                   border: "none",
-                  borderRadius: "12px",
+                  borderRadius: "14px",
                   fontSize: "16px",
                   fontWeight: "600",
-                  cursor: loading ? "not-allowed" : "pointer",
+                  cursor: loading || !selectedFile ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "12px",
-                  transition: "all 0.2s",
+                  transition: "all 0.3s ease",
+                  boxShadow: loading ? 'none' : '0 4px 20px rgba(13, 79, 111, 0.4)',
+                  opacity: !selectedFile ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading && selectedFile) {
+                    e.currentTarget.style.boxShadow = '0 6px 30px rgba(79, 179, 191, 0.5)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading && selectedFile) {
+                    e.currentTarget.style.boxShadow = '0 4px 20px rgba(13, 79, 111, 0.4)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
                 }}
               >
                 {loading ? (
@@ -1580,7 +1850,8 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   fontSize: "32px",
                   fontWeight: "bold",
                   marginBottom: "24px",
-                  color: textPrimary,
+                  color: "#ffffff",
+                  textShadow: '0 0 30px rgba(79, 179, 191, 0.3)'
                 }}
               >
                 Patient Management
@@ -1592,15 +1863,29 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     key={patient.id}
                     style={{
                       padding: "20px",
-                      background: darkMode ? "#1e293b" : "white",
-                      borderRadius: "12px",
-                      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      backdropFilter: 'blur(20px)',
+                      borderRadius: "16px",
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
                       cursor: "pointer",
-                      transition: "all 0.2s",
+                      transition: "all 0.3s ease",
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
                     }}
                     onClick={() => {
                       setSelectedPatient(patient);
                       setView("scan");
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(79, 179, 191, 0.3)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 8px 30px rgba(0, 0, 0, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.07)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.15)';
                     }}
                   >
                     <div
@@ -1611,14 +1896,14 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       }}
                     >
                       <div style={{ flex: 1 }}>
-                        <h3 style={{ margin: "0 0 8px 0", color: textPrimary }}>
+                        <h3 style={{ margin: "0 0 8px 0", color: "#ffffff", fontWeight: "600" }}>
                           {patient.full_name}
                         </h3>
                         <p
                           style={{
                             margin: "0 0 4px 0",
                             fontSize: "14px",
-                            color: textSecondary,
+                            color: "rgba(255, 255, 255, 0.6)",
                           }}
                         >
                           {patient.email}
@@ -1627,7 +1912,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           style={{
                             margin: 0,
                             fontSize: "14px",
-                            color: textSecondary,
+                            color: "rgba(255, 255, 255, 0.5)",
                           }}
                         >
                           {patient.phone}
@@ -1645,24 +1930,26 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                             setView("chat");
                           }}
                           style={{
-                            padding: "8px",
-                            background: "#6366f1",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "8px",
+                            padding: "10px",
+                            background: 'rgba(79, 179, 191, 0.2)',
+                            color: "#4fb3bf",
+                            border: "1px solid rgba(79, 179, 191, 0.3)",
+                            borderRadius: "10px",
                             cursor: "pointer",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            transition: "all 0.2s",
+                            transition: "all 0.25s ease",
                           }}
                           title="Message"
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background = "#4f46e5")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#6366f1")
-                          }
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(79, 179, 191, 0.3)';
+                            e.currentTarget.style.borderColor = 'rgba(79, 179, 191, 0.5)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(79, 179, 191, 0.2)';
+                            e.currentTarget.style.borderColor = 'rgba(79, 179, 191, 0.3)';
+                          }}
                         >
                           <MessageCircle size={18} />
                         </button>
@@ -1674,22 +1961,23 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                             setView("scan");
                           }}
                           style={{
-                            padding: "8px 16px",
-                            background: "#8b5cf6",
+                            padding: "10px 18px",
+                            background: 'linear-gradient(135deg, #0d4f6f 0%, #1a7a8c 100%)',
                             color: "white",
                             border: "none",
-                            borderRadius: "8px",
+                            borderRadius: "10px",
                             cursor: "pointer",
                             fontSize: "14px",
-                            fontWeight: "500",
-                            transition: "all 0.2s",
+                            fontWeight: "600",
+                            transition: "all 0.25s ease",
+                            boxShadow: '0 2px 10px rgba(13, 79, 111, 0.3)'
                           }}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background = "#7c3aed")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#8b5cf6")
-                          }
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 4px 16px rgba(79, 179, 191, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 2px 10px rgba(13, 79, 111, 0.3)';
+                          }}
                         >
                           View Details
                         </button>
@@ -1786,9 +2074,13 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 }
 
 function NavItem({ icon, label, active, onClick, badge }) {
+  const [hovered, setHovered] = React.useState(false);
+  
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         width: "100%",
         padding: "14px 16px",
@@ -1796,30 +2088,63 @@ function NavItem({ icon, label, active, onClick, badge }) {
         display: "flex",
         alignItems: "center",
         gap: "14px",
-        background: active ? "#6366f1" : "transparent",
-        color: active ? "white" : "#64748b",
-        border: "none",
-        borderRadius: "12px",
+        background: active 
+          ? "rgba(255, 255, 255, 0.95)"
+          : hovered 
+            ? "rgba(255, 255, 255, 0.12)"
+            : "transparent",
+        color: active ? "#0d4f6f" : hovered ? "#ffffff" : "rgba(255, 255, 255, 0.7)",
+        border: active 
+          ? "1px solid rgba(255, 255, 255, 0.3)" 
+          : "1px solid transparent",
+        borderRadius: "14px",
         cursor: "pointer",
-        transition: "all 0.2s",
+        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
         position: "relative",
+        boxShadow: active 
+          ? "0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1)" 
+          : hovered 
+            ? "0 2px 12px rgba(0, 0, 0, 0.1)"
+            : "none",
+        fontWeight: active ? "600" : "500",
+        fontSize: "14px",
+        backdropFilter: hovered && !active ? "blur(12px)" : "none",
+        transform: active ? "scale(1)" : hovered ? "translateX(4px)" : "translateX(0)",
       }}
     >
-      {icon}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '32px',
+        height: '32px',
+        borderRadius: '10px',
+        background: active 
+          ? 'linear-gradient(135deg, #0d4f6f 0%, #1a7a8c 100%)'
+          : hovered 
+            ? 'rgba(255, 255, 255, 0.15)'
+            : 'transparent',
+        transition: 'all 0.3s ease',
+        color: active ? '#ffffff' : 'inherit',
+        boxShadow: active ? '0 2px 8px rgba(13, 79, 111, 0.3)' : 'none'
+      }}>
+        {icon}
+      </div>
       <span style={{ flex: 1, textAlign: "left" }}>{label}</span>
       {badge && (
         <span
           style={{
-            background: "#ef4444",
+            background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
             color: "white",
             borderRadius: "50%",
-            width: "20px",
-            height: "20px",
+            width: "22px",
+            height: "22px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontSize: "11px",
             fontWeight: "bold",
+            boxShadow: "0 0 10px rgba(239, 68, 68, 0.5)",
           }}
         >
           {badge}
@@ -2077,28 +2402,63 @@ function FixedAnalysisResults({ prediction, darkMode, onDownloadPDF }) {
   );
 }
 function DashboardCard({ title, value, icon, darkMode, subtitle }) {
+  const [hovered, setHovered] = React.useState(false);
+  
   return (
-    <div style={{ 
-      background: darkMode ? "#1e293b" : "white",
-      padding: "24px",
-      borderRadius: "16px",
-      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-      display: "flex",
-      alignItems: "center",
-      gap: "20px"
-    }}>
+    <div 
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ 
+        background: darkMode 
+          ? "rgba(30, 41, 59, 0.6)" 
+          : "rgba(255, 255, 255, 0.8)",
+        backdropFilter: "blur(16px)",
+        padding: "28px",
+        borderRadius: "20px",
+        border: darkMode 
+          ? "1px solid rgba(255, 255, 255, 0.08)" 
+          : "1px solid rgba(0, 0, 0, 0.06)",
+        boxShadow: hovered 
+          ? "0 20px 40px rgba(0, 0, 0, 0.15), 0 0 30px rgba(59, 130, 246, 0.1)"
+          : "0 8px 24px rgba(0, 0, 0, 0.08)",
+        display: "flex",
+        alignItems: "center",
+        gap: "20px",
+        transition: "all 0.3s ease",
+        transform: hovered ? "translateY(-4px)" : "translateY(0)",
+        cursor: "default"
+      }}
+    >
       <div style={{ 
-        width: "56px", height: "56px", borderRadius: "14px", 
-        background: darkMode ? "#0f172a" : "#f1f5f9",
-        display: "flex", alignItems: "center", justifyContent: "center"
+        width: "60px", 
+        height: "60px", 
+        borderRadius: "16px", 
+        background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)",
+        border: "1px solid rgba(99, 102, 241, 0.3)",
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center",
+        boxShadow: "0 0 20px rgba(99, 102, 241, 0.2)"
       }}>
         {icon}
       </div>
       <div>
-        <p style={{ margin: 0, fontSize: "14px", color: darkMode ? "#94a3b8" : "#64748b", fontWeight: "500" }}>{title}</p>
-        <h3 style={{ margin: "4px 0 0 0", fontSize: "28px", fontWeight: "700", color: darkMode ? "#f1f5f9" : "#1e293b" }}>{value}</h3>
-        {subtitle && <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: darkMode ? "#64748b" : "#94a3b8" }}>{subtitle}</p>}
+        <p style={{ 
+          margin: 0, 
+          fontSize: "13px", 
+          color: darkMode ? "rgba(148, 163, 184, 0.9)" : "#64748b", 
+          fontWeight: "600",
+          textTransform: "uppercase",
+          letterSpacing: "0.5px"
+        }}>{title}</p>
+        <h3 style={{ 
+          margin: "6px 0 0 0", 
+          fontSize: "32px", 
+          fontWeight: "800", 
+          color: darkMode ? "#f1f5f9" : "#1e293b",
+          letterSpacing: "-0.5px"
+        }}>{value}</h3>
+        {subtitle && <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: darkMode ? "#64748b" : "#94a3b8" }}>{subtitle}</p>}
       </div>
     </div>
   );
@@ -2111,27 +2471,39 @@ function ActionButton({ icon, label, onClick, color, darkMode }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "12px",
-        padding: "16px",
-        background: darkMode ? "#0f172a" : "white",
-        border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-        borderRadius: "12px",
+        gap: "14px",
+        padding: "18px 20px",
+        background: darkMode 
+          ? "rgba(15, 23, 42, 0.6)" 
+          : "rgba(255, 255, 255, 0.8)",
+        backdropFilter: "blur(12px)",
+        border: darkMode 
+          ? "1px solid rgba(255, 255, 255, 0.08)" 
+          : "1px solid rgba(0, 0, 0, 0.06)",
+        borderRadius: "14px",
         cursor: "pointer",
         textAlign: "left",
         width: "100%",
-        transition: "all 0.2s",
-        boxShadow: "0 2px 4px rgba(0,0,0,0.02)"
+        transition: "all 0.25s ease",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.08)"
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = color;
-        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.transform = "translateY(-3px)";
+        e.currentTarget.style.boxShadow = `0 12px 28px rgba(0,0,0,0.12), 0 0 20px ${color}30`;
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = darkMode ? "#334155" : "#e5e7eb";
+        e.currentTarget.style.borderColor = darkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
         e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)";
       }}
     >
-      <div style={{ color: color }}>{icon}</div>
+      <div style={{ 
+        color: color,
+        padding: "8px",
+        background: `${color}15`,
+        borderRadius: "10px"
+      }}>{icon}</div>
       <span style={{ fontWeight: "600", color: darkMode ? "#f1f5f9" : "#1e293b", fontSize: "14px" }}>{label}</span>
     </button>
   );

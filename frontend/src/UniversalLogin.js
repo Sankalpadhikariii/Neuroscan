@@ -102,31 +102,101 @@ export default function UniversalLogin({ onLogin }) {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #0f172a 70%, #1a1a2e 100%)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '20px'
+      padding: '20px',
+      position: 'relative',
+      overflow: 'hidden',
+      fontFamily: "'Inter', sans-serif"
     }}>
+      {/* Glow Orbs */}
       <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        position: 'absolute',
+        top: '10%',
+        left: '20%',
+        width: '400px',
+        height: '400px',
+        background: 'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, transparent 70%)',
+        borderRadius: '50%',
+        filter: 'blur(60px)',
+        pointerEvents: 'none'
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '10%',
+        right: '15%',
+        width: '350px',
+        height: '350px',
+        background: 'radial-gradient(circle, rgba(139, 92, 246, 0.2) 0%, transparent 70%)',
+        borderRadius: '50%',
+        filter: 'blur(60px)',
+        pointerEvents: 'none'
+      }} />
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        right: '30%',
+        width: '200px',
+        height: '200px',
+        background: 'radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%)',
+        borderRadius: '50%',
+        filter: 'blur(40px)',
+        pointerEvents: 'none'
+      }} />
+
+      <div style={{
+        background: 'rgba(30, 41, 59, 0.7)',
+        backdropFilter: 'blur(20px)',
+        borderRadius: '24px',
+        boxShadow: '0 25px 80px rgba(0,0,0,0.5), 0 0 40px rgba(59, 130, 246, 0.1)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
         maxWidth: '450px',
         width: '100%',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative',
+        zIndex: 1
       }}>
         {/* Header */}
         <div style={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          padding: '40px 30px',
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%)',
+          padding: '50px 30px',
           textAlign: 'center',
-          color: 'white'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          position: 'relative',
+          overflow: 'hidden'
         }}>
-          <h1 style={{ margin: '0 0 10px 0', fontSize: '32px', fontWeight: 'bold' }}>
+          {/* Header Glow */}
+          <div style={{
+            position: 'absolute',
+            top: '-50%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '300px',
+            height: '200px',
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, transparent 70%)',
+            filter: 'blur(30px)',
+            pointerEvents: 'none'
+          }} />
+          <h1 style={{ 
+            margin: '0 0 12px 0', 
+            fontSize: '36px', 
+            fontWeight: '800',
+            color: '#f1f5f9',
+            textShadow: '0 0 40px rgba(59, 130, 246, 0.5)',
+            position: 'relative',
+            letterSpacing: '-0.5px'
+          }}>
             NeuroScan
           </h1>
-          <p style={{ margin: 0, opacity: 0.9, fontSize: '14px' }}>
+          <p style={{ 
+            margin: 0, 
+            color: 'rgba(148, 163, 184, 0.9)', 
+            fontSize: '14px',
+            fontWeight: '500',
+            position: 'relative'
+          }}>
             Brain Tumor Detection Platform
           </p>
         </div>
@@ -134,24 +204,26 @@ export default function UniversalLogin({ onLogin }) {
         {/* Login Type Selector */}
         <div style={{
           display: 'flex',
-          borderBottom: '1px solid #e5e7eb',
-          background: '#f9fafb'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          background: 'rgba(15, 23, 42, 0.5)'
         }}>
           <button
             onClick={() => setLoginType('hospital')}
             style={{
               flex: 1,
-              padding: '16px',
+              padding: '18px',
               border: 'none',
-              background: loginType === 'hospital' ? 'white' : 'transparent',
-              borderBottom: loginType === 'hospital' ? '3px solid #667eea' : 'none',
+              background: loginType === 'hospital' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              borderBottom: loginType === 'hospital' ? '3px solid #3b82f6' : '3px solid transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              fontWeight: loginType === 'hospital' ? '600' : '400',
-              color: loginType === 'hospital' ? '#667eea' : '#6b7280'
+              fontWeight: loginType === 'hospital' ? '600' : '500',
+              color: loginType === 'hospital' ? '#60a5fa' : 'rgba(148, 163, 184, 0.8)',
+              transition: 'all 0.25s ease',
+              fontSize: '14px'
             }}
           >
             <Building2 size={18} />
@@ -161,17 +233,19 @@ export default function UniversalLogin({ onLogin }) {
             onClick={() => setLoginType('admin')}
             style={{
               flex: 1,
-              padding: '16px',
+              padding: '18px',
               border: 'none',
-              background: loginType === 'admin' ? 'white' : 'transparent',
-              borderBottom: loginType === 'admin' ? '3px solid #667eea' : 'none',
+              background: loginType === 'admin' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              borderBottom: loginType === 'admin' ? '3px solid #3b82f6' : '3px solid transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              fontWeight: loginType === 'admin' ? '600' : '400',
-              color: loginType === 'admin' ? '#667eea' : '#6b7280'
+              fontWeight: loginType === 'admin' ? '600' : '500',
+              color: loginType === 'admin' ? '#60a5fa' : 'rgba(148, 163, 184, 0.8)',
+              transition: 'all 0.25s ease',
+              fontSize: '14px'
             }}
           >
             <Shield size={18} />
@@ -181,17 +255,19 @@ export default function UniversalLogin({ onLogin }) {
             onClick={() => setLoginType('patient')}
             style={{
               flex: 1,
-              padding: '16px',
+              padding: '18px',
               border: 'none',
-              background: loginType === 'patient' ? 'white' : 'transparent',
-              borderBottom: loginType === 'patient' ? '3px solid #667eea' : 'none',
+              background: loginType === 'patient' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              borderBottom: loginType === 'patient' ? '3px solid #3b82f6' : '3px solid transparent',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              fontWeight: loginType === 'patient' ? '600' : '400',
-              color: loginType === 'patient' ? '#667eea' : '#6b7280'
+              fontWeight: loginType === 'patient' ? '600' : '500',
+              color: loginType === 'patient' ? '#60a5fa' : 'rgba(148, 163, 184, 0.8)',
+              transition: 'all 0.25s ease',
+              fontSize: '14px'
             }}
           >
             <User size={18} />
@@ -204,7 +280,7 @@ export default function UniversalLogin({ onLogin }) {
           {loginType === 'admin' && (
             <>
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: 'rgba(148, 163, 184, 0.9)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Username
                 </label>
                 <input
@@ -215,15 +291,22 @@ export default function UniversalLogin({ onLogin }) {
                   required
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
+                    padding: '14px 16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    color: '#f1f5f9',
+                    outline: 'none',
+                    transition: 'all 0.25s ease',
+                    boxSizing: 'border-box'
                   }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
                 />
               </div>
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: 'rgba(148, 163, 184, 0.9)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Password
                 </label>
                 <input
@@ -234,11 +317,18 @@ export default function UniversalLogin({ onLogin }) {
                   required
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
+                    padding: '14px 16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    color: '#f1f5f9',
+                    outline: 'none',
+                    transition: 'all 0.25s ease',
+                    boxSizing: 'border-box'
                   }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
                 />
               </div>
             </>
@@ -247,7 +337,7 @@ export default function UniversalLogin({ onLogin }) {
           {loginType === 'hospital' && (
             <>
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: 'rgba(148, 163, 184, 0.9)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Username
                 </label>
                 <input
@@ -258,15 +348,22 @@ export default function UniversalLogin({ onLogin }) {
                   required
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
+                    padding: '14px 16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    color: '#f1f5f9',
+                    outline: 'none',
+                    transition: 'all 0.25s ease',
+                    boxSizing: 'border-box'
                   }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
                 />
               </div>
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '13px', color: 'rgba(148, 163, 184, 0.9)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Password
                 </label>
                 <input
@@ -277,11 +374,18 @@ export default function UniversalLogin({ onLogin }) {
                   required
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px'
+                    padding: '14px 16px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '12px',
+                    fontSize: '14px',
+                    background: 'rgba(15, 23, 42, 0.5)',
+                    color: '#f1f5f9',
+                    outline: 'none',
+                    transition: 'all 0.25s ease',
+                    boxSizing: 'border-box'
                   }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
                 />
               </div>
             </>
@@ -391,11 +495,11 @@ export default function UniversalLogin({ onLogin }) {
 
           {error && (
             <div style={{
-              padding: '12px',
-              background: '#fee2e2',
-              border: '1px solid #fca5a5',
-              borderRadius: '8px',
-              color: '#991b1b',
+              padding: '14px 16px',
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '12px',
+              color: '#fca5a5',
               fontSize: '14px',
               marginBottom: '20px'
             }}>
@@ -408,18 +512,21 @@ export default function UniversalLogin({ onLogin }) {
             disabled={loading}
             style={{
               width: '100%',
-              padding: '14px',
-              background: loading ? '#9ca3af' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              padding: '16px',
+              background: loading ? 'rgba(100, 116, 139, 0.5)' : 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
               color: 'white',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '14px',
               fontSize: '16px',
-              fontWeight: '600',
+              fontWeight: '700',
               cursor: loading ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '8px'
+              gap: '10px',
+              boxShadow: loading ? 'none' : '0 0 30px rgba(59, 130, 246, 0.4)',
+              transition: 'all 0.25s ease',
+              letterSpacing: '0.5px'
             }}
           >
             {loading ? (
@@ -436,12 +543,12 @@ export default function UniversalLogin({ onLogin }) {
         {/* Demo Credentials */}
         <div style={{
           padding: '20px 30px',
-          background: '#f9fafb',
-          borderTop: '1px solid #e5e7eb',
+          background: 'rgba(15, 23, 42, 0.5)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
           fontSize: '12px',
-          color: '#6b7280'
+          color: 'rgba(148, 163, 184, 0.8)'
         }}>
-          <p style={{ margin: '0 0 8px 0', fontWeight: '600' }}>Demo Credentials:</p>
+          <p style={{ margin: '0 0 8px 0', fontWeight: '600', color: 'rgba(148, 163, 184, 0.9)' }}>Demo Credentials:</p>
           {loginType === 'admin' && (
             <p style={{ margin: 0 }}>Username: admin • Password: admin123</p>
           )}
