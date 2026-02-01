@@ -72,7 +72,7 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
           width: '40px',
           height: '40px',
           border: '4px solid ' + borderColor,
-          borderTopColor: '#6366f1',
+          borderTopColor: '#2563eb',
           borderRadius: '50%',
           margin: '0 auto 16px',
           animation: 'spin 1s linear infinite'
@@ -127,7 +127,7 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
             alignItems: 'center',
             gap: '12px'
           }}>
-            <Eye size={24} color="#6366f1" />
+            <Eye size={24} color="#2563eb" />
             Grad-CAM Visualization
           </h3>
 
@@ -155,7 +155,7 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
               onClick={downloadGradCAM}
               style={{
                 padding: '8px 16px',
-                background: '#6366f1',
+                background: '#2563eb',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
@@ -183,7 +183,7 @@ export default function GradCAMVisualization({ scanId, darkMode }) {
           display: 'flex',
           gap: '12px'
         }}>
-          <Info size={20} color="#6366f1" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <Info size={20} color="#2563eb" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div>
             <p style={{
               margin: '0 0 8px 0',

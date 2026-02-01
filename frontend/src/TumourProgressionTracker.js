@@ -134,7 +134,7 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
       case 'decreasing':
         return '#10b981';
       default:
-        return '#6366f1';
+        return '#2563eb';
     }
   };
 
@@ -170,7 +170,7 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
           alignItems: 'center',
           gap: '12px'
         }}>
-          <TrendingUp size={24} color="#6366f1" />
+          <TrendingUp size={24} color="#2563eb" />
           Tumor Progression Analysis
         </h3>
         <p style={{
@@ -256,12 +256,12 @@ export default function TumorProgressionTracker({ scans, darkMode }) {
                   borderRadius: '50%',
                   background: metric 
                     ? getTrendColor(metric.trend)
-                    : '#6366f1',
+                    : '#2563eb',
                   border: `3px solid ${bgColor}`,
                   transition: 'all 0.2s',
                   marginBottom: '12px',
                   boxShadow: isSelected 
-                    ? `0 0 0 4px ${metric ? getTrendColor(metric.trend) : '#6366f1'}33`
+                    ? `0 0 0 4px ${metric ? getTrendColor(metric.trend) : '#2563eb'}33`
                     : 'none'
                 }} />
                 

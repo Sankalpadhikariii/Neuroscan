@@ -687,7 +687,7 @@ function Overview({ scans, loading, darkMode, patientName, appointments, isMobil
           width: '40px', 
           height: '40px', 
           border: '4px solid #e5e7eb',
-          borderTopColor: '#6366f1',
+          borderTopColor: '#2563eb',
           borderRadius: '50%',
           animation: 'spin 1s linear infinite',
           margin: '0 auto 16px'
@@ -702,7 +702,7 @@ function Overview({ scans, loading, darkMode, patientName, appointments, isMobil
       {/* Welcome Message */}
       <div style={{
         padding: '24px',
-        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+        background: 'linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%)',
         borderRadius: '16px',
         color: 'white',
         marginBottom: '24px'
@@ -768,7 +768,7 @@ function Overview({ scans, loading, darkMode, patientName, appointments, isMobil
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginBottom: '16px', position: 'relative', zIndex: 1
           }}>
-            <Brain size={24} color="#6366f1" />
+            <Brain size={24} color="#2563eb" />
           </div>
           
           {/* Content */}
@@ -920,7 +920,7 @@ function Overview({ scans, loading, darkMode, patientName, appointments, isMobil
             alignItems: 'center',
             gap: '10px'
           }}>
-            <Activity size={20} color="#6366f1" />
+            <Activity size={20} color="#2563eb" />
             Latest Scan Result
           </h4>
           
@@ -929,12 +929,12 @@ function Overview({ scans, loading, darkMode, patientName, appointments, isMobil
               width: '80px',
               height: '80px',
               borderRadius: '16px',
-              background: `${colors[latestScan.prediction] || '#6366f1'}22`,
+              background: `${colors[latestScan.prediction] || '#2563eb'}22`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <Brain size={40} color={colors[latestScan.prediction] || '#6366f1'} />
+              <Brain size={40} color={colors[latestScan.prediction] || '#2563eb'} />
             </div>
             
             <div style={{ flex: 1 }}>
@@ -1039,7 +1039,7 @@ function Scans({ scans, loading, error, darkMode }) {
           width: '40px', 
           height: '40px', 
           border: '4px solid #e5e7eb',
-          borderTopColor: '#6366f1',
+          borderTopColor: '#2563eb',
           borderRadius: '50%',
           animation: 'spin 1s linear infinite',
           margin: '0 auto 16px'
@@ -1158,7 +1158,7 @@ function Appointments({ appointments, loading, error }) {
                 <p style={{ margin: "0 0 4px 0", fontSize: "14px", color: "#64748b" }}>
                   {appt.hospital_name}
                 </p>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", color: "#6366f1", fontWeight: "500" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", color: "#2563eb", fontWeight: "500" }}>
                   <Activity size={16} />
                   {appt.appointment_time}
                 </div>

@@ -618,7 +618,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
       bottom: 20px;
       right: 20px;
       padding: 16px 24px;
-      background: ${type === "success" ? "#10b981" : type === "error" ? "#ef4444" : "#6366f1"};
+      background: ${type === "success" ? "#10b981" : type === "error" ? "#ef4444" : "#2563eb"};
       color: white;
       border-radius: 8px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
@@ -961,7 +961,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 <DashboardCard 
                   title="Total Patients" 
                   value={dashboardStats?.total_patients || 0} 
-                  icon={<Users color="#6366f1" size={24} />}
+                  icon={<Users color="#2563eb" size={24} />}
                   darkMode={darkMode}
                   bgGradient="linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)"
                 />
@@ -1022,7 +1022,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           cursor: "pointer",
                           fontSize: "13px",
                           fontWeight: "600",
-                          color: chartFilter === "daily" ? "#6366f1" : textSecondary,
+                          color: chartFilter === "daily" ? "#2563eb" : textSecondary,
                           boxShadow: chartFilter === "daily" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
                         }}
                       >
@@ -1038,7 +1038,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           cursor: "pointer",
                           fontSize: "13px",
                           fontWeight: "600",
-                          color: chartFilter === "weekly" ? "#6366f1" : textSecondary,
+                          color: chartFilter === "weekly" ? "#2563eb" : textSecondary,
                           boxShadow: chartFilter === "weekly" ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
                         }}
                       >
@@ -1126,7 +1126,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     </h3>
                     <button 
                       onClick={() => setView("patients")}
-                      style={{ background: "none", border: "none", color: "#6366f1", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+                      style={{ background: "none", border: "none", color: "#2563eb", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
                     >
                       View All
                     </button>
@@ -1144,7 +1144,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       }}>
                         <div style={{ 
                           width: "40px", height: "40px", borderRadius: "10px", background: "#e0e7ff",
-                          display: "flex", alignItems: "center", justifyContent: "center", color: "#6366f1", fontWeight: "bold"
+                          display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb", fontWeight: "bold"
                         }}>
                           {p.full_name?.charAt(0)}
                         </div>
@@ -1154,7 +1154,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                         </div>
                         <button 
                           onClick={() => { setSelectedPatient(p); setView("scan"); }}
-                          style={{ padding: "6px 12px", background: "#6366f1", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+                          style={{ padding: "6px 12px", background: "#2563eb", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
                         >
                           Analyze
                         </button>
@@ -1186,7 +1186,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                       icon={<Upload size={20} />} 
                       label="Upload MRI Scan" 
                       onClick={() => setView("scan")} 
-                      color="#6366f1"
+                      color="#2563eb"
                       darkMode={darkMode}
                     />
                     <ActionButton 
@@ -1254,7 +1254,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                   }}
                   style={{
                     padding: "10px 20px",
-                    background: "#6366f1",
+                    background: "#2563eb",
                     color: "white",
                     border: "none",
                     borderRadius: "8px",
@@ -1270,7 +1270,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                     (e.currentTarget.style.background = "#4f46e5")
                   }
                   onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#6366f1")
+                    (e.currentTarget.style.background = "#2563eb")
                   }
                 >
                   <MessageCircle size={18} />
@@ -1477,7 +1477,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 }}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  e.currentTarget.style.borderColor = "#6366f1";
+                  e.currentTarget.style.borderColor = "#2563eb";
                   e.currentTarget.style.background = darkMode
                     ? "#334155"
                     : "#f1f5f9";
@@ -1641,7 +1641,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 style={{
                   width: "100%",
                   padding: "16px",
-                  background: loading ? "#94a3b8" : "#6366f1",
+                  background: loading ? "#94a3b8" : "#2563eb",
                   color: "white",
                   border: "none",
                   borderRadius: "12px",
@@ -1764,7 +1764,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                           }}
                           style={{
                             padding: "8px",
-                            background: "#6366f1",
+                            background: "#2563eb",
                             color: "white",
                             border: "none",
                             borderRadius: "8px",
@@ -1779,7 +1779,7 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                             (e.currentTarget.style.background = "#4f46e5")
                           }
                           onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#6366f1")
+                            (e.currentTarget.style.background = "#2563eb")
                           }
                         >
                           <MessageCircle size={18} />
@@ -2018,7 +2018,7 @@ function SimplePatientInfoModal({ onClose, onSubmit, darkMode }) {
             style={{
               flex: 1,
               padding: "12px",
-              background: "#6366f1",
+              background: "#2563eb",
               color: "white",
               border: "none",
               borderRadius: "8px",

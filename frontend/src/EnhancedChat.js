@@ -271,7 +271,7 @@ export default function EnhancedChatPanel({
                 marginBottom: '8px',
                 borderRadius: '10px',
                 cursor: 'pointer',
-                background: selectedPatient?.id === patient.id ? '#6366f1' : 'transparent',
+                background: selectedPatient?.id === patient.id ? '#2563eb' : 'transparent',
                 color: selectedPatient?.id === patient.id ? 'white' : textPrimary,
                 transition: 'all 0.2s'
               }}
@@ -285,7 +285,7 @@ export default function EnhancedChatPanel({
                     ? (darkMode ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2')
                     : patient.latest_is_tumor === 0 
                       ? (darkMode ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7')
-                      : (selectedPatient?.id === patient.id ? 'rgba(255,255,255,0.2)' : '#6366f1'),
+                      : (selectedPatient?.id === patient.id ? 'rgba(255,255,255,0.2)' : '#2563eb'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -361,7 +361,7 @@ export default function EnhancedChatPanel({
                     ? (darkMode ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2')
                     : selectedPatient.latest_is_tumor === 0 
                       ? (darkMode ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7')
-                      : '#6366f1',
+                      : '#2563eb',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -461,7 +461,7 @@ export default function EnhancedChatPanel({
                           maxWidth: '70%',
                           padding: '12px 16px',
                           borderRadius: '12px',
-                          background: isOwn ? '#6366f1' : bgSecondary,
+                          background: isOwn ? '#2563eb' : bgSecondary,
                           color: isOwn ? 'white' : textPrimary,
                           position: 'relative'
                         }}>
@@ -618,7 +618,7 @@ export default function EnhancedChatPanel({
                   disabled={!newMessage.trim() && !attachedFile}
                   style={{
                     padding: '12px 20px',
-                    background: newMessage.trim() || attachedFile ? '#6366f1' : borderColor,
+                    background: newMessage.trim() || attachedFile ? '#2563eb' : borderColor,
                     color: 'white',
                     border: 'none',
                     borderRadius: '10px',

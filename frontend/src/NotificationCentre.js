@@ -17,7 +17,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
       case 'error':
         return <AlertTriangle size={20} color="#ef4444" />;
       default:
-        return <Info size={20} color="#6366f1" />;
+        return <Info size={20} color="#2563eb" />;
     }
   };
 
@@ -60,7 +60,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
         alignItems: 'center'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Bell size={24} color="#6366f1" />
+          <Bell size={24} color="#2563eb" />
           <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: textPrimary }}>
             Notifications
           </h2>
@@ -159,7 +159,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                         style={{
                           marginTop: '8px',
                           padding: '6px 12px',
-                          background: '#6366f1',
+                          background: '#2563eb',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
@@ -178,7 +178,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: '#6366f1',
+                      background: '#2563eb',
                       flexShrink: 0,
                       marginTop: '6px'
                     }} />
@@ -205,7 +205,7 @@ export default function NotificationCenter({ notifications, onClose, onMarkRead,
             style={{
               flex: 1,
               padding: '10px',
-              background: '#6366f1',
+              background: '#2563eb',
               color: 'white',
               border: 'none',
               borderRadius: '8px',

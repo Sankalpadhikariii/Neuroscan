@@ -325,7 +325,7 @@ export default function EnhancedChat({
       {/* Header */}
       <div style={{
         padding: '16px 20px',
-        background: darkMode ? '#0f172a' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+        background: darkMode ? '#0f172a' : 'linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%)',
         color: 'white',
         display: 'flex',
         justifyContent: 'space-between',
@@ -394,7 +394,7 @@ export default function EnhancedChat({
               width: '40px',
               height: '40px',
               border: `4px solid ${borderColor}`,
-              borderTopColor: '#6366f1',
+              borderTopColor: '#2563eb',
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
               margin: '0 auto 16px'
@@ -454,7 +454,7 @@ export default function EnhancedChat({
                           width: '32px',
                           height: '32px',
                           borderRadius: '50%',
-                          background: '#6366f1',
+                          background: '#2563eb',
                           color: 'white',
                           display: 'flex',
                           alignItems: 'center',
@@ -483,7 +483,7 @@ export default function EnhancedChat({
                             ? '16px 16px 4px 16px' 
                             : '16px 16px 16px 4px',
                           background: isOwn 
-                            ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                            ? 'linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%)'
                             : darkMode ? '#334155' : 'white',
                           color: isOwn ? 'white' : textPrimary,
                           boxShadow: darkMode 
@@ -584,7 +584,7 @@ export default function EnhancedChat({
                   width: '32px',
                   height: '32px',
                   borderRadius: '50%',
-                  background: '#6366f1',
+                  background: '#2563eb',
                   color: 'white',
                   display: 'flex',
                   alignItems: 'center',
@@ -647,7 +647,7 @@ export default function EnhancedChat({
               <div style={{
                 width: '48px',
                 height: '48px',
-                background: '#6366f1',
+                background: '#2563eb',
                 borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
@@ -770,7 +770,7 @@ export default function EnhancedChat({
               borderRadius: '50%',
               background: ((!newMessage.trim() && !attachedFile) || sending)
                 ? borderColor
-                : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                : 'linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%)',
               color: 'white',
               border: 'none',
               cursor: ((!newMessage.trim() && !attachedFile) || sending) ? 'not-allowed' : 'pointer',

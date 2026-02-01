@@ -66,7 +66,7 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: textColor, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <CalendarIcon size={20} color="#6366f1" />
+          <CalendarIcon size={20} color="#2563eb" />
           Schedule
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -112,7 +112,7 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
                 borderRadius: '12px',
                 fontSize: '14px',
                 fontWeight: isSelected(day) ? '700' : '500',
-                background: isSelected(day) ? '#6366f1' : (isToday(day) ? (darkMode ? '#334155' : '#f1f5f9') : 'transparent'),
+                background: isSelected(day) ? '#2563eb' : (isToday(day) ? (darkMode ? '#334155' : '#f1f5f9') : 'transparent'),
                 color: isSelected(day) ? 'white' : textColor,
                 position: 'relative',
                 transition: 'all 0.2s'
@@ -126,10 +126,10 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
                       width: '4px', 
                       height: '4px', 
                       borderRadius: '50%', 
-                      background: isSelected(day) ? 'rgba(255,255,255,0.8)' : '#6366f1' 
+                      background: isSelected(day) ? 'rgba(255,255,255,0.8)' : '#2563eb' 
                     }} />
                   ))}
-                  {apps.length > 3 && <div style={{ fontSize: '6px', color: isSelected(day) ? 'white' : '#6366f1' }}>+</div>}
+                  {apps.length > 3 && <div style={{ fontSize: '6px', color: isSelected(day) ? 'white' : '#2563eb' }}>+</div>}
                 </div>
               )}
             </div>
@@ -163,11 +163,11 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
                   width: '32px', 
                   height: '32px', 
                   borderRadius: '10px', 
-                  background: '#6366f122', 
+                  background: '#2563eb22', 
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center',
-                  color: '#6366f1'
+                  color: '#2563eb'
                 }}>
                   <User size={16} />
                 </div>

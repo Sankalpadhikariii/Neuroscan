@@ -666,7 +666,7 @@ export default function VideoCall({
               onClick={startCall}
               style={{
                 padding: '12px 24px',
-                background: '#6366f1',
+                background: '#2563eb',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
@@ -738,7 +738,7 @@ export default function VideoCall({
               disabled={!localStream}
               style={{
                 padding: '16px',
-                background: isScreenSharing ? '#10b981' : '#6366f1',
+                background: isScreenSharing ? '#10b981' : '#2563eb',
                 color: 'white',
                 border: 'none',
                 borderRadius: '50%',

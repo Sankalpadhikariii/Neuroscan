@@ -267,7 +267,7 @@ export default function ScanHistoryCard({ scan, darkMode = false }) {
               style={{
               flex: 1,
               padding: '10px',
-              background: '#6366f1',
+              background: '#2563eb',
               color: 'white',
               border: 'none',
               borderRadius: '6px',

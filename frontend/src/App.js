@@ -3,6 +3,7 @@ import UniversalLogin from './UniversalLogin';
 import AdminPortal from './AdminPortal';
 import HospitalPortal from './HospitalPortal';
 import PatientPortal from './PatientPortal';
+import LandingPage from './LandingPage';
 import PricingPage from './PricingPage';
 import SubscriptionSuccess from './SubscriptionSuccess';
 import SubscriptionCancelled from './SubscriptionCancelled';
@@ -14,7 +15,7 @@ const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState('main');
+  const [currentView, setCurrentView] = useState('landing');
 
   useEffect(() => {
     checkAuth();
@@ -36,6 +37,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        setCurrentView('main');
       }
     } catch (err) {
       console.error('Auth check failed:', err);
@@ -44,6 +46,7 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
+          setCurrentView('main');
         }
       } catch (retryErr) {
         console.error('Auth check retry failed:', retryErr);
@@ -60,6 +63,7 @@ export default function App() {
         credentials: 'include'
       });
       setUser(null);
+      setCurrentView('landing');
     } catch (err) {
       console.error('Logout failed:', err);
     }
@@ -67,6 +71,7 @@ export default function App() {
 
   function handleLogin(userData) {
     setUser(userData);
+    setCurrentView('main');
   }
 
   function handleNavigateToPricing() {
@@ -75,6 +80,10 @@ export default function App() {
 
   function handleNavigateToMain() {
     setCurrentView('main');
+  }
+
+  function handleLoginClick() {
+    setCurrentView('login');
   }
 
   // Check URL for success/cancelled params
@@ -140,9 +149,9 @@ export default function App() {
         />
       )}
 
-      {/* Not authenticated - show login */}
-      {!user && currentView === 'main' && (
-        <UniversalLogin onLogin={handleLogin} />
+      {/* Not authenticated - show all-in-one Landing Page */}
+      {!user && (
+        <LandingPage onLogin={handleLogin} />
       )}
 
       {/* Route based on user type */}
