@@ -20,6 +20,7 @@ import {
   Mail,
   Phone,
 } from "lucide-react";
+import CustomDropdown from "./components/CustomDropdown";
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 
@@ -956,25 +957,22 @@ function UsersView({
         </div>
 
         {showSubscription && (
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              padding: "12px 16px",
-              border: "2px solid #e5e7eb",
-              borderRadius: "8px",
-              fontSize: "14px",
-              outline: "none",
-              cursor: "pointer",
-              background: "white",
-            }}
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="trial">Trial</option>
-            <option value="expired">Expired</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div style={{ minWidth: "200px" }}>
+            <CustomDropdown
+              placeholder="All Status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={[
+                { value: "all", label: "All Status" },
+                { value: "active", label: "Active" },
+                { value: "trial", label: "Trial" },
+                { value: "expired", label: "Expired" },
+                { value: "cancelled", label: "Cancelled" },
+              ]}
+              darkMode={false}
+              fullWidth={true}
+            />
+          </div>
         )}
       </div>
 
@@ -1958,41 +1956,14 @@ function FormSelect({
 }) {
   return (
     <div style={{ marginBottom: "16px" }}>
-      <label
-        style={{
-          display: "block",
-          marginBottom: "6px",
-          fontSize: "14px",
-          fontWeight: "600",
-          color: "#374151",
-        }}
-      >
-        {label} {required && <span style={{ color: "#ef4444" }}>*</span>}
-      </label>
-      <select
-        required={required}
+      <CustomDropdown
+        label={label}
+        placeholder={placeholder}
         value={value}
         onChange={onChange}
-        style={{
-          width: "100%",
-          padding: "10px 12px",
-          border: "2px solid #e5e7eb",
-          borderRadius: "8px",
-          fontSize: "14px",
-          outline: "none",
-          cursor: "pointer",
-          background: "white",
-        }}
-      >
-        <option value="" disabled>
-          {placeholder}
-        </option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        options={options}
+        darkMode={false}
+      />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   Copy,
   Key,
 } from "lucide-react";
+import CustomDropdown from "./components/CustomDropdown";
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 
@@ -619,41 +620,18 @@ export default function AddPatientModal({
             </div>
           </div>
 
-          {/* Gender */}
-          <div style={{ marginBottom: "16px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "14px",
-                fontWeight: "500",
-                color: textSecondary,
-                marginBottom: "8px",
-              }}
-            >
-              Gender
-            </label>
-            <select
+            <CustomDropdown
+              label="Gender"
+              placeholder="Select Gender"
               value={formData.gender}
-              onChange={(e) =>
-                setFormData({ ...formData, gender: e.target.value })
-              }
-              style={{
-                width: "100%",
-                padding: "12px",
-                border: `1px solid ${border}`,
-                borderRadius: "8px",
-                fontSize: "14px",
-                boxSizing: "border-box",
-                background: inputBg,
-                color: textPrimary,
-              }}
-            >
-              <option value="">Select Gender</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
+              onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+              options={[
+                { value: "Male", label: "Male" },
+                { value: "Female", label: "Female" },
+                { value: "Other", label: "Other" },
+              ]}
+              darkMode={darkMode}
+            />
 
           {/* Address */}
           <div style={{ marginBottom: "16px" }}>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Calendar, FileText, X } from 'lucide-react';
+import CustomDropdown from './components/CustomDropdown';
 
 export default function PatientInfoModal({ isOpen, onClose, onSubmit, darkMode }) {
   const [formData, setFormData] = useState({
@@ -114,26 +115,18 @@ export default function PatientInfoModal({ isOpen, onClose, onSubmit, darkMode }
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: textSecondary, marginBottom: '8px' }}>Gender</label>
-              <select
+              <CustomDropdown
+                label="Gender"
+                placeholder="Select"
                 value={formData.patient_gender}
                 onChange={(e) => setFormData({ ...formData, patient_gender: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  border: `1px solid ${border}`,
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                  background: inputBg,
-                  color: textPrimary
-                }}
-              >
-                <option value="">Select</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
+                options={[
+                  { value: "Male", label: "Male" },
+                  { value: "Female", label: "Female" },
+                  { value: "Other", label: "Other" },
+                ]}
+                darkMode={darkMode}
+              />
             </div>
           </div>
 

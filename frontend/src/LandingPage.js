@@ -22,6 +22,7 @@ import {
   ChevronRight,
   MousePointer2
 } from 'lucide-react';
+import CustomDropdown from './components/CustomDropdown';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -447,7 +448,7 @@ const LandingPage = ({ onLogin }) => {
               fontWeight: "800",
               textTransform: "uppercase",
               letterSpacing: "3px",
-              marginBottom: "16px",
+              marginBottom: "8px",
               opacity: 0.8
             }}>
               ★ The Gold Standard in Neuro-Diagnosis
@@ -457,10 +458,10 @@ const LandingPage = ({ onLogin }) => {
               fontWeight: "900", 
               lineHeight: "0.95", 
               color: "#0f172a", 
-              marginBottom: "32px", 
+              marginBottom: "16px", 
               letterSpacing: "-4px" 
             }}>
-              Precision AI for Advanced <br />
+              AI for Advanced <br />
               <span style={{ color: "#2563eb" }}>Brain Tumor</span> Analysis
             </h1>
             <p className="hero-desc" style={{ 
@@ -696,7 +697,7 @@ const LandingPage = ({ onLogin }) => {
         {/* Pricing Table */}
         <section id="pricing" className="section-padding" ref={pricingRef} style={{ padding: "100px 0" }}>
           <div style={{ textAlign: "center", marginBottom: "80px" }}>
-            <h2 style={{ fontSize: "16px", fontWeight: "800", color: "#2563eb", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "20px" }}>Simple Pricing</h2>
+            <h2 style={{ fontSize: "16px", fontWeight: "800", color: "#2563eb", textTransform: "uppercase", letterSpacing: "2px", marginBottom: "8px" }}>Simple Pricing</h2>
             <h3 style={{ fontSize: isMobile ? "36px" : "52px", fontWeight: "900", color: "#0f172a", marginBottom: "24px", letterSpacing: "-2px" }}>Scalable Clinical Solutions</h3>
           </div>
 
@@ -888,22 +889,15 @@ const LandingPage = ({ onLogin }) => {
                   ) : (
                     <>
                       <div style={{ marginBottom: "20px" }}>
-                        <label style={{ color: "#94a3b8", fontSize: "14px", fontWeight: "700" }}>Hospital</label>
-                        <div style={{ position: "relative", marginTop: "10px" }}>
-                          <select 
-                            name="hospitalId" 
-                            value={credentials.hospitalId} 
-                            onChange={handleInputChange} 
-                            style={{ 
-                              width: "100%", padding: "18px 24px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.1)", 
-                              background: "rgba(255,255,255,0.05)", color: "white", outline: "none", appearance: "none" 
-                            }}
-                          >
-                            <option value="" style={{ background: "#0f172a" }}>Select Hospital</option>
-                            {hospitals.map(h => <option key={h.id} value={h.id} style={{ background: "#0f172a" }}>{h.name}</option>)}
-                          </select>
-                          <ChevronDown size={20} style={{ position: "absolute", right: "20px", top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
-                        </div>
+                        <CustomDropdown
+                          label="Hospital"
+                          placeholder="Select Hospital"
+                          value={credentials.hospitalId}
+                          onChange={(e) => setCredentials({ ...credentials, hospitalId: e.target.value })}
+                          options={hospitals.map(h => ({ value: h.id, label: h.name }))}
+                          darkMode={true}
+                          variant="glass"
+                        />
                       </div>
                       <div style={{ marginBottom: "20px" }}>
                         <input 

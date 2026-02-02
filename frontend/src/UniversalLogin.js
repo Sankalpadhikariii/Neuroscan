@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Building2, User, Loader, ChevronDown } from 'lucide-react';
+import CustomDropdown from './components/CustomDropdown';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -295,49 +296,14 @@ export default function UniversalLogin({ onLogin }) {
               
               {/* Hospital Dropdown */}
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>
-                  Select Hospital
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <select
-                    name="hospitalId"
-                    value={credentials.hospitalId}
-                    onChange={handleChange}
-                    required
-                    disabled={hospitalsLoading}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      paddingRight: '40px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      backgroundColor: 'white',
-                      appearance: 'none',
-                      cursor: hospitalsLoading ? 'wait' : 'pointer'
-                    }}
-                  >
-                    <option value="">
-                      {hospitalsLoading ? 'Loading hospitals...' : '-- Select your hospital --'}
-                    </option>
-                    {hospitals.map(hospital => (
-                      <option key={hospital.id} value={hospital.id}>
-                        {hospital.name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown 
-                    size={20} 
-                    style={{
-                      position: 'absolute',
-                      right: '12px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      pointerEvents: 'none',
-                      color: '#6b7280'
-                    }}
-                  />
-                </div>
+                <CustomDropdown
+                  label="Select Hospital"
+                  placeholder={hospitalsLoading ? 'Loading hospitals...' : '-- Select your hospital --'}
+                  value={credentials.hospitalId}
+                  onChange={(e) => setCredentials({ ...credentials, hospitalId: e.target.value })}
+                  options={hospitals.map(hospital => ({ value: hospital.id, label: hospital.name }))}
+                  darkMode={false}
+                />
               </div>
 
               {/* Patient Code */}

@@ -50,6 +50,7 @@ import TumourProgressionTracker from "./TumourProgressionTracker";
 import AppointmentCalendar from "./AppointmentCalendar";
 // import VideoCall from "./Videocall";
 import AddPatientModal from "./AddPatientModal";
+import CustomDropdown from "./components/CustomDropdown";
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 const socket = io(API_BASE, { withCredentials: true });
@@ -1348,31 +1349,23 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
                 </div>
 
                 {patients.length > 0 ? (
-                  <select
-                    value={selectedPatient?.id || ""}
-                    onChange={(e) => {
-                      const patient = patients.find(
-                        (p) => p.id === parseInt(e.target.value),
-                      );
-                      setSelectedPatient(patient);
-                    }}
-                    style={{
-                      width: "100%",
-                      marginTop: "12px",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                      background: darkMode ? "#1e293b" : "white",
-                      color: textPrimary,
-                    }}
-                  >
-                    <option value="">-- Select a patient --</option>
-                    {patients.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} - {p.email}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ marginTop: "12px" }}>
+                    <CustomDropdown
+                      placeholder="Select a patient"
+                      value={selectedPatient?.id || ""}
+                      onChange={(e) => {
+                        const patient = patients.find(
+                          (p) => p.id === parseInt(e.target.value),
+                        );
+                        setSelectedPatient(patient);
+                      }}
+                      options={patients.map(p => ({ 
+                        value: p.id, 
+                        label: `${p.full_name} - ${p.email}` 
+                      }))}
+                      darkMode={darkMode}
+                    />
+                  </div>
                 ) : (
                   <div
                     style={{
