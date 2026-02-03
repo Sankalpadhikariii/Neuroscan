@@ -116,7 +116,12 @@ export default function EnhancedChat({
 
     socketRef.current.on('new_message', (message) => {
       console.log('📨 Received message:', message);
-      setMessages(prev => [...prev, message]);
+      setMessages(prev => {
+        // Prevent duplicates (by real ID or temp_id if it's our own)
+        if (prev.some(m => m.id === message.id)) return prev;
+        if (message.temp_id && prev.some(m => m.temp_id === message.temp_id)) return prev;
+        return [...prev, message];
+      });
       
       // Mark as read if we're the recipient
       if (message.sender_type !== userType) {
@@ -202,11 +207,30 @@ export default function EnhancedChat({
     try {
       // If there's a file attachment, use upload endpoint (it creates the message)
       if (attachedFile) {
+        const tempId = `temp_${Date.now()}`;
         const formData = new FormData();
         formData.append('file', attachedFile);
         formData.append('patient_id', patientId);
         formData.append('hospital_user_id', hospitalUserId);
         formData.append('message', newMessage.trim() || '');
+        formData.append('temp_id', tempId);
+
+        // Optimistically add message
+        const messageData = {
+          temp_id: tempId,
+          patient_id: patientId,
+          hospital_user_id: hospitalUserId,
+          message: newMessage.trim(),
+          sender_type: userType,
+          timestamp: new Date().toISOString(),
+          status: 'sending',
+          attachment: {
+            name: attachedFile.name,
+            type: attachedFile.type,
+            url: URL.createObjectURL(attachedFile) // Temporary preview
+          }
+        };
+        setMessages(prev => [...prev, messageData]);
 
         const uploadRes = await fetch(`${API_BASE}/api/chat/upload`, {
           method: 'POST',
@@ -251,20 +275,15 @@ export default function EnhancedChat({
         body: JSON.stringify({
           patient_id: patientId,
           hospital_user_id: hospitalUserId,
-          message: messageData.message
+          message: messageData.message,
+          temp_id: tempId
         })
       });
 
       if (res.ok) {
         const data = await res.json();
         
-        // Emit via socket for real-time delivery
-        if (socketRef.current && connected) {
-          socketRef.current.emit('send_message', {
-            ...messageData,
-            id: data.message_id
-          });
-        }
+
         
         // Update message status
         setMessages(prev => prev.map(msg => 

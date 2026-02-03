@@ -7,11 +7,12 @@ const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Initialize Stripe
 let stripePromise = null;
 
-export default function PricingPage({ currentPlan, onSelectPlan }) {
+export default function PricingPage({ user, currentPlan, onBack }) {
   const [plans, setPlans] = useState([]);
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [loading, setLoading] = useState(true);
   const [processingPlan, setProcessingPlan] = useState(null);
+  const [modal, setModal] = useState({ show: false, title: '', message: '', type: 'info' });
 
   useEffect(() => {
     loadPlans();
@@ -20,7 +21,7 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
 
   async function initializeStripe() {
     try {
-      const res = await fetch(`${API_BASE}/stripe-config`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/api/stripe/config`, { credentials: 'include' });
       const { publishableKey } = await res.json();
       stripePromise = loadStripe(publishableKey);
     } catch (error) {
@@ -30,7 +31,7 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
 
   async function loadPlans() {
     try {
-      const res = await fetch(`${API_BASE}/subscription-plans`, { credentials: 'include' });
+      const res = await fetch(`${API_BASE}/api/subscription/plans`, { credentials: 'include' });
       const data = await res.json();
       setPlans(data.plans || []);
     } catch (error) {
@@ -43,6 +44,26 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
   async function handleSubscribe(plan) {
     if (!plan || plan.price_monthly === 0) return;
     
+    if (!user) {
+      setModal({
+        show: true,
+        title: 'Login Required',
+        message: 'Please log in as a hospital to subscribe to our premium AI plans.',
+        type: 'auth'
+      });
+      return;
+    }
+
+    if (user.type !== 'hospital') {
+      setModal({
+        show: true,
+        title: 'Access Restricted',
+        message: 'Only hospital accounts can subscribe to these plans.',
+        type: 'info'
+      });
+      return;
+    }
+
     setProcessingPlan(plan.id);
     
     try {
@@ -66,7 +87,12 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      alert('Failed to start checkout. Please try again.');
+      setModal({
+        show: true,
+        title: 'Checkout Error',
+        message: 'Failed to start checkout. Please try again or contact support.',
+        type: 'error'
+      });
     } finally {
       setProcessingPlan(null);
     }
@@ -104,7 +130,29 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
       padding: '60px 20px'
     }}>
       {/* Header */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto 60px', textAlign: 'center' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto 60px', textAlign: 'center', position: 'relative' }}>
+        <button
+          onClick={onBack}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            background: 'rgba(255, 255, 255, 0.2)',
+            border: 'none',
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: '12px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <X size={18} />
+          {user ? 'Back' : 'Home'}
+        </button>
+
         <h1 style={{
           fontSize: '48px',
           fontWeight: 'bold',
@@ -449,8 +497,113 @@ export default function PricingPage({ currentPlan, onSelectPlan }) {
           @keyframes spin {
             to { transform: rotate(360deg); }
           }
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes modalScaleIn {
+            0% { opacity: 0; transform: translate(-50%, -40%) scale(0.95); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          }
         `}
       </style>
+
+      {/* Premium Notification Modal */}
+      {modal.show && (
+        <>
+          <div 
+            onClick={() => setModal({ ...modal, show: false })}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.4)",
+              backdropFilter: "blur(8px)",
+              zIndex: 9999,
+              animation: "fadeIn 0.3s ease-out"
+            }}
+          />
+          <div style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "90%",
+            maxWidth: "400px",
+            background: "rgba(255, 255, 255, 0.9)",
+            backdropFilter: "blur(20px)",
+            padding: "40px",
+            borderRadius: "24px",
+            boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+            zIndex: 10000,
+            textAlign: "center",
+            animation: "modalScaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)"
+          }}>
+            <button
+              onClick={() => setModal({ ...modal, show: false })}
+              style={{
+                position: "absolute",
+                top: "20px",
+                right: "20px",
+                background: "rgba(0,0,0,0.05)",
+                border: "none",
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#6b7280"
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{
+              width: "64px",
+              height: "64px",
+              background: modal.type === 'error' ? '#fee2e2' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: modal.type === 'error' ? '#ef4444' : 'white',
+              borderRadius: "16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 24px"
+            }}>
+              {modal.type === 'auth' ? <Shield size={32} /> : 
+               modal.type === 'error' ? <X size={32} /> : <Zap size={32} />}
+            </div>
+
+            <h3 style={{ fontSize: "24px", fontWeight: "bold", color: "#111827", marginBottom: "12px" }}>
+              {modal.title}
+            </h3>
+            <p style={{ fontSize: "16px", color: "#6b7280", marginBottom: "32px", lineHeight: "1.5" }}>
+              {modal.message}
+            </p>
+
+            <button
+              onClick={() => {
+                setModal({ ...modal, show: false });
+                if (modal.type === 'auth') onBack();
+              }}
+              style={{
+                width: "100%",
+                padding: "14px",
+                borderRadius: "12px",
+                border: "none",
+                background: modal.type === 'error' ? '#ef4444' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: "white",
+                fontWeight: "600",
+                fontSize: "16px",
+                cursor: "pointer",
+                boxShadow: "0 10px 20px rgba(0,0,0,0.1)"
+              }}
+            >
+              {modal.type === 'auth' ? 'Go to Login' : 'Understand'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

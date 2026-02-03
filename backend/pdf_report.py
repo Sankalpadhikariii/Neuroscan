@@ -97,6 +97,14 @@ def generate_pdf_report(scan_data, patient_data, hospital_data):
         ["Hospital Code:", hospital_data.get('hospital_code', 'N/A')],
         ["Doctor/Staff:", hospital_data.get('doctor_name', 'N/A')],
     ]
+    
+    # Add optional hospital details if available
+    if hospital_data.get('phone'):
+        hospital_info.append(["Phone:", hospital_data.get('phone')])
+    if hospital_data.get('email'):
+        hospital_info.append(["Email:", hospital_data.get('email')])
+    if hospital_data.get('address'):
+        hospital_info.append(["Address:", hospital_data.get('address')])
 
     hospital_table = Table(hospital_info, colWidths=[2 * inch, 4 * inch])
     hospital_table.setStyle(TableStyle([

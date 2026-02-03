@@ -144,14 +144,18 @@ export default function App() {
       {/* Show pricing page */}
       {currentView === 'pricing' && (
         <PricingPage 
+          user={user}
           currentPlan={user?.subscription}
           onBack={handleNavigateToMain}
         />
       )}
 
-      {/* Not authenticated - show all-in-one Landing Page */}
-      {!user && (
-        <LandingPage onLogin={handleLogin} />
+      {/* Not authenticated - show Landing Page if not in other views */}
+      {!user && currentView === 'landing' && (
+        <LandingPage 
+          onLogin={handleLogin} 
+          onNavigateToPricing={handleNavigateToPricing}
+        />
       )}
 
       {/* Route based on user type */}

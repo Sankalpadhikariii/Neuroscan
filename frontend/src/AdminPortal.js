@@ -44,6 +44,10 @@ export default function AdminPortal({ user, onLogout }) {
   const [selectedUser, setSelectedUser] = useState(null);
   const [userTypeToAdd, setUserTypeToAdd] = useState("admin");
 
+  // Plan management states
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [showEditPlanModal, setShowEditPlanModal] = useState(false);
+
   // Search and filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -57,6 +61,7 @@ export default function AdminPortal({ user, onLogout }) {
     if (view === "admins") loadAdmins();
     else if (view === "hospitals") loadHospitals();
     else if (view === "patients") loadPatients();
+    else if (view === "plans") loadSubscriptionPlans();
   }, [view]);
 
   // Auto-dismiss messages
@@ -324,6 +329,7 @@ export default function AdminPortal({ user, onLogout }) {
             { id: "admins", icon: Shield, label: "Admins" },
             { id: "hospitals", icon: Building2, label: "Hospitals" },
             { id: "patients", icon: Users, label: "Patients" },
+            { id: "plans", icon: CreditCard, label: "Plans" },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = view === tab.id;
@@ -513,6 +519,18 @@ export default function AdminPortal({ user, onLogout }) {
             onDelete={(user) => openDeleteModal(user, "patient")}
           />
         )}
+
+        {/* Plans View */}
+        {view === "plans" && (
+          <PlansView
+            plans={subscriptionPlans}
+            loading={loading}
+            onEdit={(plan) => {
+              setSelectedPlan(plan);
+              setShowEditPlanModal(true);
+            }}
+          />
+        )}
       </div>
 
       {/* Modals */}
@@ -571,6 +589,23 @@ export default function AdminPortal({ user, onLogout }) {
             else if (selectedUser.userType === "hospital") loadHospitals();
             else if (selectedUser.userType === "patient") loadPatients();
             loadDashboardData();
+          }}
+          onError={setError}
+        />
+      )}
+
+      {showEditPlanModal && selectedPlan && (
+        <EditPlanModal
+          plan={selectedPlan}
+          onClose={() => {
+            setShowEditPlanModal(false);
+            setSelectedPlan(null);
+          }}
+          onSuccess={(message) => {
+            setSuccess(message);
+            setShowEditPlanModal(false);
+            setSelectedPlan(null);
+            loadSubscriptionPlans();
           }}
           onError={setError}
         />
@@ -1073,29 +1108,81 @@ function UsersView({
                     )}
                     {showSubscription && (
                       <td style={tableCellStyle}>
-                        <span
-                          style={{
-                            padding: "4px 12px",
-                            borderRadius: "12px",
-                            fontSize: "12px",
-                            fontWeight: "600",
-                            background:
-                              user.subscription_status === "active"
-                                ? "#d1fae5"
-                                : user.subscription_status === "trial"
-                                  ? "#fef3c7"
-                                  : "#fee2e2",
-                            color:
-                              user.subscription_status === "active"
-                                ? "#065f46"
-                                : user.subscription_status === "trial"
-                                  ? "#92400e"
-                                  : "#991b1b",
-                          }}
-                        >
-                          {user.subscription_plan || "Free"} (
-                          {user.subscription_status || "N/A"})
-                        </span>
+                        <div>
+                          <span
+                            style={{
+                              padding: "4px 12px",
+                              borderRadius: "12px",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              background:
+                                user.subscription_status === "active"
+                                  ? "#d1fae5"
+                                  : user.subscription_status === "trial"
+                                    ? "#fef3c7"
+                                    : "#fee2e2",
+                              color:
+                                user.subscription_status === "active"
+                                  ? "#065f46"
+                                  : user.subscription_status === "trial"
+                                    ? "#92400e"
+                                    : "#991b1b",
+                            }}
+                          >
+                            {user.subscription_plan}
+                          </span>
+                          {userType === "hospital" && (
+                            <div style={{ marginTop: "8px" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  fontSize: "11px",
+                                  color: "#6b7280",
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                <span>Scans</span>
+                                <span>
+                                  {user.scans_used} /{" "}
+                                  {user.scans_limit === -1
+                                    ? "∞"
+                                    : user.scans_limit}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  height: "6px",
+                                  background: "#f3f4f6",
+                                  borderRadius: "3px",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${
+                                      user.scans_limit === -1
+                                        ? 0
+                                        : Math.min(
+                                            100,
+                                            (user.scans_used /
+                                              user.scans_limit) *
+                                              100,
+                                          )
+                                    }%`,
+                                    background:
+                                      user.scans_limit !== -1 &&
+                                      user.scans_used >= user.scans_limit * 0.9
+                                        ? "#ef4444"
+                                        : "#10b981",
+                                    borderRadius: "3px",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     )}
                     <td style={tableCellStyle}>
@@ -1151,6 +1238,593 @@ function UsersView({
     </div>
   );
 }
+
+// Plans View Component
+function PlansView({ plans, loading, onEdit }) {
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px" }}>
+        <Activity
+          size={48}
+          color="#667eea"
+          style={{ animation: "pulse 2s infinite" }}
+        />
+        <p style={{ marginTop: "16px", color: "white", fontSize: "18px" }}>
+          Loading plans...
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "24px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div
+            style={{
+              width: "48px",
+              height: "48px",
+              background: "white",
+              borderRadius: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <CreditCard size={24} color="#667eea" />
+          </div>
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "28px",
+                fontWeight: "bold",
+                color: "white",
+              }}
+            >
+              Subscription Plans
+            </h2>
+            <p
+              style={{
+                margin: "4px 0 0 0",
+                color: "rgba(255,255,255,0.8)",
+                fontSize: "14px",
+              }}
+            >
+              Manage pricing and limits
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))",
+          gap: "24px",
+        }}
+      >
+        {plans.map((plan) => {
+          return (
+            <div
+              key={plan.id}
+              style={{
+                background: "white",
+                borderRadius: "20px",
+                padding: "32px",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              {plan.name === "professional" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "20px",
+                    right: "-35px",
+                    background: "#667eea",
+                    color: "white",
+                    padding: "8px 40px",
+                    transform: "rotate(45deg)",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                >
+                  POPULAR
+                </div>
+              )}
+
+              <div style={{ marginBottom: "24px" }}>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "22px",
+                    fontWeight: "bold",
+                    color: "#111827",
+                  }}
+                >
+                  {plan.display_name}
+                </h3>
+                <p
+                  style={{
+                    margin: "8px 0 0 0",
+                    color: "#6b7280",
+                    fontSize: "14px",
+                    lineHeight: "1.5",
+                  }}
+                >
+                  {plan.description}
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: "4px",
+                  marginBottom: "24px",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "36px",
+                    fontWeight: "bold",
+                    color: "#111827",
+                  }}
+                >
+                  ${plan.price_monthly}
+                </span>
+                <span style={{ color: "#6b7280", fontSize: "16px" }}>/month</span>
+              </div>
+
+              <div
+                style={{
+                  background: "#f9fafb",
+                  borderRadius: "12px",
+                  padding: "20px",
+                  marginBottom: "24px",
+                }}
+              >
+                <h4
+                  style={{
+                    margin: "0 0 12px 0",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    color: "#374151",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  Limits & Features
+                </h4>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "14px",
+                    }}
+                  >
+                    <span style={{ color: "#6b7280" }}>Monthly Scans</span>
+                    <span style={{ fontWeight: "600", color: "#111827" }}>
+                      {plan.max_scans_per_month === -1
+                        ? "Unlimited"
+                        : plan.max_scans_per_month}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "14px",
+                    }}
+                  >
+                    <span style={{ color: "#6b7280" }}>Max Users</span>
+                    <span style={{ fontWeight: "600", color: "#111827" }}>
+                      {plan.max_users === -1 ? "Unlimited" : plan.max_users}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "14px",
+                    }}
+                  >
+                    <span style={{ color: "#6b7280" }}>Max Patients</span>
+                    <span style={{ fontWeight: "600", color: "#111827" }}>
+                      {plan.max_patients === -1
+                        ? "Unlimited"
+                        : plan.max_patients}
+                    </span>
+                  </div>
+                </div>
+
+                {plan.features && plan.features.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      paddingTop: "12px",
+                      borderTop: "1px solid #e5e7eb",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                    }}
+                  >
+                    {plan.features.map((feature, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "13px",
+                          color: "#4b5563",
+                        }}
+                      >
+                        <CheckCircle size={14} color="#10b981" />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => onEdit(plan)}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  background: "#f3f4f6",
+                  color: "#374151",
+                  border: "none",
+                  borderRadius: "10px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = "#e5e7eb";
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = "#f3f4f6";
+                }}
+              >
+                <Edit2 size={18} />
+                Edit Plan
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Edit Plan Modal Component
+function EditPlanModal({ plan, onClose, onSuccess, onError }) {
+  const [formData, setFormData] = useState({
+    display_name: plan.display_name,
+    description: plan.description,
+    price_monthly: plan.price_monthly,
+    price_yearly: plan.price_yearly,
+    max_scans_per_month: plan.max_scans_per_month,
+    max_users: plan.max_users,
+    max_patients: plan.max_patients,
+    is_active: plan.is_active,
+    features: plan.features || [],
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/subscription-plans/${plan.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onSuccess(data.message || "Plan updated successfully");
+      } else {
+        onError(data.error || "Failed to update plan");
+      }
+    } catch (err) {
+      onError("Failed to connect to server");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0,0,0,0.6)",
+        backdropFilter: "blur(5px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: "20px",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: "20px",
+          width: "100%",
+          maxWidth: "600px",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+        }}
+      >
+        <div
+          style={{
+            padding: "24px",
+            borderBottom: "1px solid #f3f4f6",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "bold" }}>
+            Edit Subscription Plan
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#9ca3af",
+            }}
+          >
+            <XCircle size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+            <div style={{ gridColumn: "span 2" }}>
+              <label style={labelStyle}>Display Name</label>
+              <input
+                type="text"
+                value={formData.display_name}
+                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div style={{ gridColumn: "span 2" }}>
+              <label style={labelStyle}>Description</label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Monthly Price ($)</label>
+              <input
+                type="number"
+                value={formData.price_monthly}
+                onChange={(e) => setFormData({ ...formData, price_monthly: Number(e.target.value) })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Yearly Price ($)</label>
+              <input
+                type="number"
+                value={formData.price_yearly}
+                onChange={(e) => setFormData({ ...formData, price_yearly: Number(e.target.value) })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Max Scans (-1 for unlimited)</label>
+              <input
+                type="number"
+                value={formData.max_scans_per_month}
+                onChange={(e) => setFormData({ ...formData, max_scans_per_month: Number(e.target.value) })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Max Users (-1 for unlimited)</label>
+              <input
+                type="number"
+                value={formData.max_users}
+                onChange={(e) => setFormData({ ...formData, max_users: Number(e.target.value) })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Max Patients (-1 for unlimited)</label>
+              <input
+                type="number"
+                value={formData.max_patients}
+                onChange={(e) => setFormData({ ...formData, max_patients: Number(e.target.value) })}
+                style={inputStyle}
+                required
+              />
+            </div>
+
+            <div style={{ gridColumn: "span 2" }}>
+              <label style={labelStyle}>Features</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+                {formData.features.map((feat, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      background: "#e0e7ff",
+                      color: "#4338ca",
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    {feat}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        features: formData.features.filter((_, i) => i !== idx)
+                      })}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#4338ca",
+                        cursor: "pointer",
+                        padding: 0,
+                        fontSize: "14px",
+                        lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  placeholder="Add a feature..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const val = e.target.value.trim();
+                      if (val && !formData.features.includes(val)) {
+                        setFormData({
+                          ...formData,
+                          features: [...formData.features, val]
+                        });
+                        e.target.value = "";
+                      }
+                    }
+                  }}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+              </div>
+              <p style={{ margin: "4px 0 0 0", fontSize: "11px", color: "#6b7280" }}>
+                Press Enter to add a feature
+              </p>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "25px" }}>
+              <input
+                type="checkbox"
+                id="is_active"
+                checked={formData.is_active === 1}
+                onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
+                style={{ width: "20px", height: "20px" }}
+              />
+              <label htmlFor="is_active" style={{ fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
+                Plan is Active
+              </label>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: "32px",
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "12px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: "12px 24px",
+                background: "#f3f4f6",
+                color: "#374151",
+                border: "none",
+                borderRadius: "10px",
+                fontWeight: "600",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                padding: "12px 24px",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                fontWeight: "600",
+                cursor: loading ? "not-allowed" : "pointer",
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              {loading ? "Updating..." : "Update Plan"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle = {
+  display: "block",
+  fontSize: "13px",
+  fontWeight: "600",
+  color: "#374151",
+  marginBottom: "8px",
+};
+
+const inputStyle = {
+  width: "100%",
+  padding: "12px",
+  border: "2px solid #e5e7eb",
+  borderRadius: "10px",
+  fontSize: "14px",
+  outline: "none",
+  transition: "border-color 0.2s",
+};
 
 const tableHeaderStyle = {
   padding: "16px",
@@ -1354,6 +2028,26 @@ function AddUserModal({
                 }
               />
               <FormField
+                label="Username"
+                type="text"
+                required
+                placeholder="Login username for hospital"
+                value={formData.username}
+                onChange={(e) =>
+                  setFormData({ ...formData, username: e.target.value })
+                }
+              />
+              <FormField
+                label="Password"
+                type="password"
+                required
+                placeholder="Login password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+              />
+              <FormField
                 label="Hospital Code"
                 type="text"
                 required
@@ -1364,48 +2058,6 @@ function AddUserModal({
                     ...formData,
                     hospital_code: e.target.value.toUpperCase(),
                   })
-                }
-              />
-              <FormField
-                label="Email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-              />
-              <FormField
-                label="Password"
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-              />
-              <FormField
-                label="Contact Person"
-                type="text"
-                value={formData.contact_person}
-                onChange={(e) =>
-                  setFormData({ ...formData, contact_person: e.target.value })
-                }
-              />
-              <FormField
-                label="Phone"
-                type="tel"
-                value={formData.phone}
-                onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
-                }
-              />
-              <FormField
-                label="Address"
-                type="text"
-                value={formData.address}
-                onChange={(e) =>
-                  setFormData({ ...formData, address: e.target.value })
                 }
               />
               <FormSelect
@@ -1423,10 +2075,44 @@ function AddUserModal({
                     ? "Loading plans..."
                     : "Select a subscription plan"
                 }
-                options={subscriptionPlans.map((plan) => ({
-                  value: plan.name,
-                  label: `${plan.display_name} - $${plan.price_monthly}/month`,
-                }))}
+                options={subscriptionPlans
+                  .filter((plan) => plan.name !== "enterprise")
+                  .map((plan) => ({
+                    value: plan.name,
+                    label: `${plan.display_name} - $${plan.price_monthly}/month`,
+                  }))}
+              />
+              <FormField
+                label="Email (Optional)"
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+              />
+              <FormField
+                label="Contact Person (Optional)"
+                type="text"
+                value={formData.contact_person}
+                onChange={(e) =>
+                  setFormData({ ...formData, contact_person: e.target.value })
+                }
+              />
+              <FormField
+                label="Phone (Optional)"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) =>
+                  setFormData({ ...formData, phone: e.target.value })
+                }
+              />
+              <FormField
+                label="Address (Optional)"
+                type="text"
+                value={formData.address}
+                onChange={(e) =>
+                  setFormData({ ...formData, address: e.target.value })
+                }
               />
             </>
           )}

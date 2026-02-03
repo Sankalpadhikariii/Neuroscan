@@ -26,7 +26,7 @@ import CustomDropdown from './components/CustomDropdown';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
-const LandingPage = ({ onLogin }) => {
+const LandingPage = ({ onLogin, onNavigateToPricing }) => {
   // State for layout and animations
   const [scrolled, setScrolled] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
@@ -58,6 +58,7 @@ const LandingPage = ({ onLogin }) => {
   const [error, setError] = useState(null);
   const [hospitals, setHospitals] = useState([]);
   const [hospitalsLoading, setHospitalsLoading] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   // Responsive & Scroll Listeners
   useEffect(() => {
@@ -346,7 +347,13 @@ const LandingPage = ({ onLogin }) => {
           {['home', 'about', 'pricing'].map((tab) => (
             <button 
               key={tab}
-              onClick={() => scrollTo(tab === 'home' ? heroRef : tab === 'about' ? aboutRef : pricingRef, tab)}
+              onClick={() => {
+                if (tab === 'pricing' && onNavigateToPricing) {
+                  onNavigateToPricing();
+                } else {
+                  scrollTo(tab === 'home' ? heroRef : tab === 'about' ? aboutRef : pricingRef, tab);
+                }
+              }}
               style={{ 
                 background: activeTab === tab ? "rgba(37, 99, 235, 0.1)" : "none", 
                 border: "none", 
@@ -740,7 +747,9 @@ const LandingPage = ({ onLogin }) => {
                   ))}
                 </div>
                 <button 
-                  onClick={() => scrollTo(loginRef, 'login')}
+                  onClick={() => {
+                    setShowLoginPrompt(true);
+                  }}
                   style={{
                     padding: "18px",
                     borderRadius: "50px",
@@ -1010,9 +1019,14 @@ const LandingPage = ({ onLogin }) => {
           .spin { animation: spin 1s linear infinite; }
           @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
           
-          @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(40px); }
-            to { opacity: 1; transform: translateY(0); }
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          
+          @keyframes modalScaleIn {
+            0% { opacity: 0; transform: translate(-50%, -40%) scale(0.95); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
           }
           
           /* Custom scrollbar for better medical feel */
@@ -1022,6 +1036,130 @@ const LandingPage = ({ onLogin }) => {
           ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         `}
       </style>
+
+      {/* Premium Login Prompt Modal */}
+      {showLoginPrompt && (
+        <>
+          <div 
+            onClick={() => setShowLoginPrompt(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.4)",
+              backdropFilter: "blur(8px)",
+              zIndex: 9999,
+              animation: "fadeIn 0.4s ease-out"
+            }}
+          />
+          <div style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "90%",
+            maxWidth: "480px",
+            background: "rgba(255, 255, 255, 0.8)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            padding: "48px 40px",
+            borderRadius: "32px",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.5)",
+            zIndex: 10000,
+            textAlign: "center",
+            animation: "modalScaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)"
+          }}>
+            {/* Close Button */}
+            <button
+              onClick={() => setShowLoginPrompt(false)}
+              style={{
+                position: "absolute",
+                top: "24px",
+                right: "24px",
+                background: "rgba(0,0,0,0.05)",
+                border: "none",
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#64748b",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={e => e.target.style.background = "rgba(0,0,0,0.1)"}
+              onMouseLeave={e => e.target.style.background = "rgba(0,0,0,0.05)"}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{
+              width: "80px",
+              height: "80px",
+              background: "linear-gradient(135deg, #2563eb 0%, #1e40af 100%)",
+              borderRadius: "24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 32px",
+              boxShadow: "0 10px 20px rgba(37, 99, 235, 0.2)"
+            }}>
+              <User size={40} color="white" />
+            </div>
+
+            <h3 style={{ fontSize: "28px", fontWeight: "900", color: "#0f172a", marginBottom: "16px", letterSpacing: "-1px" }}>
+              Ready to Upgrade?
+            </h3>
+            
+            <p style={{ fontSize: "17px", color: "#64748b", marginBottom: "36px", lineHeight: "1.6" }}>
+              Join the future of neuro-diagnosis. Log in as a hospital to subscribe to our clinical-grade AI plans.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <button
+                onClick={() => {
+                  setShowLoginPrompt(false);
+                  scrollTo(loginRef, 'login');
+                }}
+                style={{
+                  padding: "18px",
+                  background: "#2563eb",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "50px",
+                  fontWeight: "800",
+                  fontSize: "17px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 20px rgba(37, 99, 235, 0.25)",
+                  transition: "all 0.3s",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px"
+                }}
+                onMouseEnter={e => e.target.style.transform = "translateY(-4px)"}
+                onMouseLeave={e => e.target.style.transform = "translateY(0)"}
+              >
+                Go to Portal <ArrowRight size={20} />
+              </button>
+              
+              <button
+                onClick={() => setShowLoginPrompt(false)}
+                style={{
+                  padding: "16px",
+                  background: "transparent",
+                  color: "#64748b",
+                  border: "none",
+                  fontWeight: "700",
+                  fontSize: "15px",
+                  cursor: "pointer"
+                }}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

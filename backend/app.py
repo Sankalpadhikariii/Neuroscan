@@ -8,6 +8,7 @@ import random
 import string
 from typing import Optional, List, Dict
 from pathlib import Path
+import time
 
 from werkzeug.utils import secure_filename
 import mimetypes
@@ -59,8 +60,15 @@ os.makedirs(CHAT_UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Load environment variables
-env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+env_path_backend = Path(__file__).resolve().parent / ".env"
+env_path_root = Path(__file__).resolve().parent.parent / ".env"
+
+if env_path_backend.exists():
+    load_dotenv(dotenv_path=env_path_backend, override=True)
+elif env_path_root.exists():
+    load_dotenv(dotenv_path=env_path_root, override=True)
+else:
+    load_dotenv() # Default
 SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(16)
 # -----------------------------
 # Stripe Configuration
@@ -360,6 +368,7 @@ def create_messages_table():
             message TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_read INTEGER DEFAULT 0,
+            read_at TIMESTAMP,
             FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
             FOREIGN KEY (hospital_user_id) REFERENCES hospital_users(id) ON DELETE CASCADE
         )
@@ -403,163 +412,10 @@ def create_appointments_table():
 
 create_appointments_table()
 
-# SocketIO connected users (for private messaging)
-connected_users = {}  # {user_id: sid} for both patient and hospital users
 
 
-@socketio.on('connect')
-def handle_connect(auth=None):  # ← Add auth=None parameter
-    """Handle socket connection"""
-    try:
-        if 'patient_id' in session:
-            user_id = session['patient_id']
-            user_type = 'patient'
-        elif 'user_id' in session and session.get('user_type') == 'hospital':
-            user_id = session['user_id']
-            user_type = 'hospital'
-        else:
-            print("⚠️ Unauthenticated connection")
-            return False
-
-        connected_users[user_id] = request.sid
-        room_name = f"{user_type}_{user_id}"
-        join_room(room_name)
-
-        print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
-
-        # Remove broadcast=True - just use emit()
-        emit('connected', {
-            'user_id': user_id,
-            'user_type': user_type,
-            'status': 'online'
-        })
-
-        return True
-    except Exception as e:
-        print(f"❌ Connection error: {e}")
-        return False
-
-    # Store connection
-    connected_users[user_id] = request.sid
-
-    # Join user-specific room
-    room_name = f"{user_type}_{user_id}"
-    join_room(room_name)
-
-    print(f"✅ {user_type.capitalize()} {user_id} connected (SID: {request.sid})")
-
-    # Emit status WITHOUT broadcast parameter
-    socketio.emit('user_status', {
-        'user_id': user_id,
-        'user_type': user_type,
-        'status': 'online'
-    }, room=room_name)  # <- REMOVE broadcast=True
 
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    for key, sid in list(connected_users.items()):
-        if sid == request.sid:
-            del connected_users[key]
-            print(f"User disconnected: {key}")
-            break
-
-
-@socketio.on('join_chat')
-def on_join(data):
-    patient_id = data['patient_id']
-    room = f"chat_{patient_id}"
-    join_room(room)
-    print(f"Joined room {room}")
-
-
-@socketio.on('send_message')
-def handle_send_message(data):
-    patient_id = data['patient_id']
-    hospital_user_id = data['hospital_user_id']
-    message = data['message']
-    sender_type = 'patient' if 'patient_id' in session else 'hospital'
-    sender_id = session.get('patient_id') or session.get('user_id')
-
-    # Save message to DB
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO messages (patient_id, hospital_user_id, sender_type, message)
-        VALUES (?, ?, ?, ?)
-    """, (patient_id, hospital_user_id, sender_type, message))
-    message_id = c.lastrowid
-    conn.commit()
-    conn.close()
-
-    # Emit to room
-    room = f"chat_{patient_id}"
-    emit('new_message', {
-        'id': message_id,
-        'sender_type': sender_type,
-        'message': message,
-        'created_at': datetime.now().isoformat()
-    }, room=room)
-
-    # Send notification to recipient
-    recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
-    recipient_id = hospital_user_id if sender_type == 'patient' else patient_id
-    create_notification(
-        user_id=recipient_id,
-        user_type=recipient_type,
-        notification_type='new_message',
-        title='New Message',
-        message=f"You have a new message from {sender_type}",
-        patient_id=patient_id,
-        priority='normal',
-        action_url=f"/chat/{patient_id}"
-    )
-
-
-def create_enhanced_messages_table():
-    """Enhanced messages table with file attachments"""
-    conn = get_db()
-    c = conn.cursor()
-
-    # Drop old table if exists (for migration)
-    # c.execute("DROP TABLE IF EXISTS messages")
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            patient_id INTEGER NOT NULL,
-            hospital_user_id INTEGER NOT NULL,
-            sender_type TEXT NOT NULL CHECK (sender_type IN ('patient', 'hospital')),
-            message TEXT,
-            attachment BLOB,
-            attachment_name TEXT,
-            attachment_type TEXT,
-            attachment_size INTEGER,
-            is_read INTEGER DEFAULT 0,
-            read_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
-            FOREIGN KEY (hospital_user_id) REFERENCES hospital_users(id) ON DELETE CASCADE
-        )
-    """)
-
-    c.execute("""
-        CREATE INDEX IF NOT EXISTS idx_messages_chat
-        ON messages(patient_id, hospital_user_id, created_at DESC)
-    """)
-
-    c.execute("""
-        CREATE INDEX IF NOT EXISTS idx_messages_unread
-        ON messages(patient_id, hospital_user_id, is_read)
-    """)
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ Enhanced messages table created")
-
-
-# Call this during initialization
-create_enhanced_messages_table()
 
 # ==============================================
 # ENHANCED SOCKET.IO EVENTS
@@ -688,54 +544,7 @@ def on_typing(data):
     }, room=room, include_self=False)
 
 
-@socketio.on('send_message')
-def handle_send_message(data):
-    """Enhanced message handler with read receipts"""
-    patient_id = data.get('patient_id')
-    hospital_user_id = data.get('hospital_user_id')
-    message = data.get('message', '').strip()
 
-    if not patient_id or not hospital_user_id:
-        emit('error', {'message': 'Invalid message parameters'})
-        return
-
-    if not message:
-        emit('error', {'message': 'Message cannot be empty'})
-        return
-
-    sender_type = 'patient' if 'patient_id' in session else 'hospital'
-    sender_id = session.get('patient_id') or session.get('user_id')
-
-    # Save message to database
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO messages (
-            patient_id, hospital_user_id, sender_type, message
-        ) VALUES (?, ?, ?, ?)
-    """, (patient_id, hospital_user_id, sender_type, message))
-
-    message_id = c.lastrowid
-    timestamp = datetime.now().isoformat()
-    conn.commit()
-    conn.close()
-
-    room = f"chat_{patient_id}_{hospital_user_id}"
-
-    # Emit to room
-    message_data = {
-        'id': message_id,
-        'patient_id': patient_id,
-        'hospital_user_id': hospital_user_id,
-        'sender_type': sender_type,
-        'sender_id': sender_id,
-        'message': message,
-        'attachment': None,
-        'created_at': timestamp,
-        'is_read': False
-    }
-
-    emit('new_message', message_data, room=room)
 
     # Send notification to recipient
     recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
@@ -779,7 +588,7 @@ def handle_send_message(data):
 
 
 def mark_messages_read(patient_id, hospital_user_id, reader_type):
-    """Mark messages as read"""
+    """Mark messages as read - works for both hospital staff and direct hospital accounts"""
     conn = get_db()
     c = conn.cursor()
 
@@ -1275,6 +1084,8 @@ def update_database_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             hospital_name TEXT NOT NULL,
             hospital_code TEXT UNIQUE NOT NULL,
+            username TEXT UNIQUE,
+            password TEXT,
             contact_person TEXT,
             email TEXT,
             phone TEXT,
@@ -1410,8 +1221,47 @@ def update_database_schema():
                 ALTER TABLE scans
                 ADD COLUMN notes TEXT
             ''')
+            
+        # Add read_at and attachment columns to messages table
+        cursor.execute("PRAGMA table_info(messages)")
+        msg_columns = [column[1] for column in cursor.fetchall()]
+        if 'read_at' not in msg_columns:
+            cursor.execute('''
+                ALTER TABLE messages
+                ADD COLUMN read_at TIMESTAMP
+            ''')
+            print("✅ Added read_at column to messages table")
+
+        if 'attachment' not in msg_columns:
+            cursor.execute('''
+                ALTER TABLE messages
+                ADD COLUMN attachment TEXT
+            ''')
+            print("✅ Added attachment column to messages table")
+            
     except Exception as e:
-        print(f"Warning adding columns to scans: {e}")
+        print(f"Warning updating columns: {e}")
+
+    # Add username and password columns to hospitals table if missing
+    try:
+        cursor.execute("PRAGMA table_info(hospitals)")
+        columns = [column[1] for column in cursor.fetchall()]
+
+        if 'username' not in columns:
+            cursor.execute('''
+                ALTER TABLE hospitals
+                ADD COLUMN username TEXT
+            ''')
+            print("✅ Added username column to hospitals table")
+
+        if 'password' not in columns:
+            cursor.execute('''
+                ALTER TABLE hospitals
+                ADD COLUMN password TEXT
+            ''')
+            print("✅ Added password column to hospitals table")
+    except Exception as e:
+        print(f"Warning adding columns to hospitals: {e}")
 
     # Ensure default admin exists
     try:
@@ -1549,139 +1399,7 @@ def hospital_predict_enhanced(hospital_id=None):
         return jsonify({'error': str(e)}), 500
 
 
-# ==============================================
-# CHAT FILE UPLOAD ENDPOINTS
-# ==============================================
 
-@app.route('/api/chat/upload', methods=['POST'])
-@login_required
-def upload_chat_file():
-    """Upload file/image to chat"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-
-        file = request.files['file']
-        patient_id = request.form.get('patient_id')
-        hospital_user_id = request.form.get('hospital_user_id')
-        message_text = request.form.get('message', '').strip()
-
-        if not patient_id or not hospital_user_id:
-            return jsonify({'error': 'Missing chat parameters'}), 400
-
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-
-        # Check file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-
-        if file_size > MAX_CHAT_FILE_SIZE:
-            return jsonify({'error': 'File too large (max 10MB)'}), 400
-
-        # Check file extension
-        filename = secure_filename(file.filename)
-        file_ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
-
-        if file_ext not in ALLOWED_CHAT_FILES:
-            return jsonify({'error': f'File type not allowed. Allowed: {", ".join(ALLOWED_CHAT_FILES)}'}), 400
-
-        # Read file data
-        file_data = file.read()
-
-        # Determine sender
-        sender_type = 'patient' if 'patient_id' in session else 'hospital'
-        sender_id = session.get('patient_id') or session.get('user_id')
-
-        # Detect MIME type
-        mime_type, _ = mimetypes.guess_type(filename)
-        if not mime_type:
-            mime_type = 'application/octet-stream'
-
-        # Save to database
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO messages (
-                patient_id, hospital_user_id, sender_type, message,
-                attachment, attachment_name, attachment_type, attachment_size
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            patient_id, hospital_user_id, sender_type,
-            message_text if message_text else None,
-            file_data, filename, mime_type, file_size
-        ))
-
-        message_id = c.lastrowid
-        timestamp = datetime.now().isoformat()
-        conn.commit()
-        conn.close()
-
-        # Prepare response data
-        room = f"chat_{patient_id}_{hospital_user_id}"
-
-        message_data = {
-            'id': message_id,
-            'patient_id': int(patient_id),
-            'hospital_user_id': int(hospital_user_id),
-            'sender_type': sender_type,
-            'sender_id': sender_id,
-            'message': message_text if message_text else None,
-            'attachment': {
-                'name': filename,
-                'type': mime_type,
-                'size': file_size,
-                'url': f'/api/chat/attachment/{message_id}'
-            },
-            'created_at': timestamp,
-            'is_read': False
-        }
-
-        # Emit to room
-        socketio.emit('new_message', message_data, room=room)
-
-        # Send notification
-        recipient_type = 'hospital' if sender_type == 'patient' else 'patient'
-        recipient_id = int(hospital_user_id) if sender_type == 'patient' else int(patient_id)
-
-        conn = get_db()
-        c = conn.cursor()
-        if sender_type == 'patient':
-            c.execute("SELECT full_name FROM patients WHERE id=?", (sender_id,))
-            sender = c.fetchone()
-            sender_name = sender['full_name'] if sender else 'Patient'
-        else:
-            c.execute("SELECT full_name FROM hospital_users WHERE id=?", (sender_id,))
-            sender = c.fetchone()
-            sender_name = sender['full_name'] if sender else 'Doctor'
-        conn.close()
-
-        notif_message = f"Sent you a file: {filename}"
-        if message_text:
-            notif_message = f"{message_text[:50]}... (with file: {filename})"
-
-        create_notification(
-            user_id=recipient_id,
-            user_type=recipient_type,
-            notification_type='new_message',
-            title=f'📎 {sender_name} sent a file',
-            message=notif_message,
-            patient_id=int(patient_id),
-            priority='normal',
-            action_url=f'/chat?patient_id={patient_id}&hospital_user_id={hospital_user_id}'
-        )
-
-        log_activity(sender_type, sender_id, 'send_chat_file', f"Sent {filename}")
-
-        return jsonify({
-            'message': 'File uploaded successfully',
-            'data': message_data
-        })
-
-    except Exception as e:
-        logger.error(f"Chat file upload error: {e}")
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/chat/attachment/<int:message_id>', methods=['GET'])
@@ -1700,341 +1418,6 @@ def get_chat_attachment(message_id):
 
         result = c.fetchone()
         conn.close()
-
-        if not result or not result['attachment']:
-            return jsonify({'error': 'Attachment not found'}), 404
-
-        # Verify access (user must be part of the conversation)
-        # Add authorization check here if needed
-
-        return send_file(
-            io.BytesIO(result['attachment']),
-            mimetype=result['attachment_type'],
-            as_attachment=True,
-            download_name=result['attachment_name']
-        )
-
-    except Exception as e:
-        logger.error(f"Error retrieving attachment: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/chat/messages/<int:patient_id>/<int:hospital_user_id>', methods=['GET'])
-@login_required
-def get_chat_history(patient_id, hospital_user_id):
-    """Get chat history with pagination"""
-    try:
-        limit = request.args.get('limit', 50, type=int)
-        offset = request.args.get('offset', 0, type=int)
-
-        # Verify access
-        user_type = session.get('user_type') or 'patient'
-        user_id = session.get('user_id') or session.get('patient_id')
-
-        if user_type == 'patient' and user_id != patient_id:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        if user_type == 'hospital' and user_id != hospital_user_id:
-            return jsonify({'error': 'Unauthorized'}), 403
-
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            SELECT id, patient_id, hospital_user_id, sender_type, message,
-                   attachment_name, attachment_type, attachment_size,
-                   is_read, created_at, read_at
-            FROM messages
-            WHERE patient_id = ? AND hospital_user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        """, (patient_id, hospital_user_id, limit, offset))
-
-        messages = []
-        for row in c.fetchall():
-            msg = dict(row)
-            if msg['attachment_name']:
-                msg['attachment'] = {
-                    'name': msg['attachment_name'],
-                    'type': msg['attachment_type'],
-                    'size': msg['attachment_size'],
-                    'url': f'/api/chat/attachment/{msg["id"]}'
-                }
-            else:
-                msg['attachment'] = None
-
-            del msg['attachment_name']
-            del msg['attachment_type']
-            del msg['attachment_size']
-
-            messages.append(msg)
-
-        # Get unread count
-        c.execute("""
-            SELECT COUNT(*) as count
-            FROM messages
-            WHERE patient_id = ? AND hospital_user_id = ?
-            AND is_read = 0
-            AND sender_type = ?
-        """, (
-            patient_id,
-            hospital_user_id,
-            'hospital' if user_type == 'patient' else 'patient'
-        ))
-
-        unread_count = c.fetchone()['count']
-
-        conn.close()
-
-        # Reverse to show oldest first
-        messages.reverse()
-
-        return jsonify({
-            'messages': messages,
-            'unread_count': unread_count,
-            'has_more': len(messages) == limit
-        })
-
-    except Exception as e:
-        logger.error(f"Error loading chat history: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/chat/mark-read', methods=['POST'])
-@login_required
-def mark_chat_read():
-    """Mark chat messages as read"""
-    try:
-        data = request.json
-        patient_id = data.get('patient_id')
-        hospital_user_id = data.get('hospital_user_id')
-
-        if not patient_id or not hospital_user_id:
-            return jsonify({'error': 'Missing parameters'}), 400
-
-        reader_type = 'patient' if 'patient_id' in session else 'hospital'
-        mark_messages_read(patient_id, hospital_user_id, reader_type)
-
-        return jsonify({'message': 'Messages marked as read'})
-
-    except Exception as e:
-        logger.error(f"Error marking messages read: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/chat/conversations', methods=['GET'])
-@login_required
-def get_user_conversations():
-    """Get list of conversations for current user"""
-    try:
-        user_type = session.get('user_type') or 'patient'
-        user_id = session.get('user_id') or session.get('patient_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        if user_type == 'patient':
-            # Get all doctors patient has chatted with
-            c.execute("""
-                SELECT DISTINCT
-                    m.hospital_user_id,
-                    hu.full_name as doctor_name,
-                    hu.email as doctor_email,
-                    (SELECT message FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     ORDER BY m2.created_at DESC LIMIT 1) as last_message,
-                    (SELECT created_at FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     ORDER BY m2.created_at DESC LIMIT 1) as last_message_time,
-                    (SELECT COUNT(*) FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     AND m2.is_read = 0 
-                     AND m2.sender_type = 'hospital') as unread_count
-                FROM messages m
-                JOIN hospital_users hu ON m.hospital_user_id = hu.id
-                WHERE m.patient_id = ?
-                ORDER BY last_message_time DESC
-            """, (user_id,))
-        else:
-            # Get all patients doctor has chatted with
-            c.execute("""
-                SELECT DISTINCT
-                    m.patient_id,
-                    p.full_name as patient_name,
-                    p.patient_code,
-                    p.email as patient_email,
-                    (SELECT message FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     ORDER BY m2.created_at DESC LIMIT 1) as last_message,
-                    (SELECT created_at FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     ORDER BY m2.created_at DESC LIMIT 1) as last_message_time,
-                    (SELECT COUNT(*) FROM messages m2 
-                     WHERE m2.patient_id = m.patient_id 
-                     AND m2.hospital_user_id = m.hospital_user_id 
-                     AND m2.is_read = 0 
-                     AND m2.sender_type = 'patient') as unread_count
-                FROM messages m
-                JOIN patients p ON m.patient_id = p.id
-                WHERE m.hospital_user_id = ?
-                ORDER BY last_message_time DESC
-            """, (user_id,))
-
-        conversations = [dict(row) for row in c.fetchall()]
-        conn.close()
-
-        return jsonify({'conversations': conversations})
-
-    except Exception as e:
-        logger.error(f"Error loading conversations: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-# ==============================================
-# NOTIFICATION HELPER FUNCTIONS
-# ==============================================
-
-def create_notification(
-        user_id: int,
-        user_type: str,
-        notification_type: str,
-        title: str,
-        message: str,
-        hospital_id: Optional[int] = None,
-        prediction_id: Optional[int] = None,
-        scan_id: Optional[int] = None,
-        patient_id: Optional[int] = None,
-        priority: str = 'normal',
-        action_url: Optional[str] = None
-) -> int:
-    """
-    Create a new notification
-
-    Args:
-        user_id: ID of the user to notify
-        user_type: Type of user ('admin', 'hospital', 'patient')
-        notification_type: Notification type ('prediction_complete', 'low_confidence', 'error', 'info', 'warning', 'subscription')
-        title: Notification title
-        message: Notification message
-        hospital_id: Optional hospital ID
-        prediction_id: Optional prediction/scan ID
-        scan_id: Optional scan ID
-        patient_id: Optional patient ID
-        priority: 'low', 'normal', 'high', 'urgent'
-        action_url: Optional URL for action button
-
-    Returns:
-        notification_id: ID of created notification
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            INSERT INTO notifications (
-                user_id, user_type, hospital_id, type, title, message,
-                prediction_id, scan_id, patient_id, priority, action_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            user_id, user_type, hospital_id, notification_type, title, message,
-            prediction_id, scan_id, patient_id, priority, action_url
-        ))
-
-        notification_id = c.lastrowid
-        conn.commit()
-        conn.close()
-
-        logger.info(f"✅ Notification created: ID={notification_id}, User={user_id}, Type={notification_type}")
-        return notification_id
-
-    except Exception as e:
-        logger.error(f"❌ Error creating notification: {e}")
-        return -1
-
-
-def bulk_create_notifications(notifications: List[Dict]) -> int:
-    """
-    Create multiple notifications at once
-
-    Args:
-        notifications: List of notification dicts with required fields
-
-    Returns:
-        count: Number of notifications created
-    """
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        for notif in notifications:
-            c.execute("""
-                INSERT INTO notifications (
-                    user_id, user_type, hospital_id, type, title, message,
-                    prediction_id, scan_id, patient_id, priority, action_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                notif.get('user_id'),
-                notif.get('user_type'),
-                notif.get('hospital_id'),
-                notif.get('type'),
-                notif.get('title'),
-                notif.get('message'),
-                notif.get('prediction_id'),
-                notif.get('scan_id'),
-                notif.get('patient_id'),
-                notif.get('priority', 'normal'),
-                notif.get('action_url')
-            ))
-
-        count = len(notifications)
-        conn.commit()
-        conn.close()
-
-        logger.info(f"✅ Bulk created {count} notifications")
-        return count
-
-    except Exception as e:
-        logger.error(f"❌ Error bulk creating notifications: {e}")
-        return 0
-
-
-def notify_admins(notification_type: str, title: str, message: str, priority: str = 'normal'):
-    """Notify all admin users"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("SELECT id FROM admins WHERE role IN ('admin', 'superadmin')")
-        admins = c.fetchall()
-        conn.close()
-
-        for admin in admins:
-            create_notification(
-                user_id=admin['id'],
-                user_type='admin',
-                notification_type=notification_type,
-                title=title,
-                message=message,
-                priority=priority
-            )
-
-        logger.info(f"✅ Notified {len(admins)} admins")
-
-    except Exception as e:
-        logger.error(f"❌ Error notifying admins: {e}")
-
-
-def notify_hospital_users(hospital_id: int, notification_type: str, title: str, message: str,
-                          priority: str = 'normal', exclude_user_id: Optional[int] = None):
-    """Notify all users in a hospital"""
-    try:
-        conn = get_db()
-        c = conn.cursor()
 
         c.execute("""
             SELECT id FROM hospital_users 
@@ -2268,273 +1651,7 @@ def get_unread_count():
         return jsonify({'error': str(e)}), 500
 
 
-# ==============================================
-# CHAT API ENDPOINTS
-# ==============================================
 
-@app.route('/api/chat/messages', methods=['GET'])
-@login_required
-def get_chat_messages():
-    """Get chat messages for a patient-doctor conversation"""
-    try:
-        patient_id = request.args.get('patient_id', type=int)
-        if not patient_id:
-            return jsonify({'error': 'Patient ID required'}), 400
-
-        user_type = session.get('user_type') or 'patient'
-        if user_type == 'patient':
-            if session.get('patient_id') != patient_id:
-                return jsonify({'error': 'Unauthorized'}), 403
-            hospital_user_id = None  # Patient view, get all with their doctor
-        else:
-            hospital_user_id = session.get('user_id')
-
-        conn = get_db()
-        c = conn.cursor()
-
-        query = """
-            SELECT * FROM messages
-            WHERE patient_id = ?
-        """
-        params = [patient_id]
-
-        if hospital_user_id:
-            query += " AND hospital_user_id = ?"
-            params.append(hospital_user_id)
-
-        query += " ORDER BY created_at ASC"
-        c.execute(query, params)
-        messages = [dict(row) for row in c.fetchall()]
-
-        conn.close()
-
-        return jsonify({'messages': messages})
-
-    except Exception as e:
-        logger.error(f"Error getting messages: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-# ==============================================
-# INTEGRATE WITH EXISTING ROUTES
-# ==============================================
-
-# MODIFY YOUR EXISTING /hospital/predict ROUTE
-# Replace the existing predict function with this updated version:
-
-def check_scan_limit(args):
-    pass
-
-
-# ============================================
-# FIND YOUR /hospital/predict ROUTE (around line 1390)
-# REPLACE THE ENTIRE FUNCTION with this:
-# ============================================
-
-# Replace your /hospital/predict endpoint in app.py with this fixed version
-# ==============================================
-# REPLACE YOUR EXISTING /hospital/predict ROUTE WITH THIS
-# Search for "@app.route("/hospital/predict", methods=["POST"])"
-# and replace the entire function with this fixed version
-# ==============================================
-
-@app.route("/hospital/predict", methods=["POST"])
-@hospital_required
-@check_scan_limit
-def predict():
-    """Fixed prediction endpoint with proper notification handling"""
-
-    # Get hospital_id from session
-    hospital_id = session.get("hospital_id")
-    user_id = session.get("user_id")
-
-    # Verify hospital_id exists
-    if not hospital_id:
-        logger.error("❌ hospital_id not found in session")
-        return jsonify({
-            "error": "Session error: Hospital ID not found. Please log in again."
-        }), 401
-
-    try:
-        # Validate image upload
-        if "image" not in request.files:
-            return jsonify({"error": "No image"}), 400
-
-        patient_id = request.form.get("patient_id")
-        if not patient_id:
-            return jsonify({"error": "Patient ID required"}), 400
-
-        # ============================================
-        # STEP 1: Read and open the image
-        # ============================================
-        image_bytes = request.files["image"].read()
-        image_stream = io.BytesIO(image_bytes)
-        image_stream.seek(0)
-        image = Image.open(image_stream).convert("RGB")
-
-        # ============================================
-        # STEP 2: VALIDATE IMAGE *BEFORE* PREDICTION
-        # ============================================
-        logger.info("🔍 Validating uploaded image...")
-        is_valid, error_msg, warning_msg = validate_brain_scan(image)
-
-        if not is_valid:
-            logger.warning(f"❌ Validation failed: {error_msg}")
-            return jsonify({
-                "error": "Invalid Image",
-                "message": error_msg,
-                "suggestion": "Please upload a grayscale brain MRI scan from medical imaging equipment."
-            }), 400
-
-        if warning_msg:
-            logger.info(f"⚠️ Warning: {warning_msg}")
-
-        logger.info("✅ Image validation passed")
-
-        # ============================================
-        # STEP 3: Process image and run prediction
-        # ============================================
-        image_stream.seek(0)
-        image = Image.open(image_stream).convert("RGB")
-        tensor = transform(image).unsqueeze(0).to(device)
-
-        logger.info("🧠 Running model prediction...")
-        with torch.no_grad():
-            output = model(tensor)
-            probs = F.softmax(output, dim=1)[0]
-            conf, pred = torch.max(probs, 0)
-
-        pred_idx = int(pred.item())
-        conf_val = float(conf.item())
-        prediction_label = class_names[pred_idx]
-        is_tumor = prediction_label != "notumor"
-
-        # Create probability dictionary
-        probabilities = {
-            class_names[i]: round(float(probs[i].item()) * 100, 2)
-            for i in range(len(class_names))
-        }
-
-        # ============================================
-        # STEP 4: Secondary validation with probabilities
-        # ============================================
-        is_valid_result, error_msg_result, warning_msg_result = validate_brain_scan(image, probabilities)
-
-        if not is_valid_result:
-            logger.warning(f"❌ Post-prediction validation failed: {error_msg_result}")
-            return jsonify({
-                "error": "Invalid Scan Result",
-                "message": error_msg_result,
-                "suggestion": "The AI model could not confidently classify this as a brain scan."
-            }), 400
-
-        # Combine warnings
-        if warning_msg_result:
-            warning_msg = f"{warning_msg}. {warning_msg_result}" if warning_msg else warning_msg_result
-
-        confidence_percent = round(conf_val * 100, 2)
-        logger.info(f"📊 Prediction: {prediction_label} ({confidence_percent}%)")
-
-        # ============================================
-        # STEP 5: Save to database WITH HOSPITAL_ID
-        # ============================================
-        conn = get_db()
-        c = conn.cursor()
-
-        c.execute("""
-            INSERT INTO scans (
-                patient_id, hospital_id, prediction, confidence, 
-                is_tumor, probabilities, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            patient_id,
-            hospital_id,
-            prediction_label,
-            conf_val,
-            is_tumor,
-            json.dumps(probabilities),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ))
-        scan_id = c.lastrowid
-
-        # Get patient info
-        c.execute("SELECT full_name, patient_code FROM patients WHERE id=?", (patient_id,))
-        patient = c.fetchone()
-        patient_code = patient["patient_code"] if patient else "Unknown"
-
-        conn.commit()
-        conn.close()
-
-        # ============================================
-        # STEP 6: Update usage and notifications
-        # ============================================
-        increment_usage(hospital_id, 'scans', 1)
-
-        # 🔥 FIX: Properly formatted notification creation
-        if is_tumor:
-            if confidence_percent < 70:
-                notif_title = '⚠️ Low Confidence Detection'
-                notif_message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient_code}. Manual review recommended.'
-                notif_priority = 'high'
-            else:
-                notif_title = '🔴 Tumor Detected'
-                notif_message = f'{prediction_label.capitalize()} detected with {confidence_percent}% confidence for patient {patient_code}.'
-                notif_priority = 'high'
-        else:
-            notif_title = '✅ Scan Analysis Complete'
-            notif_message = f'No tumor detected for patient {patient_code} with {confidence_percent}% confidence.'
-            notif_priority = 'normal'
-
-        # Create notification with ALL required parameters
-        try:
-            create_notification(
-                user_id=user_id,
-                user_type='hospital',
-                notification_type='scan_result',
-                title=notif_title,
-                message=notif_message,
-                hospital_id=hospital_id,
-                scan_id=scan_id,
-                patient_id=int(patient_id),
-                priority=notif_priority,
-                action_url=f'/scan/{scan_id}'
-            )
-        except Exception as notif_error:
-            logger.error(f"Failed to create notification: {notif_error}")
-
-        log_activity("hospital", user_id, "prediction", hospital_id=hospital_id)
-
-        return jsonify({
-            "scan_id": scan_id,
-            "prediction": prediction_label,
-            "confidence": confidence_percent,
-            "is_tumor": is_tumor,
-            "probabilities": probabilities,
-            "validation_warning": warning_msg
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Prediction error: {e}")
-        import traceback
-        traceback.print_exc()
-
-        # Send error notification with ALL required parameters
-        try:
-            create_notification(
-                user_id=user_id,
-                user_type='hospital',
-                notification_type='error',
-                title='❌ Prediction Failed',
-                message=f'Failed to analyze MRI scan: {str(e)}',
-                hospital_id=hospital_id,
-                priority='high'
-            )
-        except Exception as notif_error:
-            logger.error(f"Failed to create error notification: {notif_error}")
-
-        return jsonify({
-            "error": str(e)
-        }), 500
 
 
 # ==============================================
@@ -2814,6 +1931,64 @@ def get_subscription_plans():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/admin/subscription-plans/<int:plan_id>', methods=['PUT'])
+@login_required
+@admin_required
+def admin_update_subscription_plan(plan_id):
+    """Update a subscription plan"""
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if plan exists
+        c.execute("SELECT id FROM subscription_plans WHERE id = ?", (plan_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Plan not found'}), 404
+
+        # Prepare features JSON
+        features = data.get('features', [])
+        features_json = json.dumps(features)
+
+        c.execute("""
+            UPDATE subscription_plans
+            SET display_name = ?,
+                description = ?,
+                price_monthly = ?,
+                price_yearly = ?,
+                max_scans_per_month = ?,
+                max_users = ?,
+                max_patients = ?,
+                features = ?,
+                is_active = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (
+            data.get('display_name'),
+            data.get('description'),
+            data.get('price_monthly'),
+            data.get('price_yearly'),
+            data.get('max_scans_per_month'),
+            data.get('max_users'),
+            data.get('max_patients'),
+            features_json,
+            data.get('is_active', 1),
+            plan_id
+        ))
+
+        conn.commit()
+        conn.close()
+
+        log_activity('admin', session['user_id'], 'updated_subscription_plan', f"Updated plan {plan_id}")
+
+        return jsonify({'message': 'Subscription plan updated successfully'})
+
+    except Exception as e:
+        logger.error(f"Error updating subscription plan: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ==============================================
 # ADMIN - GET ALL USERS BY TYPE
 # ==============================================
@@ -2867,9 +2042,18 @@ def get_all_hospitals():
         c.execute("""
             SELECT h.id, h.hospital_name, h.hospital_code, h.email,
                    h.contact_person, h.phone, h.address, h.created_at,
-                   'active' as subscription_status,
-                   'Standard' as subscription_plan
+                   hs.status as subscription_status,
+                   sp.display_name as subscription_plan,
+                   ut.scans_used, ut.scans_limit
             FROM hospitals h
+            LEFT JOIN (
+                SELECT * FROM hospital_subscriptions 
+                WHERE id IN (
+                    SELECT MAX(id) FROM hospital_subscriptions GROUP BY hospital_id
+                )
+            ) hs ON h.id = hs.hospital_id
+            LEFT JOIN subscription_plans sp ON hs.plan_id = sp.id
+            LEFT JOIN usage_tracking ut ON hs.id = ut.subscription_id AND ut.is_current = 1
             ORDER BY h.created_at DESC
         """)
 
@@ -2884,8 +2068,10 @@ def get_all_hospitals():
                 'phone': row[5],
                 'address': row[6],
                 'created_at': row[7],
-                'subscription_status': row[8] or 'active',
-                'subscription_plan': row[9] or 'Standard'
+                'subscription_status': row[8] or 'free',
+                'subscription_plan': row[9] or 'Free Tier',
+                'scans_used': row[10] or 0,
+                'scans_limit': row[11] if row[11] is not None else 10 # Default for free tier
             })
 
         conn.close()
@@ -3011,8 +2197,8 @@ def create_hospital_account():
     try:
         data = request.get_json()
 
-        # Validate required fields
-        required_fields = ['hospital_name', 'hospital_code', 'email', 'password']
+        # Validate required fields - username and password are required, email is optional
+        required_fields = ['hospital_name', 'hospital_code', 'username', 'password']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
@@ -3020,25 +2206,26 @@ def create_hospital_account():
         conn = get_db()
         c = conn.cursor()
 
-        # Check if hospital code or email already exists
-        c.execute('SELECT id FROM hospitals WHERE hospital_code=? OR email=?',
-                  (data['hospital_code'], data['email']))
+        # Check if hospital code or username already exists
+        c.execute('SELECT id FROM hospitals WHERE hospital_code=? OR username=?',
+                  (data['hospital_code'], data['username']))
         if c.fetchone():
             conn.close()
-            return jsonify({'error': 'Hospital code or email already exists'}), 400
+            return jsonify({'error': 'Hospital code or username already exists'}), 400
 
         # Create hospital account
         hashed_password = generate_password_hash(data['password'])
         c.execute("""
             INSERT INTO hospitals 
-            (hospital_name, hospital_code, email, password, 
+            (hospital_name, hospital_code, username, password, email,
              contact_person, phone, address)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data['hospital_name'],
             data['hospital_code'].upper(),
-            data['email'],
+            data['username'],
             hashed_password,
+            data.get('email', ''),
             data.get('contact_person', ''),
             data.get('phone', ''),
             data.get('address', '')
@@ -3880,78 +3067,6 @@ transform = transforms.Compose([
 ])
 
 
-# ==============================================
-# IMAGE VALIDATION FUNCTION
-# ==============================================
-
-def validate_brain_scan(image, probabilities=None):
-    """
-    Validate if the uploaded image is likely a brain MRI scan.
-    Returns (is_valid, error_message, warning_message)
-    """
-    warnings = []
-
-    # Check 1: Image mode (brain MRIs are typically grayscale or converted from grayscale)
-    # Most brain MRIs are grayscale, but we convert to RGB for the model
-    # So we check if the image has very low color variation
-    if image.mode == 'RGB':
-        # Convert to numpy to check color variation
-        import numpy as np
-        img_array = np.array(image)
-
-        # Check if R, G, B channels are very similar (indicating grayscale-like image)
-        r_channel = img_array[:, :, 0]
-        g_channel = img_array[:, :, 1]
-        b_channel = img_array[:, :, 2]
-
-        # Calculate variance between channels
-        rg_diff = np.abs(r_channel.astype(float) - g_channel.astype(float)).mean()
-        rb_diff = np.abs(r_channel.astype(float) - b_channel.astype(float)).mean()
-        gb_diff = np.abs(g_channel.astype(float) - b_channel.astype(float)).mean()
-
-        avg_diff = (rg_diff + rb_diff + gb_diff) / 3
-
-        # If channels are very different, it's likely a color photo, not MRI
-        if avg_diff > 15:  # Threshold for "too colorful"
-            return False, "Invalid image type: Brain MRI scans should be grayscale medical images, not color photographs.", None
-
-    # Check 2: Image dimensions (brain scans typically have certain aspect ratios)
-    width, height = image.size
-    aspect_ratio = width / height if height > 0 else 0
-
-    # Brain MRI scans are usually square or close to square (0.8 to 1.2 ratio)
-    if aspect_ratio < 0.5 or aspect_ratio > 2.0:
-        warnings.append(f"Unusual aspect ratio ({aspect_ratio:.2f}). Brain scans are typically more square-shaped.")
-
-    # Check 3: Image size (too small might not be a real scan)
-    if width < 100 or height < 100:
-        return False, "Image too small: Please upload a high-quality brain MRI scan (minimum 100x100 pixels).", None
-
-    # Check 4: Confidence threshold (if probabilities provided)
-    if probabilities:
-        max_confidence = max(probabilities.values())
-
-        # If confidence is very low, image likely not a brain scan
-        if max_confidence < 50:
-            return False, "Low confidence detected: This image does not appear to be a brain MRI scan. Please upload a valid medical brain scan.", None
-
-        # If confidence is moderate, show warning
-        if max_confidence < 70:
-            warnings.append(
-                f"Moderate confidence ({max_confidence:.1f}%). Please verify this is a clear brain MRI scan.")
-
-        # Check if predictions are too evenly distributed (another sign of invalid input)
-        prob_values = list(probabilities.values())
-        if len(prob_values) == 4:
-            # If all probabilities are within 15% of each other, model is "confused"
-            prob_range = max(prob_values) - min(prob_values)
-            if prob_range < 15:
-                warnings.append(
-                    "Model uncertain: Predictions are evenly distributed. Image may not be a clear brain scan.")
-
-    # Return result
-    warning_msg = " ".join(warnings) if warnings else None
-    return True, None, warning_msg
 
 
 # Load the model
@@ -4325,7 +3440,7 @@ def admin_revenue_analytics():
 
 @app.route("/hospital/login", methods=["POST"])
 def hospital_login():
-    """Fixed hospital login with proper session setup"""
+    """Hospital login - supports both direct hospital accounts and hospital users"""
     data = request.json
     username = data.get("username")
     password = data.get("password")
@@ -4336,11 +3451,49 @@ def hospital_login():
     conn = get_db()
     c = conn.cursor()
 
+    # First, try to authenticate from hospitals table (admin-created hospitals)
+    c.execute("""
+        SELECT id, hospital_name, hospital_code, username, password, email, contact_person
+        FROM hospitals
+        WHERE username=?
+    """, (username,))
+
+    hospital = c.fetchone()
+
+    if hospital and hospital["password"] and check_password_hash(hospital["password"], password):
+        conn.close()
+        
+        # Set session for hospital direct login
+        session.clear()
+        session["user_id"] = hospital["id"]
+        session["user_type"] = "hospital"
+        session["hospital_id"] = hospital["id"]
+        session["username"] = hospital["username"]
+        session.permanent = True
+
+        log_activity("hospital", hospital["id"], "login", hospital_id=hospital["id"])
+        logger.info(f"✅ Hospital login successful (direct): hospital_id={hospital['id']}")
+
+        return jsonify({
+            "user": {
+                "id": hospital["id"],
+                "username": hospital["username"],
+                "email": hospital["email"] or "",
+                "full_name": hospital["contact_person"] or hospital["hospital_name"],
+                "hospital_id": hospital["id"],
+                "hospital_name": hospital["hospital_name"],
+                "hospital_code": hospital["hospital_code"],
+                "role": "admin",
+                "type": "hospital"
+            }
+        })
+
+    # Fall back to hospital_users table (for hospital staff accounts)
     c.execute("""
         SELECT hu.*, h.hospital_name, h.hospital_code, h.id as hospital_id
         FROM hospital_users hu
         JOIN hospitals h ON hu.hospital_id = h.id
-        WHERE hu.username=? AND hu.status='active' AND h.status='active'
+        WHERE hu.username=? AND hu.status='active'
     """, (username,))
 
     user = c.fetchone()
@@ -4349,19 +3502,16 @@ def hospital_login():
     if not user or not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # ✅ CRITICAL FIX: Set ALL required session variables
-    session.clear()  # Clear any old session data
+    # Set session for hospital user login
+    session.clear()
     session["user_id"] = user["id"]
     session["user_type"] = "hospital"
-    session["hospital_id"] = user["hospital_id"]  # ⚠️ MUST BE SET
+    session["hospital_id"] = user["hospital_id"]
     session["username"] = user["username"]
-    session.permanent = True  # Make session persist
+    session.permanent = True
 
-    # Log the login
     log_activity("hospital", user["id"], "login", hospital_id=user["hospital_id"])
-
-    # Debug log
-    logger.info(f"✅ Hospital login successful: user_id={user['id']}, hospital_id={user['hospital_id']}")
+    logger.info(f"✅ Hospital user login successful: user_id={user['id']}, hospital_id={user['hospital_id']}")
 
     return jsonify({
         "user": {
@@ -4369,7 +3519,7 @@ def hospital_login():
             "username": user["username"],
             "email": user["email"],
             "full_name": user["full_name"],
-            "hospital_id": user["hospital_id"],  # ✅ Include in response
+            "hospital_id": user["hospital_id"],
             "hospital_name": user["hospital_name"],
             "hospital_code": user["hospital_code"],
             "role": user["role"],
@@ -4846,6 +3996,8 @@ def hospital_history():
 @check_scan_limit
 def predict():
     hospital_id = session["hospital_id"]
+    user_id = session.get("user_id")
+    logger.info(f"🔍 PREDICT: session hospital_id={hospital_id}, user_id={user_id}")
     try:
         if "image" not in request.files:
             return jsonify({"error": "No image"}), 400
@@ -4888,6 +4040,14 @@ def predict():
         is_tumor = prediction_label != "notumor"
         conn = get_db()
         c = conn.cursor()
+        
+        # Get hospital_id from patient record to ensure data consistency
+        c.execute("SELECT hospital_id FROM patients WHERE id = ?", (patient_id,))
+        patient_row = c.fetchone()
+        if patient_row:
+            hospital_id = patient_row["hospital_id"]
+            logger.info(f"📋 Using patient's hospital_id={hospital_id} for scan")
+        
         c.execute("""
             INSERT INTO scans (
                 hospital_id, patient_id, uploaded_by, 
@@ -4933,7 +4093,9 @@ def generate_report(scan_id):
         c = conn.cursor()
 
         c.execute("""
-            SELECT s.*, p.*, h.hospital_name, h.hospital_code, hu.full_name as doctor_name,
+            SELECT s.*, p.*, h.hospital_name, h.hospital_code, h.contact_person,
+                   h.phone as hospital_phone, h.email as hospital_email, h.address as hospital_address,
+                   COALESCE(hu.full_name, h.contact_person, h.hospital_name) as doctor_name,
                    pac.access_code
             FROM scans s
             JOIN patients p ON s.patient_id = p.id
@@ -5004,7 +4166,11 @@ def generate_report(scan_id):
         hospital_data = {
             "hospital_name": row["hospital_name"],
             "hospital_code": row["hospital_code"],
-            "doctor_name": row["doctor_name"] or "N/A"
+            "doctor_name": row["doctor_name"] or "N/A",
+            "contact_person": row["contact_person"] or "",
+            "phone": row["hospital_phone"] or "",
+            "email": row["hospital_email"] or "",
+            "address": row["hospital_address"] or ""
         }
 
         pdf_buffer = generate_pdf_report(scan_data, patient_data, hospital_data)
@@ -5423,14 +4589,18 @@ def me():
             }
         })
 
-    return jsonify({
-        "user": {
-            "id": session.get("user_id"),
-            "type": session.get("user_type"),
-            "username": session.get("username"),
-            "hospital_id": session.get("hospital_id")
-        }
-    })
+    user = {
+        "id": session.get("user_id"),
+        "type": session.get("user_type"),
+        "username": session.get("username"),
+        "hospital_id": session.get("hospital_id")
+    }
+
+    if user["type"] == "hospital":
+        usage = get_detailed_usage(user["hospital_id"])
+        user["subscription"] = usage
+
+    return jsonify({"user": user})
 
 
 @app.route("/stripe/webhook", methods=["POST"])
@@ -5569,20 +4739,25 @@ def send_chat_message():
                 return jsonify({'error': 'Unauthorized'}), 403
             sender_type = 'patient'
         elif user_type == 'hospital':
+            # For direct hospital logins, session['user_id'] is the hospital ID
+            # For hospital staff, it's the hospital_user_id
             if session.get('user_id') != int(hospital_user_id):
                 return jsonify({'error': 'Unauthorized'}), 403
             sender_type = 'hospital'
         else:
             return jsonify({'error': 'Invalid user type'}), 403
 
+        # Determine sender id
+        sender_id = session.get('patient_id') if user_type == 'patient' else session.get('user_id')
+
         # Insert message into database
         conn = get_db()
         c = conn.cursor()
         c.execute("""
             INSERT INTO messages 
-            (patient_id, hospital_user_id, sender_type, message, is_read)
-            VALUES (?, ?, ?, ?, 0)
-        """, (patient_id, hospital_user_id, sender_type, message))
+            (patient_id, hospital_user_id, sender_type, sender_id, message, is_read)
+            VALUES (?, ?, ?, ?, ?, 0)
+        """, (patient_id, hospital_user_id, sender_type, sender_id, message))
 
         message_id = c.lastrowid
 
@@ -5591,6 +4766,11 @@ def send_chat_message():
             SELECT * FROM messages WHERE id = ?
         """, (message_id,))
         new_message = dict(c.fetchone())
+        
+        # Include temp_id for client-side deduplication
+        temp_id = data.get('temp_id')
+        if temp_id:
+            new_message['temp_id'] = temp_id
 
         conn.commit()
         conn.close()
@@ -5601,7 +4781,7 @@ def send_chat_message():
 
         # Create notification for recipient
         if sender_type == 'patient':
-            # Notify hospital user
+            # Notify hospital user - create_notification will handle if it's a hospital entity or user
             create_notification(
                 user_id=hospital_user_id,
                 user_type='hospital',
@@ -5689,17 +4869,18 @@ def get_conversations():
             # Get the doctor assigned to this patient
             patient_id = session.get('patient_id')
 
+            # Improved query to handle both hospital_users and direct hospitals
             c.execute("""
                 SELECT DISTINCT
-                    hu.id as hospital_user_id,
-                    hu.username as doctor_name,
-                    hu.email as doctor_email,
+                    COALESCE(hu.id, h.id) as hospital_user_id,
+                    COALESCE(hu.full_name, h.hospital_name) as doctor_name,
+                    COALESCE(hu.email, h.email) as doctor_email,
                     h.hospital_name,
                     (
                         SELECT m.message 
                         FROM messages m 
                         WHERE m.patient_id = ?
-                        AND m.hospital_user_id = hu.id
+                        AND m.hospital_user_id = COALESCE(hu.id, h.id)
                         ORDER BY m.created_at DESC 
                         LIMIT 1
                     ) as last_message,
@@ -5707,7 +4888,7 @@ def get_conversations():
                         SELECT m.created_at 
                         FROM messages m 
                         WHERE m.patient_id = ?
-                        AND m.hospital_user_id = hu.id
+                        AND m.hospital_user_id = COALESCE(hu.id, h.id)
                         ORDER BY m.created_at DESC 
                         LIMIT 1
                     ) as last_message_time,
@@ -5715,15 +4896,16 @@ def get_conversations():
                         SELECT COUNT(*) 
                         FROM messages m 
                         WHERE m.patient_id = ?
-                        AND m.hospital_user_id = hu.id
+                        AND m.hospital_user_id = COALESCE(hu.id, h.id)
                         AND m.sender_type = 'hospital'
                         AND m.is_read = 0
                     ) as unread_count
-                FROM hospital_users hu
-                INNER JOIN hospitals h ON hu.hospital_id = h.id
-                INNER JOIN messages m ON m.hospital_user_id = hu.id
+                FROM messages m
+                LEFT JOIN hospital_users hu ON m.hospital_user_id = hu.id
+                LEFT JOIN hospitals h ON (m.hospital_user_id = h.id AND hu.id IS NULL)
+                JOIN patients p ON m.patient_id = p.id
                 WHERE m.patient_id = ?
-                GROUP BY hu.id
+                GROUP BY m.hospital_user_id
                 ORDER BY last_message_time DESC
             """, (patient_id, patient_id, patient_id, patient_id))
 
@@ -5737,6 +4919,172 @@ def get_conversations():
 
     except Exception as e:
         logger.error(f"Error getting conversations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/messages', methods=['GET'])
+@login_required
+def get_chat_messages_consolidated():
+    """Get chat messages for a patient-doctor conversation"""
+    try:
+        patient_id = request.args.get('patient_id', type=int)
+        hospital_user_id_arg = request.args.get('hospital_user_id', type=int)
+        
+        if not patient_id:
+            return jsonify({'error': 'Patient ID required'}), 400
+
+        user_type = session.get('user_type') or 'patient'
+        
+        if user_type == 'patient':
+            if session.get('patient_id') != patient_id:
+                return jsonify({'error': 'Unauthorized'}), 403
+            # If patient is asking, they usually want messages for a specific doctor/hospital
+            hospital_user_id = hospital_user_id_arg
+        else:
+            hospital_user_id = session.get('user_id')
+            # Verify hospital user is authorized for this patient
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT hospital_id FROM patients WHERE id = ?", (patient_id,))
+            p_row = c.fetchone()
+            if not p_row or p_row['hospital_id'] != session.get('hospital_id'):
+                conn.close()
+                return jsonify({'error': 'Unauthorized access to this patient'}), 403
+            conn.close()
+
+        conn = get_db()
+        c = conn.cursor()
+
+        query = """
+            SELECT * FROM messages
+            WHERE patient_id = ?
+        """
+        params = [patient_id]
+
+        if hospital_user_id:
+            query += " AND hospital_user_id = ?"
+            params.append(hospital_user_id)
+
+        query += " ORDER BY created_at ASC"
+        c.execute(query, params)
+        messages = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+
+        return jsonify({'messages': messages})
+
+    except Exception as e:
+        logger.error(f"Error getting messages: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/mark-read', methods=['POST'])
+@login_required
+def mark_chat_read_consolidated():
+    """Mark chat messages as read"""
+    try:
+        data = request.json
+        patient_id = data.get('patient_id')
+        hospital_user_id = data.get('hospital_user_id')
+
+        if not patient_id or not hospital_user_id:
+            return jsonify({'error': 'Missing parameters'}), 400
+
+        user_type = session.get('user_type') or 'patient'
+        mark_messages_read(patient_id, hospital_user_id, user_type)
+
+        return jsonify({'message': 'Messages marked as read', 'success': True})
+
+    except Exception as e:
+        logger.error(f"Error marking messages read: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/upload', methods=['POST'])
+@login_required
+def upload_chat_file():
+    """Handle chat file attachments"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+
+        patient_id = request.form.get('patient_id')
+        hospital_user_id = request.form.get('hospital_user_id')
+        message_text = request.form.get('message', '')
+
+        if not patient_id or not hospital_user_id:
+            return jsonify({'error': 'Missing identifiers'}), 400
+
+        # Save file
+        filename = secure_filename(f"chat_{int(time.time())}_{file.filename}")
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], 'chat', filename)
+        os.makedirs(os.path.dirname(upload_path), exist_ok=True)
+        file.save(upload_path)
+        
+        attachment_data = {
+            'url': f"/uploads/chat/{filename}",
+            'name': file.filename,
+            'type': file.content_type
+        }
+
+        # Determine sender type
+        user_type = session.get('user_type') or 'patient'
+        sender_type = 'patient' if user_type == 'patient' else 'hospital'
+
+        # Insert message with attachment info
+        conn = get_db()
+        c = conn.cursor()
+        
+        # We'll store attachment info in the message text or a new column if we had one
+        # For now, let's just append to message or store as JSON if we wanted to refactor
+        # Since the frontend expects an attachment object, let's see if we can add col
+        
+        # Check if attachment column exists
+        c.execute("PRAGMA table_info(messages)")
+        cols = [col[1] for col in c.fetchall()]
+        if 'attachment' not in cols:
+            c.execute("ALTER TABLE messages ADD COLUMN attachment TEXT")
+            conn.commit()
+
+        # Determine sender id
+        sender_id = session.get('patient_id') if user_type == 'patient' else session.get('user_id')
+
+        c.execute("""
+            INSERT INTO messages 
+            (patient_id, hospital_user_id, sender_type, sender_id, message, attachment, is_read)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
+        """, (patient_id, hospital_user_id, sender_type, sender_id, message_text, json.dumps(attachment_data)))
+
+        message_id = c.lastrowid
+        
+        c.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        new_message = dict(c.fetchone())
+        if new_message.get('attachment'):
+            new_message['attachment'] = json.loads(new_message['attachment'])
+            
+        # Include temp_id for client-side deduplication
+        temp_id = request.form.get('temp_id')
+        if temp_id:
+            new_message['temp_id'] = temp_id
+
+        conn.commit()
+        conn.close()
+
+        # Emit via socket
+        socketio.emit('new_message', new_message, room=f"chat_{patient_id}_{hospital_user_id}")
+
+        return jsonify({
+            'success': True,
+            'message_id': message_id,
+            'message': new_message
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Error uploading chat file: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -6250,75 +5598,7 @@ def handle_mark_read(data):
 #     except Exception as e:
 #         logger.error(f"Error toggling video: {e}")
 
-        @app.route('/analyze', methods=['POST'])
-        @hospital_required  # This ensures only logged-in hospitals can use it
-        def analyze_scan():
-            try:
-                if 'image' not in request.files:
-                    return jsonify({"error": "No image uploaded"}), 400
-                file = request.files['image']
-                patient_id = request.form.get('patient_id')
 
-                # 1. Load and Transform Image
-                image_bytes = file.read()
-                image_stream = io.BytesIO(image_bytes)
-                image_stream.seek(0)  # Rewind to start
-                img = Image.open(image_stream).convert('RGB')
-
-                # VALIDATION: Check if this is actually a brain scan
-                is_valid, error_msg, warning_msg = validate_brain_scan(img)
-                if not is_valid:
-                    return jsonify({
-                        "error": "Invalid Image",
-                        "message": error_msg,
-                        "suggestion": "Please upload a grayscale brain MRI scan."
-                    }), 400
-
-                transform = transforms.Compose([
-                    transforms.Resize((224, 224)),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ])
-                img_tensor = transform(img).unsqueeze(0)
-
-                # 2. Prediction with Softmax
-                with torch.no_grad():
-                    output = model(img_tensor)
-                    # Softmax forces the 4 outputs to sum to exactly 1.0 (100%)
-                    probabilities = F.softmax(output, dim=1)[0]
-
-                classes = ['glioma', 'meningioma', 'notumor', 'pituitary']
-
-                # 3. Create probability dictionary
-                prob_results = {}
-                for i, class_name in enumerate(classes):
-                    # Convert to percentage and round
-                    prob_results[class_name] = round(float(probabilities[i]) * 100, 2)
-
-                # 4. Get highest confidence result
-                pred_idx = torch.argmax(probabilities).item()
-                prediction = classes[pred_idx]
-                confidence = prob_results[prediction]
-
-                # VALIDATION: Check confidence after prediction
-                is_valid_result, error_msg_result, warning_msg_result = validate_brain_scan(img, prob_results)
-                if not is_valid_result:
-                    return jsonify({
-                        "error": "Invalid Scan Result",
-                        "message": error_msg_result
-                    }), 400
-
-                return jsonify({
-                    "status": "success",
-                    "prediction": prediction,
-                    "confidence": confidence,
-                    "probabilities": prob_results,
-                    "validation_warning": warning_msg_result  # Include warning
-                })
-
-            except Exception as e:
-                logging.error(f"Analysis error: {str(e)}")
-                return jsonify({"error": "Internal server error during analysis"}), 500
 
 
 # ==============================================

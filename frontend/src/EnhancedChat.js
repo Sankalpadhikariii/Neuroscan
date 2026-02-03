@@ -30,24 +30,35 @@ export default function EnhancedChatPanel({
       loadMessages(selectedPatient.id);
       
       // Join room for this conversation
-      socket.emit('join_room', { 
-        room: `hospital_${user.id}_patient_${selectedPatient.id}` 
+      socket.emit('join_chat', { 
+        patient_id: selectedPatient.id,
+        hospital_user_id: user.id,
+        user_type: 'hospital'
       });
     }
 
     // Listen for new messages
-    socket.on('receive_message', (message) => {
-      if (message.sender_id !== user.id) {
-        setMessages(prev => [...prev, message]);
+    const messageHandler = (message) => {
+      // Check if this message belongs to the current conversation
+      if (selectedPatient && message.patient_id === selectedPatient.id && message.hospital_user_id === user.id) {
+        setMessages(prev => {
+          // Prevent duplicates (by real ID or temp_id if it's our own)
+          if (prev.some(m => m.id === message.id)) return prev;
+          if (message.temp_id && prev.some(m => m.temp_id === message.temp_id)) return prev;
+          return [...prev, message];
+        });
         scrollToBottom();
       }
-    });
+    };
+
+    socket.on('new_message', messageHandler);
 
     return () => {
-      socket.off('receive_message');
+      socket.off('new_message', messageHandler);
       if (selectedPatient) {
-        socket.emit('leave_room', { 
-          room: `hospital_${user.id}_patient_${selectedPatient.id}` 
+        socket.emit('leave_chat', { 
+          patient_id: selectedPatient.id,
+          hospital_user_id: user.id
         });
       }
     };
@@ -60,18 +71,38 @@ export default function EnhancedChatPanel({
   async function loadMessages(patientId) {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/messages/${patientId}`, {
+      const hospital_user_id = user.id;
+      const res = await fetch(`${API_BASE}/api/chat/messages?patient_id=${patientId}&hospital_user_id=${hospital_user_id}`, {
         credentials: 'include'
       });
       
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages || []);
+        
+        // Mark as read
+        await markAsRead(patientId);
       }
     } catch (err) {
       console.error('Failed to load messages:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function markAsRead(patientId) {
+    try {
+      await fetch(`${API_BASE}/api/chat/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          patient_id: patientId,
+          hospital_user_id: user.id
+        })
+      });
+    } catch (err) {
+      console.error('Failed to mark as read:', err);
     }
   }
 
@@ -81,32 +112,58 @@ export default function EnhancedChatPanel({
     if (!newMessage.trim() && !attachedFile) return;
     if (!selectedPatient) return;
 
-    const formData = new FormData();
-    formData.append('recipient_id', selectedPatient.id);
-    formData.append('message', newMessage);
-    if (attachedFile) {
-      formData.append('attachment', attachedFile);
-    }
-
     try {
-      const res = await fetch(`${API_BASE}/send-message`, {
+      if (attachedFile) {
+        const formData = new FormData();
+        const tempId = `temp_${Date.now()}`;
+        formData.append('patient_id', selectedPatient.id);
+        formData.append('hospital_user_id', user.id);
+        formData.append('message', newMessage);
+        formData.append('file', attachedFile);
+        formData.append('temp_id', tempId);
+
+        const res = await fetch(`${API_BASE}/api/chat/upload`, {
+          method: 'POST',
+          credentials: 'include',
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(prev => {
+            if (prev.some(m => m.id === data.message.id)) return prev;
+            return [...prev, data.message];
+          });
+          setNewMessage('');
+          setAttachedFile(null);
+          scrollToBottom();
+        }
+        return;
+      }
+
+      const tempId = `temp_${Date.now()}`;
+      const res = await fetch(`${API_BASE}/api/chat/send`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: formData
+        body: JSON.stringify({
+          patient_id: selectedPatient.id,
+          hospital_user_id: user.id,
+          message: newMessage,
+          temp_id: tempId
+        })
       });
 
       if (res.ok) {
         const data = await res.json();
         
-        // Emit socket event
-        socket.emit('send_message', {
-          room: `hospital_${user.id}_patient_${selectedPatient.id}`,
-          message: data.message
-        });
 
-        setMessages(prev => [...prev, data.message]);
+
+        setMessages(prev => {
+          if (prev.some(m => m.id === data.message.id)) return prev;
+          return [...prev, data.message];
+        });
         setNewMessage('');
-        setAttachedFile(null);
         scrollToBottom();
       }
     } catch (err) {
@@ -118,7 +175,7 @@ export default function EnhancedChatPanel({
     if (!selectedPatient || !window.confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) return;
 
     try {
-      const res = await fetch(`${API_BASE}/messages/${selectedPatient.id}`, {
+      const res = await fetch(`${API_BASE}/api/chat/conversations/${selectedPatient.id}`, {
         method: 'DELETE',
         credentials: 'include'
       });
@@ -164,7 +221,8 @@ export default function EnhancedChatPanel({
         // Optionally send a system message to chat
         const systemMsg = `📅 Appointment scheduled for ${appointmentDate} at ${appointmentTime}`;
         socket.emit('send_message', {
-            room: `hospital_${user.id}_patient_${selectedPatient.id}`,
+            patient_id: selectedPatient.id,
+            hospital_user_id: user.id,
             message: systemMsg
         });
         setMessages(prev => [...prev, { 
@@ -430,7 +488,7 @@ export default function EnhancedChatPanel({
                 </div>
               ) : (
                 messages.map((msg, idx) => {
-                  const isOwn = msg.sender_id === user.id;
+                  const isOwn = msg.sender_type === 'hospital';
                   const showTimestamp = idx === 0 || 
                     new Date(messages[idx - 1].created_at).toDateString() !== 
                     new Date(msg.created_at).toDateString();

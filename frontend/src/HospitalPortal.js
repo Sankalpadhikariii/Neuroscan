@@ -55,7 +55,7 @@ import CustomDropdown from "./components/CustomDropdown";
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 const socket = io(API_BASE, { withCredentials: true });
 
-export default function HospitalPortalEnhanced({ user, onLogout }) {
+export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPricing }) {
   const [darkMode, setDarkMode] = useState(
     localStorage.getItem("hospitalTheme") === "dark",
   );
@@ -389,6 +389,12 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
     if (!selectedPatient?.id) {
       setError("Please select a patient before analyzing");
+      return;
+    }
+
+    // Check scan limit
+    if (usage && usage.scans_used >= usage.scan_limit) {
+      setError(`Scan limit reached (${usage.scans_used}/${usage.scan_limit}). Please upgrade your plan to continue.`);
       return;
     }
 
@@ -912,42 +918,77 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
               </p>
             </div>
             
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              style={{
-                padding: "12px",
-                background: darkMode ? "#1e293b" : "#ffffff",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                borderRadius: "12px",
-                cursor: "pointer",
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                color: textPrimary,
-                boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
-              }}
-            >
-              <Bell size={20} />
-              <span style={{ fontWeight: "600", fontSize: "14px" }}>Notifications</span>
-              {unreadCount > 0 && (
-                <span style={{
-                  background: "#ef4444",
-                  color: "white",
-                  borderRadius: "50%",
-                  minWidth: "20px",
-                  height: "20px",
-                  padding: "0 6px",
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {/* Upgrade Button - Only show for Free or Basic tier */}
+              {usage && (usage.plan_type === "free" || usage.plan_type === "basic") && (
+                <button
+                  onClick={onNavigateToPricing}
+                  style={{
+                    padding: "12px 20px",
+                    background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                    border: "none",
+                    borderRadius: "12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    color: "white",
+                    fontWeight: "700",
+                    fontSize: "14px",
+                    boxShadow: "0 4px 12px rgba(245, 158, 11, 0.3)",
+                    transition: "all 0.2s ease"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 6px 16px rgba(245, 158, 11, 0.4)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(245, 158, 11, 0.3)";
+                  }}
+                >
+                  <Zap size={18} />
+                  Upgrade Plan
+                </button>
+              )}
+            
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                style={{
+                  padding: "12px",
+                  background: darkMode ? "#1e293b" : "#ffffff",
+                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                }}>
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+                  gap: "10px",
+                  color: textPrimary,
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
+                }}
+              >
+                <Bell size={20} />
+                <span style={{ fontWeight: "600", fontSize: "14px" }}>Notifications</span>
+                {unreadCount > 0 && (
+                  <span style={{
+                    background: "#ef4444",
+                    color: "white",
+                    borderRadius: "50%",
+                    minWidth: "20px",
+                    height: "20px",
+                    padding: "0 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                  }}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Dashboard View */}
@@ -1814,14 +1855,98 @@ export default function HospitalPortalEnhanced({ user, onLogout }) {
 
           {/* Chat View */}
           {view === "chat" && (
-            <EnhancedChat
-              user={user}
-              selectedPatient={selectedPatient}
-              patients={patients}
-              onSelectPatient={setSelectedPatient}
-              darkMode={darkMode}
-              socket={socket}
-            />
+            <>
+              {/* Upgrade overlay for Free tier */}
+              {usage && usage.plan_type === "free" ? (
+                <div style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: "60vh",
+                  padding: "40px",
+                  textAlign: "center"
+                }}>
+                  <div style={{
+                    background: darkMode ? "#1e293b" : "white",
+                    padding: "60px 80px",
+                    borderRadius: "32px",
+                    boxShadow: darkMode ? "0 25px 50px rgba(0,0,0,0.4)" : "0 25px 50px rgba(0,0,0,0.1)",
+                    border: darkMode ? "1px solid #334155" : "1px solid #e2e8f0",
+                    maxWidth: "500px"
+                  }}>
+                    <div style={{
+                      width: "80px",
+                      height: "80px",
+                      background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                      borderRadius: "20px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      margin: "0 auto 24px",
+                      boxShadow: "0 10px 25px rgba(245, 158, 11, 0.3)"
+                    }}>
+                      <MessageCircle size={40} color="white" />
+                    </div>
+                    <h3 style={{ 
+                      fontSize: "28px", 
+                      fontWeight: "800", 
+                      color: textPrimary, 
+                      marginBottom: "12px" 
+                    }}>
+                      Chat Feature Locked
+                    </h3>
+                    <p style={{ 
+                      fontSize: "16px", 
+                      color: textSecondary, 
+                      marginBottom: "32px",
+                      lineHeight: "1.6"
+                    }}>
+                      Upgrade to Basic or Premium plan to unlock the full chat system and communicate directly with your patients.
+                    </p>
+                    <button
+                      onClick={onNavigateToPricing}
+                      style={{
+                        padding: "16px 40px",
+                        background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "50px",
+                        fontWeight: "700",
+                        fontSize: "16px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        margin: "0 auto",
+                        boxShadow: "0 10px 25px rgba(245, 158, 11, 0.3)",
+                        transition: "all 0.2s ease"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-3px)";
+                        e.currentTarget.style.boxShadow = "0 15px 35px rgba(245, 158, 11, 0.4)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "0 10px 25px rgba(245, 158, 11, 0.3)";
+                      }}
+                    >
+                      <Zap size={20} />
+                      Upgrade to Unlock
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <EnhancedChat
+                  user={user}
+                  selectedPatient={selectedPatient}
+                  patients={patients}
+                  onSelectPatient={setSelectedPatient}
+                  darkMode={darkMode}
+                  socket={socket}
+                />
+              )}
+            </>
           )}
         </main>
       </div>
