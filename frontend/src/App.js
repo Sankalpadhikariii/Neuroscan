@@ -115,24 +115,69 @@ export default function App() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        background: '#f8fafc',
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        <div style={{ textAlign: 'center', color: 'white' }}>
+        {/* Glow Effects */}
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '300px',
+          height: '300px',
+          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
+          borderRadius: '50%',
+          filter: 'blur(20px)',
+          animation: 'pulseGlow 3s infinite ease-in-out'
+        }} />
+
+        <div style={{ 
+          textAlign: 'center', 
+          position: 'relative',
+          zIndex: 10,
+          background: 'rgba(255, 255, 255, 0.8)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          padding: '40px',
+          borderRadius: '24px',
+          border: '1px solid rgba(255,255,255,0.6)',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.05)'
+        }}>
           <div style={{
             width: '50px',
             height: '50px',
-            border: '4px solid rgba(255,255,255,0.3)',
-            borderTopColor: 'white',
+            border: '4px solid rgba(59, 130, 246, 0.1)',
+            borderTopColor: '#2563eb',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
             margin: '0 auto 20px'
           }} />
-          <p>Loading NeuroScan...</p>
+          <p style={{
+            fontSize: '16px',
+            fontWeight: '600',
+            color: '#1e293b',
+            margin: 0,
+            letterSpacing: '-0.3px'
+          }}>
+            Loading NeuroScan...
+          </p>
         </div>
         <style>
           {`
             @keyframes spin {
               to { transform: rotate(360deg); }
+            }
+            @keyframes pulseGlow {
+              0%, 100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.8;
+              }
+              50% {
+                transform: translate(-50%, -50%) scale(1.2);
+                opacity: 1;
+              }
             }
           `}
         </style>

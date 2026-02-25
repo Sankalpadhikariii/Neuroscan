@@ -5,26 +5,56 @@ export default function SubscriptionCancelled() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+      background: '#f8fafc',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '20px'
+      padding: '20px',
+      position: 'relative',
+      overflow: 'hidden'
     }}>
+      {/* Abstract Background Elements */}
       <div style={{
-        background: 'white',
+        position: 'absolute',
+        top: '-10%',
+        left: '-10%',
+        width: '40vw',
+        height: '40vw',
+        background: 'radial-gradient(circle, rgba(239, 68, 68, 0.08) 0%, transparent 70%)',
+        borderRadius: '50%',
+        zIndex: 0
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '-10%',
+        right: '-10%',
+        width: '50vw',
+        height: '50vw',
+        background: 'radial-gradient(circle, rgba(245, 158, 11, 0.05) 0%, transparent 70%)',
+        borderRadius: '50%',
+        zIndex: 0
+      }} />
+
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.9)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
         borderRadius: '24px',
+        border: '1px solid rgba(255,255,255,0.6)',
         padding: '48px',
         maxWidth: '600px',
         width: '100%',
         textAlign: 'center',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+        boxShadow: '0 20px 40px rgba(0,0,0,0.08)',
+        position: 'relative',
+        zIndex: 10
       }}>
         {/* Cancelled Icon */}
         <div style={{
           width: '80px',
           height: '80px',
-          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '2px solid rgba(239, 68, 68, 0.2)',
           borderRadius: '50%',
           display: 'flex',
           alignItems: 'center',
@@ -32,7 +62,7 @@ export default function SubscriptionCancelled() {
           margin: '0 auto 24px',
           animation: 'shakeX 0.5s ease-out'
         }}>
-          <XCircle size={48} color="white" />
+          <XCircle size={40} color="#ef4444" />
         </div>
 
         {/* Message */}
@@ -135,20 +165,29 @@ export default function SubscriptionCancelled() {
             onClick={() => window.location.href = '/pricing'}
             style={{
               padding: '14px 28px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: '#ef4444',
               color: 'white',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '12px',
               fontWeight: '600',
-              fontSize: '16px',
+              fontSize: '15px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              transition: 'transform 0.2s'
+              transition: 'all 0.2s',
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
             }}
-            onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-            onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+            onMouseEnter={(e) => {
+              e.target.style.transform = 'translateY(-2px)';
+              e.target.style.boxShadow = '0 6px 16px rgba(239, 68, 68, 0.4)';
+              e.target.style.background = '#dc2626';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
+              e.target.style.background = '#ef4444';
+            }}
           >
             <CreditCard size={18} />
             Try Again
@@ -159,11 +198,11 @@ export default function SubscriptionCancelled() {
             style={{
               padding: '14px 28px',
               background: 'white',
-              color: '#667eea',
-              border: '2px solid #667eea',
-              borderRadius: '8px',
+              color: '#475569',
+              border: '2px solid #e2e8f0',
+              borderRadius: '12px',
               fontWeight: '600',
-              fontSize: '16px',
+              fontSize: '15px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -171,10 +210,12 @@ export default function SubscriptionCancelled() {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#f3f4f6';
+              e.target.style.background = '#f8fafc';
+              e.target.style.borderColor = '#cbd5e1';
             }}
             onMouseLeave={(e) => {
               e.target.style.background = 'white';
+              e.target.style.borderColor = '#e2e8f0';
             }}
           >
             <Home size={18} />

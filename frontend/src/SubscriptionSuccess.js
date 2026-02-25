@@ -50,24 +50,69 @@ export default function SubscriptionSuccess() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        background: '#f8fafc',
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        <div style={{ textAlign: 'center', color: 'white' }}>
+        {/* Glow Effects */}
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '300px',
+          height: '300px',
+          background: 'radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%)',
+          borderRadius: '50%',
+          filter: 'blur(20px)',
+          animation: 'pulseGlow 3s infinite ease-in-out'
+        }} />
+
+        <div style={{ 
+          textAlign: 'center', 
+          position: 'relative',
+          zIndex: 10,
+          background: 'rgba(255, 255, 255, 0.8)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          padding: '40px',
+          borderRadius: '24px',
+          border: '1px solid rgba(255,255,255,0.6)',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.05)'
+        }}>
           <div style={{
             width: '50px',
             height: '50px',
-            border: '4px solid rgba(255,255,255,0.3)',
-            borderTopColor: 'white',
+            border: '4px solid rgba(16, 185, 129, 0.1)',
+            borderTopColor: '#10b981',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
             margin: '0 auto 20px'
           }} />
-          <p>Verifying your subscription...</p>
+          <p style={{
+            fontSize: '16px',
+            fontWeight: '600',
+            color: '#1e293b',
+            margin: 0,
+            letterSpacing: '-0.3px'
+          }}>
+            Verifying your subscription...
+          </p>
         </div>
         <style>
           {`
             @keyframes spin {
               to { transform: rotate(360deg); }
+            }
+            @keyframes pulseGlow {
+              0%, 100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.8;
+              }
+              50% {
+                transform: translate(-50%, -50%) scale(1.2);
+                opacity: 1;
+              }
             }
           `}
         </style>
@@ -78,34 +123,64 @@ export default function SubscriptionSuccess() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+      background: '#f8fafc',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '20px'
+      padding: '20px',
+      position: 'relative',
+      overflow: 'hidden'
     }}>
+      {/* Abstract Background Elements */}
       <div style={{
-        background: 'white',
+        position: 'absolute',
+        top: '-10%',
+        left: '-10%',
+        width: '40vw',
+        height: '40vw',
+        background: 'radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%)',
+        borderRadius: '50%',
+        zIndex: 0
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '-10%',
+        right: '-10%',
+        width: '50vw',
+        height: '50vw',
+        background: 'radial-gradient(circle, rgba(52, 211, 153, 0.05) 0%, transparent 70%)',
+        borderRadius: '50%',
+        zIndex: 0
+      }} />
+
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.9)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
         borderRadius: '24px',
+        border: '1px solid rgba(255,255,255,0.6)',
         padding: '48px',
         maxWidth: '600px',
         width: '100%',
         textAlign: 'center',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+        boxShadow: '0 20px 40px rgba(0,0,0,0.08)',
+        position: 'relative',
+        zIndex: 10
       }}>
         {/* Success Icon */}
         <div style={{
           width: '80px',
           height: '80px',
-          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          background: 'rgba(16, 185, 129, 0.1)',
+          border: '2px solid rgba(16, 185, 129, 0.2)',
           borderRadius: '50%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           margin: '0 auto 24px',
-          animation: 'scaleIn 0.5s ease-out'
+          animation: 'scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
-          <CheckCircle size={48} color="white" />
+          <CheckCircle size={40} color="#10b981" />
         </div>
 
         {/* Success Message */}
@@ -186,20 +261,29 @@ export default function SubscriptionSuccess() {
             onClick={() => window.location.href = '/'}
             style={{
               padding: '14px 28px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: '#10b981',
               color: 'white',
               border: 'none',
-              borderRadius: '8px',
+              borderRadius: '12px',
               fontWeight: '600',
-              fontSize: '16px',
+              fontSize: '15px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              transition: 'transform 0.2s'
+              transition: 'all 0.2s',
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
             }}
-            onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-            onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+            onMouseEnter={(e) => {
+              e.target.style.transform = 'translateY(-2px)';
+              e.target.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.4)';
+              e.target.style.background = '#059669';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+              e.target.style.background = '#10b981';
+            }}
           >
             <Home size={18} />
             Go to Dashboard
@@ -210,11 +294,11 @@ export default function SubscriptionSuccess() {
             style={{
               padding: '14px 28px',
               background: 'white',
-              color: '#667eea',
-              border: '2px solid #667eea',
-              borderRadius: '8px',
+              color: '#475569',
+              border: '2px solid #e2e8f0',
+              borderRadius: '12px',
               fontWeight: '600',
-              fontSize: '16px',
+              fontSize: '15px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -222,12 +306,12 @@ export default function SubscriptionSuccess() {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#667eea';
-              e.target.style.color = 'white';
+              e.target.style.background = '#f8fafc';
+              e.target.style.borderColor = '#cbd5e1';
             }}
             onMouseLeave={(e) => {
               e.target.style.background = 'white';
-              e.target.style.color = '#667eea';
+              e.target.style.borderColor = '#e2e8f0';
             }}
           >
             <FileText size={18} />
