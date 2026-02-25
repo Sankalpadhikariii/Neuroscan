@@ -1288,115 +1288,6 @@ update_database_schema()
 
 
 # Modified predict route to include Grad-CAM generation
-@app.route('/hospital/predict', methods=['POST'])
-def hospital_predict_enhanced(hospital_id=None):
-    """Enhanced prediction with Grad-CAM support"""
-    if 'user_id' not in session or session.get('user_type') != 'hospital':
-        return jsonify({'error': 'Unauthorized'}), 403
-
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image provided'}), 400
-
-    file = request.files['image']
-    patient_id = request.form.get('patient_id')
-    generate_gradcam = request.form.get('generate_gradcam', 'false').lower() == 'true'
-
-    if not patient_id:
-        return jsonify({'error': 'Patient ID required'}), 400
-
-    try:
-        # Save uploaded file
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(filepath)
-
-        # Load and preprocess image
-        image = Image.open(filepath).convert('RGB')
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
-        ])
-
-        input_tensor = transform(image).unsqueeze(0).to(device)
-
-        # Make prediction
-        with torch.no_grad():
-            output = model(input_tensor)
-            probabilities = F.softmax(output, dim=1)[0]
-            predicted_idx = torch.argmax(probabilities).item()
-
-        class_names = ['glioma', 'meningioma', 'notumor', 'pituitary']
-        prediction = class_names[predicted_idx]
-        confidence = probabilities[predicted_idx].item() * 100
-        is_tumor = prediction != 'notumor'
-
-        probs_dict = {
-            'glioma': probabilities[0].item() * 100,
-            'meningioma': probabilities[1].item() * 100,
-            'notumor': probabilities[2].item() * 100,
-            'pituitary': probabilities[3].item() * 100
-        }
-
-        # Generate Grad-CAM if requested
-        gradcam_path = None
-        if generate_gradcam:
-            try:
-                from gradcam_utils import generate_gradcam_from_tensor
-                gradcam_img, _ = generate_gradcam_from_tensor(
-                    model, input_tensor, image, target_class=predicted_idx
-                )
-
-                gradcam_filename = f"gradcam_{timestamp}_{filename}"
-                gradcam_path = os.path.join(UPLOAD_FOLDER, gradcam_filename)
-                Image.fromarray(gradcam_img).save(gradcam_path)
-            except Exception as e:
-                logging.error(f"Grad-CAM generation failed: {e}")
-
-        # Get hospital user_id from session
-        hospital_user_id = session.get('user_id')
-
-        # Save to database
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-    INSERT INTO scans (
-        patient_id, prediction, confidence, is_tumor, 
-        probabilities, image_path, gradcam_path, uploaded_by, hospital_id, scan_date, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-''', (
-            patient_id, prediction, confidence, is_tumor,
-            json.dumps(probs_dict), filepath, gradcam_path, hospital_user_id, 1
-        ))
-
-        scan_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-
-        # Create notification using the simpler function
-        create_notification_full(
-            patient_id,
-            'alert' if is_tumor else 'success',
-            f'New scan analysis completed: {prediction} ({confidence:.1f}% confidence)',
-            scan_id
-        )
-
-        return jsonify({
-            'prediction': prediction,
-            'confidence': confidence,
-            'is_tumor': is_tumor,
-            'probabilities': probs_dict,
-            'scan_id': scan_id,
-            'gradcam_available': gradcam_path is not None
-        })
-
-    except Exception as e:
-        logging.error(f"Prediction error: {e}")
-        return jsonify({'error': str(e)}), 500
 
 
 
@@ -2514,18 +2405,21 @@ def update_hospital_account(hospital_id):
 
                 # Check if hospital has active subscription
                 c.execute("""
-                    SELECT id FROM hospital_subscriptions
+                    SELECT id, plan_id FROM hospital_subscriptions
                     WHERE hospital_id=? AND status='active'
                 """, (hospital_id,))
                 existing_sub = c.fetchone()
 
                 if existing_sub:
+                    old_plan_id = existing_sub[1]
+                    sub_id = existing_sub[0]
+
                     # Update existing subscription
                     c.execute("""
                         UPDATE hospital_subscriptions
                         SET plan_id=?, updated_at=CURRENT_TIMESTAMP
                         WHERE id=?
-                    """, (plan_id, existing_sub[0]))
+                    """, (plan_id, sub_id))
 
                     # Update usage limits
                     c.execute("""
@@ -2536,9 +2430,21 @@ def update_hospital_account(hospital_id):
 
                     c.execute("""
                         UPDATE usage_tracking
-                        SET scans_limit=?, users_limit=?, patients_limit=?
+                        SET scans_limit=?, users_limit=?, patients_limit=?,
+                            updated_at=CURRENT_TIMESTAMP
                         WHERE hospital_id=? AND is_current=1
                     """, (limits[0], limits[1], limits[2], hospital_id))
+
+                    # Log subscription change history
+                    if old_plan_id != plan_id:
+                        action = 'upgrade' if plan_id > old_plan_id else 'downgrade'
+                        c.execute("""
+                            INSERT INTO subscription_history
+                            (hospital_id, subscription_id, action,
+                             old_plan_id, new_plan_id, changed_by, reason)
+                            VALUES (?, ?, ?, ?, ?, ?, 'Admin changed plan')
+                        """, (hospital_id, sub_id, action,
+                              old_plan_id, plan_id, session['user_id']))
                 else:
                     # Create new subscription
                     start_date = datetime.now()
@@ -2550,6 +2456,38 @@ def update_hospital_account(hospital_id):
                          current_period_start, current_period_end)
                         VALUES (?, ?, 'active', 'monthly', ?, ?)
                     """, (hospital_id, plan_id, start_date.date(), end_date.date()))
+
+                    new_sub_id = c.lastrowid
+
+                    # Create usage tracking for new subscription
+                    c.execute("""
+                        SELECT max_scans_per_month, max_users, max_patients
+                        FROM subscription_plans WHERE id=?
+                    """, (plan_id,))
+                    limits = c.fetchone()
+
+                    # Get existing scans_used before marking old as not current
+                    c.execute("SELECT scans_used FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
+                    old_usage = c.fetchone()
+                    carry_over_scans = old_usage[0] if old_usage else 0
+
+                    c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
+                              (hospital_id,))
+                    c.execute("""
+                        INSERT INTO usage_tracking
+                        (hospital_id, subscription_id, period_start, period_end,
+                         scans_used, scans_limit, users_limit, patients_limit, is_current)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """, (hospital_id, new_sub_id, start_date.date(), end_date.date(),
+                          carry_over_scans, limits[0], limits[1], limits[2]))
+
+                    # Log subscription history
+                    c.execute("""
+                        INSERT INTO subscription_history
+                        (hospital_id, subscription_id, action,
+                         new_plan_id, changed_by, reason)
+                        VALUES (?, ?, 'admin_assign', ?, ?, 'Admin assigned plan')
+                    """, (hospital_id, new_sub_id, plan_id, session['user_id']))
 
         conn.commit()
         conn.close()
@@ -2741,29 +2679,42 @@ def stripe_config():
 
 def increment_usage(hospital_id, resource_type='scans', amount=1):
     """Increment usage counter"""
-    conn = get_db()
-    c = conn.cursor()
+    try:
+        conn = get_db()
+        c = conn.cursor()
 
-    field_map = {
-        'scans': 'scans_used',
-        'users': 'users_count',
-        'patients': 'patients_count'
-    }
+        field_map = {
+            'scans': 'scans_used',
+            'users': 'users_count',
+            'patients': 'patients_count'
+        }
 
-    field = field_map.get(resource_type)
-    if not field:
+        field = field_map.get(resource_type)
+        if not field:
+            conn.close()
+            logger.warning(f"⚠️ increment_usage: unknown resource_type={resource_type}")
+            return False
+
+        c.execute(f"""
+            UPDATE usage_tracking
+            SET {field} = {field} + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE hospital_id = ? AND is_current = 1
+        """, (amount, hospital_id))
+
+        rows_affected = c.rowcount
+        conn.commit()
+
+        # Verify the update
+        c.execute(f"SELECT {field} FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
+        result = c.fetchone()
+        new_value = result[0] if result else 'NO ROW FOUND'
+
         conn.close()
+        logger.info(f"📊 increment_usage: hospital_id={hospital_id}, field={field}, amount={amount}, rows_affected={rows_affected}, new_value={new_value}")
+        return rows_affected > 0
+    except Exception as e:
+        logger.error(f"❌ increment_usage error: {e}")
         return False
-
-    c.execute(f"""
-        UPDATE usage_tracking
-        SET {field} = {field} + ?, updated_at = CURRENT_TIMESTAMP
-        WHERE hospital_id = ? AND is_current = 1
-    """, (amount, hospital_id))
-
-    conn.commit()
-    conn.close()
-    return True
 
 
 def has_feature(hospital_id, feature_key):
@@ -2873,8 +2824,11 @@ def get_detailed_usage(hospital_id):
             'can_scan': True,
             'scans_used': scans_used,
             'scans_limit': -1,
+            'scan_limit': -1,
             'is_unlimited': True,
             'plan_name': subscription['display_name'],
+            'plan_type': subscription['plan_name'],
+            'plan_id': subscription['plan_id'],
             'usage_percent': 0
         }
 
@@ -2930,9 +2884,11 @@ def get_detailed_usage(hospital_id):
         'can_scan': not is_blocked or (cooldown_active == False),
         'scans_used': scans_used,
         'scans_limit': scans_limit,
+        'scan_limit': scans_limit,
         'scans_remaining': max(0, scans_limit - scans_used),
         'usage_percent': round(usage_percent, 1),
         'plan_name': subscription['display_name'],
+        'plan_type': subscription['plan_name'],
         'plan_id': subscription['plan_id'],
         'is_free_tier': subscription['plan_name'] == 'free',
         'is_trial': subscription.get('is_trial', 0) == 1,
@@ -3373,6 +3329,308 @@ def create_checkout_session():
         conn.close()
         print(f"UNEXPECTED ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# STRIPE SESSION VERIFICATION (for after checkout redirect)
+# ==============================================
+
+@app.route("/api/stripe/verify-session", methods=["POST"])
+@hospital_required
+def verify_stripe_session():
+    """Verify a completed Stripe checkout session and update the subscription.
+    Called by the frontend after returning from Stripe checkout."""
+    data = request.json
+    session_id = data.get("session_id")
+
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+
+    hospital_id = session["hospital_id"]
+
+    try:
+        # Retrieve the checkout session from Stripe
+        checkout_session = stripe.checkout.Session.retrieve(session_id)
+
+        if checkout_session.payment_status != "paid":
+            return jsonify({
+                "error": "Payment not completed",
+                "status": checkout_session.payment_status
+            }), 400
+
+        # Get metadata
+        metadata = checkout_session.metadata or {}
+        plan_id = metadata.get("plan_id")
+        billing_cycle = metadata.get("billing_cycle", "monthly")
+        meta_hospital_id = metadata.get("hospital_id")
+
+        # Verify hospital_id matches
+        if meta_hospital_id and int(meta_hospital_id) != hospital_id:
+            return jsonify({"error": "Session does not belong to this hospital"}), 403
+
+        if not plan_id:
+            return jsonify({"error": "No plan_id in session metadata"}), 400
+
+        plan_id = int(plan_id)
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Check if this session was already processed
+        c.execute("SELECT id FROM payment_transactions WHERE transaction_id = ?",
+                  (checkout_session.payment_intent or session_id,))
+        if c.fetchone():
+            # Already processed - just return success
+            conn.close()
+            logger.info(f"✅ Session {session_id} already processed for hospital {hospital_id}")
+            usage_info = get_detailed_usage(hospital_id)
+            return jsonify({
+                "success": True,
+                "message": "Subscription already activated",
+                "usage": usage_info
+            })
+
+        # Get new plan details
+        c.execute("SELECT * FROM subscription_plans WHERE id = ?", (plan_id,))
+        new_plan = c.fetchone()
+        if not new_plan:
+            conn.close()
+            return jsonify({"error": "Plan not found"}), 404
+        new_plan = dict(new_plan)
+
+        # Cancel existing active subscription
+        c.execute("""
+            SELECT id, plan_id FROM hospital_subscriptions
+            WHERE hospital_id = ? AND status = 'active'
+        """, (hospital_id,))
+        current_sub = c.fetchone()
+        old_plan_id = None
+
+        if current_sub:
+            old_plan_id = current_sub[1]
+            c.execute("""
+                UPDATE hospital_subscriptions
+                SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (current_sub[0],))
+
+        # Create new subscription
+        start_date = datetime.now()
+        if billing_cycle == 'yearly':
+            end_date = start_date + timedelta(days=365)
+            amount = new_plan['price_yearly']
+        else:
+            end_date = start_date + timedelta(days=30)
+            amount = new_plan['price_monthly']
+
+        c.execute("""
+            INSERT INTO hospital_subscriptions
+            (hospital_id, plan_id, status, billing_cycle,
+             current_period_start, current_period_end, next_billing_date)
+            VALUES (?, ?, 'active', ?, ?, ?, ?)
+        """, (hospital_id, plan_id, billing_cycle,
+              start_date.date(), end_date.date(), end_date.date()))
+        new_sub_id = c.lastrowid
+
+        # Update usage tracking - get old scans_used first, then mark old as not current
+        c.execute("SELECT scans_used FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
+        old_usage = c.fetchone()
+        carry_over_scans = old_usage[0] if old_usage else 0
+
+        c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
+                  (hospital_id,))
+
+        # Create new usage tracking with carried-over scan count
+        c.execute("""
+            INSERT INTO usage_tracking
+            (hospital_id, subscription_id, period_start, period_end,
+             scans_used, scans_limit, users_limit, patients_limit, is_current)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        """, (hospital_id, new_sub_id, start_date.date(), end_date.date(),
+              carry_over_scans,
+              new_plan['max_scans_per_month'], new_plan['max_users'],
+              new_plan['max_patients']))
+
+        # Log subscription history
+        action = 'upgrade' if (old_plan_id and plan_id > old_plan_id) else 'upgrade'
+        c.execute("""
+            INSERT INTO subscription_history
+            (hospital_id, subscription_id, action,
+             old_plan_id, new_plan_id, reason)
+            VALUES (?, ?, ?, ?, ?, 'Stripe payment completed')
+        """, (hospital_id, new_sub_id, action, old_plan_id, plan_id))
+
+        # Create payment record
+        invoice_number = f"INV-{hospital_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        c.execute("""
+            INSERT INTO payment_transactions
+            (hospital_id, subscription_id, amount, status,
+             transaction_id, invoice_number, description, payment_date)
+            VALUES (?, ?, ?, 'completed', ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (hospital_id, new_sub_id, amount,
+              checkout_session.payment_intent or session_id,
+              invoice_number,
+              f"Upgrade to {new_plan['display_name']} - {billing_cycle}"))
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"✅ Verify-session: Hospital {hospital_id} upgraded to plan {plan_id} ({new_plan['display_name']})")
+
+        # Return updated usage info
+        usage_info = get_detailed_usage(hospital_id)
+        return jsonify({
+            "success": True,
+            "message": f"Successfully upgraded to {new_plan['display_name']}!",
+            "plan_name": new_plan['display_name'],
+            "usage": usage_info
+        })
+
+    except stripe.error.StripeError as e:
+        logger.error(f"❌ Stripe error in verify-session: {e}")
+        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ Verify-session error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================================
+# STRIPE WEBHOOK
+# ==============================================
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    """Handle Stripe webhook events after successful payment"""
+    payload = request.get_data(as_text=True)
+    sig_header = request.headers.get('Stripe-Signature')
+
+    # If webhook secret is configured, verify signature
+    if STRIPE_WEBHOOK_SECRET:
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except ValueError:
+            logger.error("Invalid webhook payload")
+            return jsonify({"error": "Invalid payload"}), 400
+        except stripe.error.SignatureVerificationError:
+            logger.error("Invalid webhook signature")
+            return jsonify({"error": "Invalid signature"}), 400
+    else:
+        # Without webhook secret, parse event directly (dev mode)
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            return jsonify({"error": "Invalid JSON"}), 400
+
+    # Handle checkout.session.completed
+    if event.get('type') == 'checkout.session.completed':
+        session_data = event['data']['object']
+        metadata = session_data.get('metadata', {})
+
+        hospital_id = metadata.get('hospital_id')
+        plan_id = metadata.get('plan_id')
+        billing_cycle = metadata.get('billing_cycle', 'monthly')
+
+        if hospital_id and plan_id:
+            try:
+                hospital_id = int(hospital_id)
+                plan_id = int(plan_id)
+
+                conn = get_db()
+                c = conn.cursor()
+
+                # Get new plan details
+                c.execute("SELECT * FROM subscription_plans WHERE id = ?", (plan_id,))
+                new_plan = c.fetchone()
+                if not new_plan:
+                    conn.close()
+                    logger.error(f"Webhook: Plan {plan_id} not found")
+                    return jsonify({"error": "Plan not found"}), 404
+                new_plan = dict(new_plan)
+
+                # Cancel existing active subscription
+                c.execute("""
+                    SELECT id, plan_id FROM hospital_subscriptions
+                    WHERE hospital_id = ? AND status = 'active'
+                """, (hospital_id,))
+                current_sub = c.fetchone()
+                old_plan_id = None
+
+                if current_sub:
+                    old_plan_id = current_sub[1]
+                    c.execute("""
+                        UPDATE hospital_subscriptions
+                        SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (current_sub[0],))
+
+                # Create new subscription
+                start_date = datetime.now()
+                if billing_cycle == 'yearly':
+                    end_date = start_date + timedelta(days=365)
+                    amount = new_plan['price_yearly']
+                else:
+                    end_date = start_date + timedelta(days=30)
+                    amount = new_plan['price_monthly']
+
+                c.execute("""
+                    INSERT INTO hospital_subscriptions
+                    (hospital_id, plan_id, status, billing_cycle,
+                     current_period_start, current_period_end, next_billing_date)
+                    VALUES (?, ?, 'active', ?, ?, ?, ?)
+                """, (hospital_id, plan_id, billing_cycle,
+                      start_date.date(), end_date.date(), end_date.date()))
+                new_sub_id = c.lastrowid
+
+                # Update usage tracking - get old scans_used first
+                c.execute("SELECT scans_used FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
+                old_usage = c.fetchone()
+                carry_over_scans = old_usage[0] if old_usage else 0
+
+                c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
+                          (hospital_id,))
+                c.execute("""
+                    INSERT INTO usage_tracking
+                    (hospital_id, subscription_id, period_start, period_end,
+                     scans_used, scans_limit, users_limit, patients_limit, is_current)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """, (hospital_id, new_sub_id, start_date.date(), end_date.date(),
+                      carry_over_scans,
+                      new_plan['max_scans_per_month'], new_plan['max_users'],
+                      new_plan['max_patients']))
+
+                # Log subscription history
+                action = 'upgrade' if (old_plan_id and plan_id > old_plan_id) else 'upgrade'
+                c.execute("""
+                    INSERT INTO subscription_history
+                    (hospital_id, subscription_id, action,
+                     old_plan_id, new_plan_id, reason)
+                    VALUES (?, ?, ?, ?, ?, 'Stripe payment completed')
+                """, (hospital_id, new_sub_id, action, old_plan_id, plan_id))
+
+                # Create payment record
+                invoice_number = f"INV-{hospital_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                c.execute("""
+                    INSERT INTO payment_transactions
+                    (hospital_id, subscription_id, amount, status,
+                     transaction_id, invoice_number, description, payment_date)
+                    VALUES (?, ?, ?, 'completed', ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (hospital_id, new_sub_id, amount,
+                      session_data.get('payment_intent'),
+                      invoice_number,
+                      f"Upgrade to {new_plan['display_name']} - {billing_cycle}"))
+
+                conn.commit()
+                conn.close()
+
+                logger.info(f"✅ Webhook: Hospital {hospital_id} upgraded to plan {plan_id}")
+
+            except Exception as e:
+                logger.error(f"❌ Webhook processing error: {e}")
+                return jsonify({"error": str(e)}), 500
+
+    return jsonify({"status": "success"}), 200
 
 
 @app.route("/admin/revenue", methods=["GET"])
@@ -4601,113 +4859,6 @@ def me():
         user["subscription"] = usage
 
     return jsonify({"user": user})
-
-
-@app.route("/stripe/webhook", methods=["POST"])
-def stripe_webhook():
-    payload = request.data
-    sig = request.headers.get("Stripe-Signature")
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig, STRIPE_WEBHOOK_SECRET
-        )
-    except Exception:
-        return jsonify({"error": "Invalid webhook"}), 400
-
-    if event["type"] == "checkout.session.completed":
-        session_obj = event["data"]["object"]
-        if event["type"] == "checkout.session.completed":
-            session_obj = event["data"]["object"]
-
-            hospital_id = int(session_obj["metadata"]["hospital_id"])
-            plan_id = int(session_obj["metadata"]["plan_id"])
-            billing_cycle = session_obj["metadata"]["billing_cycle"]
-
-            stripe_subscription_id = session_obj["subscription"]
-
-            # Fetch subscription from Stripe
-            stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
-
-            period_start = datetime.fromtimestamp(
-                stripe_sub["current_period_start"]
-            ).date()
-
-            period_end = datetime.fromtimestamp(
-                stripe_sub["current_period_end"]
-            ).date()
-
-            conn = get_db()
-            c = conn.cursor()
-
-            # Expire old active subscriptions
-            c.execute("""
-                UPDATE hospital_subscriptions
-                SET status='expired'
-                WHERE hospital_id=? AND status='active'
-            """, (hospital_id,))
-
-            # Create new active subscription
-            c.execute("""
-                INSERT INTO hospital_subscriptions
-                (
-                    hospital_id,
-                    plan_id,
-                    status,
-                    billing_cycle,
-                    current_period_start,
-                    current_period_end,
-                    stripe_subscription_id,
-                    auto_renew
-                )
-                VALUES (?, ?, 'active', ?, ?, ?, ?, 1)
-            """, (
-                hospital_id,
-                plan_id,
-                billing_cycle,
-                period_start,
-                period_end,
-                stripe_subscription_id
-            ))
-
-            subscription_id = c.lastrowid
-
-            # Create usage tracking for this period
-            c.execute("""
-                INSERT INTO usage_tracking
-                (
-                    hospital_id,
-                    subscription_id,
-                    period_start,
-                    period_end,
-                    scans_used,
-                    scans_limit,
-                    users_count,
-                    users_limit,
-                    patients_count,
-                    patients_limit,
-                    is_current
-                )
-                SELECT
-                    ?, ?, ?, ?, 0,
-                    max_scans_per_month,
-                    0, max_users,
-                    0, max_patients,
-                    1
-                FROM subscription_plans
-                WHERE id=?
-            """, (
-                hospital_id,
-                subscription_id,
-                period_start,
-                period_end,
-                plan_id
-            ))
-
-            conn.commit()
-            conn.close()
-
-    return jsonify({"status": "success"}), 200
 
 
 # ==============================================

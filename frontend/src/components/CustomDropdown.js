@@ -43,16 +43,16 @@ const CustomDropdown = ({
 
   const triggerStyle = {
     width: '100%',
-    padding: '14px 20px',
+    padding: '14px 16px',
     borderRadius: '12px',
     border: darkMode 
       ? '1px solid rgba(255,255,255,0.1)' 
-      : '1px solid #e2e8f0',
+      : '2px solid #e2e8f0',
     background: darkMode 
       ? (variant === 'glass' ? 'rgba(255,255,255,0.05)' : '#1e293b')
       : (variant === 'glass' ? 'rgba(255,255,255,0.8)' : '#ffffff'),
     backdropFilter: variant === 'glass' ? 'blur(10px)' : 'none',
-    color: darkMode ? '#ffffff' : '#1e293b',
+    color: darkMode ? '#ffffff' : '#0f172a',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -60,7 +60,7 @@ const CustomDropdown = ({
     fontSize: '15px',
     fontWeight: '500',
     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-    boxShadow: isOpen ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+    boxShadow: isOpen ? '0 0 0 3px rgba(37, 99, 235, 0.1)' : 'none',
   };
 
   const menuStyle = {
@@ -69,19 +69,19 @@ const CustomDropdown = ({
     left: 0,
     right: 0,
     background: darkMode ? '#1e293b' : '#ffffff',
-    border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
-    borderRadius: '12px',
-    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+    border: darkMode ? '1px solid #334155' : '1px solid #e5e7eb',
+    borderRadius: '16px',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
     zIndex: 1000,
-    maxHeight: '250px',
+    maxHeight: '400px',
     overflowY: 'auto',
     display: isOpen ? 'block' : 'none',
-    padding: '6px',
+    padding: '8px',
     animation: 'dropdownRotate 0.2s ease-out'
   };
 
   const optionItemStyle = (isSelected, isHovered) => ({
-    padding: '10px 14px',
+    padding: '12px 16px',
     borderRadius: '8px',
     cursor: 'pointer',
     display: 'flex',
@@ -92,8 +92,8 @@ const CustomDropdown = ({
       : 'transparent',
     color: isSelected 
       ? '#2563eb' 
-      : (darkMode ? '#e2e8f0' : '#475569'),
-    fontSize: '14px',
+      : (darkMode ? '#e2e8f0' : '#334155'),
+    fontSize: '15px',
     fontWeight: isSelected ? '600' : '500',
     transition: 'background-color 0.15s ease',
     marginBottom: '2px'

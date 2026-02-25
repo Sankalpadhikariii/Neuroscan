@@ -209,17 +209,65 @@ export default function AdminPortal({ user, onLogout }) {
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "#ffffff",
+        fontFamily: "'Inter', sans-serif",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
+      {/* AI Grid Background */}
+      <div style={{ 
+        position: "fixed", 
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundImage: "linear-gradient(rgba(37, 99, 235, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px)",
+        backgroundSize: "60px 60px",
+        maskImage: "linear-gradient(to bottom, black 0%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to bottom, black 0%, transparent 100%)",
+        opacity: 0.6,
+        zIndex: 0,
+        pointerEvents: "none"
+      }} />
+      {/* Animated Glow Blobs */}
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", zIndex: 0, pointerEvents: "none" }}>
+        <div style={{
+          position: "absolute", width: "800px", height: "800px",
+          background: "rgba(37, 99, 235, 0.3)", top: "-200px", right: "-200px",
+          filter: "blur(120px)", borderRadius: "50%",
+          animation: "blobMove 30s infinite alternate ease-in-out"
+        }} />
+        <div style={{
+          position: "absolute", width: "600px", height: "600px",
+          background: "rgba(79, 70, 229, 0.25)", top: "40%", left: "-150px",
+          filter: "blur(120px)", borderRadius: "50%",
+          animation: "blobMove 25s infinite alternate-reverse ease-in-out"
+        }} />
+        <div style={{
+          position: "absolute", width: "500px", height: "500px",
+          background: "rgba(139, 92, 246, 0.2)", bottom: "-100px", right: "20%",
+          filter: "blur(120px)", borderRadius: "50%",
+          animation: "blobMove 35s infinite alternate ease-in-out"
+        }} />
+      </div>
+
+      <style>{`
+        @keyframes blobMove {
+          0% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 20px) scale(0.9); }
+          100% { transform: translate(0, 0) scale(1); }
+        }
+      `}</style>
       {/* Header */}
       <header
         style={{
-          background: "rgba(255, 255, 255, 0.95)",
-          backdropFilter: "blur(10px)",
-          borderBottom: "1px solid rgba(0,0,0,0.1)",
-          padding: "20px 40px",
-          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+          background: "rgba(255, 255, 255, 0.85)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderBottom: "1px solid rgba(0,0,0,0.05)",
+          padding: "16px 40px",
+          position: "relative",
+          zIndex: 10,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
         }}
       >
         <div
@@ -234,32 +282,31 @@ export default function AdminPortal({ user, onLogout }) {
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <div
               style={{
-                width: "48px",
-                height: "48px",
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                width: "44px",
+                height: "44px",
+                background: "linear-gradient(135deg, #2563eb 0%, #1e40af 100%)",
                 borderRadius: "12px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                boxShadow: "0 8px 16px rgba(37, 99, 235, 0.2)",
               }}
             >
-              <Shield size={28} color="white" />
+              <Shield size={24} color="white" />
             </div>
             <div>
               <h1
                 style={{
                   margin: 0,
-                  fontSize: "24px",
-                  fontWeight: "bold",
-                  background:
-                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
+                  fontSize: "22px",
+                  fontWeight: "800",
+                  color: "#0f172a",
+                  letterSpacing: "-0.5px",
                 }}
               >
                 Admin Portal
               </h1>
-              <p style={{ margin: 0, fontSize: "14px", color: "#6b7280" }}>
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
                 System Management & User Control
               </p>
             </div>
@@ -271,13 +318,13 @@ export default function AdminPortal({ user, onLogout }) {
                 style={{
                   margin: 0,
                   fontSize: "14px",
-                  fontWeight: "600",
-                  color: "#111827",
+                  fontWeight: "700",
+                  color: "#0f172a",
                 }}
               >
                 {user?.username || user?.email}
               </p>
-              <p style={{ margin: 0, fontSize: "12px", color: "#6b7280" }}>
+              <p style={{ margin: 0, fontSize: "12px", color: "#64748b" }}>
                 {user?.role === "superadmin"
                   ? "Super Administrator"
                   : "Administrator"}
@@ -287,21 +334,28 @@ export default function AdminPortal({ user, onLogout }) {
               onClick={onLogout}
               style={{
                 padding: "10px 20px",
-                background: "#ef4444",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
+                background: "rgba(239, 68, 68, 0.15)",
+                color: "#f87171",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                borderRadius: "10px",
                 fontWeight: "600",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
                 transition: "all 0.2s",
+                fontSize: "14px",
               }}
-              onMouseEnter={(e) => (e.target.style.background = "#dc2626")}
-              onMouseLeave={(e) => (e.target.style.background = "#ef4444")}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)";
+                e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.4)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.15)";
+                e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.25)";
+              }}
             >
-              <LogOut size={18} />
+              <LogOut size={16} />
               Logout
             </button>
           </div>
@@ -311,9 +365,13 @@ export default function AdminPortal({ user, onLogout }) {
       {/* Navigation */}
       <div
         style={{
-          background: "white",
-          borderBottom: "1px solid rgba(0,0,0,0.1)",
-          padding: "0 40px",
+          background: "rgba(255, 255, 255, 0.6)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          borderBottom: "1px solid rgba(0,0,0,0.05)",
+          padding: "12px 40px",
+          position: "relative",
+          zIndex: 10,
         }}
       >
         <div
@@ -321,7 +379,7 @@ export default function AdminPortal({ user, onLogout }) {
             maxWidth: "1400px",
             margin: "0 auto",
             display: "flex",
-            gap: "8px",
+            gap: "6px",
           }}
         >
           {[
@@ -338,21 +396,33 @@ export default function AdminPortal({ user, onLogout }) {
                 key={tab.id}
                 onClick={() => setView(tab.id)}
                 style={{
-                  padding: "16px 24px",
+                  padding: "12px 22px",
                   background: isActive
-                    ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                    ? "rgba(37, 99, 235, 0.1)"
                     : "transparent",
-                  color: isActive ? "white" : "#6b7280",
-                  border: "none",
-                  borderBottom: isActive ? "3px solid transparent" : "none",
+                  color: isActive ? "#2563eb" : "#64748b",
+                  border: "1px solid transparent",
                   cursor: "pointer",
-                  fontWeight: "600",
+                  fontWeight: isActive ? "700" : "600",
                   fontSize: "14px",
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
-                  transition: "all 0.2s",
-                  borderRadius: "8px 8px 0 0",
+                  transition: "all 0.3s",
+                  borderRadius: "30px",
+                  letterSpacing: "0.2px",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.color = "#334155";
+                    e.currentTarget.style.background = "rgba(15, 23, 42, 0.04)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.color = "#64748b";
+                    e.currentTarget.style.background = "transparent";
+                  }
                 }}
               >
                 <Icon size={18} />
@@ -368,7 +438,9 @@ export default function AdminPortal({ user, onLogout }) {
         style={{
           maxWidth: "1400px",
           margin: "0 auto",
-          padding: "40px",
+          padding: "32px 40px",
+          position: "relative",
+          zIndex: 5,
         }}
       >
         {/* Alerts */}
@@ -621,10 +693,10 @@ function DashboardView({ stats, loading }) {
       <div style={{ textAlign: "center", padding: "60px" }}>
         <Activity
           size={48}
-          color="#667eea"
+          color="#60a5fa"
           style={{ animation: "pulse 2s infinite" }}
         />
-        <p style={{ marginTop: "16px", color: "white", fontSize: "18px" }}>
+        <p style={{ marginTop: "16px", color: "rgba(148,163,184,0.8)", fontSize: "18px" }}>
           Loading dashboard...
         </p>
       </div>
@@ -666,10 +738,11 @@ function DashboardView({ stats, loading }) {
     <div>
       <h2
         style={{
-          fontSize: "28px",
-          fontWeight: "bold",
-          color: "white",
+          fontSize: "26px",
+          fontWeight: "900",
+          color: "#0f172a",
           marginBottom: "24px",
+          letterSpacing: "-1px",
         }}
       >
         System Overview
@@ -679,8 +752,8 @@ function DashboardView({ stats, loading }) {
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: "24px",
-          marginBottom: "40px",
+          gap: "20px",
+          marginBottom: "32px",
         }}
       >
         {statCards.map((card, index) => {
@@ -690,18 +763,23 @@ function DashboardView({ stats, loading }) {
               key={index}
               style={{
                 background: "white",
-                borderRadius: "16px",
+                borderRadius: "24px",
                 padding: "24px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-                transition: "transform 0.2s",
+                border: "1px solid #f1f5f9",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.02)",
+                transition: "all 0.3s",
                 cursor: "pointer",
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.transform = "translateY(-4px)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.transform = "translateY(0)")
-              }
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-4px)";
+                e.currentTarget.style.borderColor = "#2563eb";
+                e.currentTarget.style.boxShadow = "0 20px 40px rgba(37, 99, 235, 0.1)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.borderColor = "#f1f5f9";
+                e.currentTarget.style.boxShadow = "0 10px 30px rgba(0,0,0,0.02)";
+              }}
             >
               <div
                 style={{
@@ -714,9 +792,11 @@ function DashboardView({ stats, loading }) {
                   <p
                     style={{
                       margin: 0,
-                      fontSize: "14px",
-                      color: "#6b7280",
-                      fontWeight: "600",
+                      fontSize: "13px",
+                      color: "#64748b",
+                      fontWeight: "700",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
                     }}
                   >
                     {card.title}
@@ -724,9 +804,10 @@ function DashboardView({ stats, loading }) {
                   <p
                     style={{
                       margin: "8px 0 0 0",
-                      fontSize: "32px",
-                      fontWeight: "bold",
-                      color: "#111827",
+                      fontSize: "36px",
+                      fontWeight: "900",
+                      color: "#0f172a",
+                      letterSpacing: "-1px",
                     }}
                   >
                     {card.value}
@@ -734,8 +815,8 @@ function DashboardView({ stats, loading }) {
                 </div>
                 <div
                   style={{
-                    width: "48px",
-                    height: "48px",
+                    width: "56px",
+                    height: "56px",
                     background: card.bgColor,
                     borderRadius: "12px",
                     display: "flex",
@@ -755,17 +836,18 @@ function DashboardView({ stats, loading }) {
       <div
         style={{
           background: "white",
-          borderRadius: "16px",
-          padding: "24px",
-          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+          borderRadius: "24px",
+          padding: "32px",
+          border: "1px solid #f1f5f9",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.02)",
         }}
       >
         <h3
           style={{
-            margin: "0 0 20px 0",
+            margin: "0 0 24px 0",
             fontSize: "20px",
-            fontWeight: "bold",
-            color: "#111827",
+            fontWeight: "800",
+            color: "#0f172a",
           }}
         >
           System Statistics
@@ -796,27 +878,29 @@ function StatItem({ label, value }) {
     <div
       style={{
         padding: "16px",
-        background: "#f9fafb",
-        borderRadius: "8px",
-        borderLeft: "4px solid #667eea",
+        background: "#f8fafc",
+        borderRadius: "12px",
+        border: "1px solid #f1f5f9",
       }}
     >
       <p
         style={{
           margin: 0,
-          fontSize: "12px",
-          color: "#6b7280",
+          fontSize: "13px",
+          color: "#64748b",
           fontWeight: "600",
+          textTransform: "uppercase",
+          letterSpacing: "0.5px",
         }}
       >
         {label}
       </p>
       <p
         style={{
-          margin: "4px 0 0 0",
+          margin: "8px 0 0 0",
           fontSize: "24px",
-          fontWeight: "bold",
-          color: "#111827",
+          fontWeight: "800",
+          color: "#0f172a",
         }}
       >
         {value}
@@ -846,10 +930,10 @@ function UsersView({
       <div style={{ textAlign: "center", padding: "60px" }}>
         <Activity
           size={48}
-          color="#667eea"
+          color="#60a5fa"
           style={{ animation: "pulse 2s infinite" }}
         />
-        <p style={{ marginTop: "16px", color: "white", fontSize: "18px" }}>
+        <p style={{ marginTop: "16px", color: "rgba(148,163,184,0.8)", fontSize: "18px" }}>
           Loading {title.toLowerCase()}...
         </p>
       </div>
@@ -872,22 +956,23 @@ function UsersView({
             style={{
               width: "48px",
               height: "48px",
-              background: "white",
+              background: "rgba(37, 99, 235, 0.08)",
               borderRadius: "12px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Icon size={24} color="#667eea" />
+            <Icon size={24} color="#2563eb" />
           </div>
           <div>
             <h2
               style={{
                 margin: 0,
                 fontSize: "28px",
-                fontWeight: "bold",
-                color: "white",
+                fontWeight: "900",
+                color: "#0f172a",
+                letterSpacing: "-1px",
               }}
             >
               {title}
@@ -895,8 +980,9 @@ function UsersView({
             <p
               style={{
                 margin: "4px 0 0 0",
-                color: "rgba(255,255,255,0.8)",
+                color: "#64748b",
                 fontSize: "14px",
+                fontWeight: "500",
               }}
             >
               {users.length} total records
@@ -907,27 +993,27 @@ function UsersView({
         <button
           onClick={onAdd}
           style={{
-            padding: "12px 24px",
-            background: "white",
-            color: "#667eea",
+            padding: "14px 28px",
+            background: "#2563eb",
+            color: "white",
             border: "none",
-            borderRadius: "8px",
-            fontWeight: "600",
+            borderRadius: "50px",
+            fontWeight: "700",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            fontSize: "14px",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            transition: "all 0.2s",
+            fontSize: "15px",
+            boxShadow: "0 10px 20px rgba(37, 99, 235, 0.2)",
+            transition: "all 0.3s",
           }}
           onMouseEnter={(e) => {
-            e.target.style.background = "#667eea";
-            e.target.style.color = "white";
+            e.currentTarget.style.background = "#1d4ed8";
+            e.currentTarget.style.transform = "translateY(-2px)";
           }}
           onMouseLeave={(e) => {
-            e.target.style.background = "white";
-            e.target.style.color = "#667eea";
+            e.currentTarget.style.background = "#2563eb";
+            e.currentTarget.style.transform = "translateY(0)";
           }}
         >
           <Plus size={18} />
@@ -944,14 +1030,16 @@ function UsersView({
       <div
         style={{
           background: "white",
-          borderRadius: "12px",
+          borderRadius: "20px",
           padding: "20px",
-          marginBottom: "20px",
+          marginBottom: "24px",
           display: "flex",
-          gap: "12px",
+          gap: "16px",
           flexWrap: "wrap",
           alignItems: "center",
           overflow: "hidden",
+          border: "1px solid #f1f5f9",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.02)",
         }}
       >
         <div
@@ -964,10 +1052,10 @@ function UsersView({
         >
           <Search
             size={20}
-            color="#9ca3af"
+            color="#94a3b8"
             style={{
               position: "absolute",
-              left: "12px",
+              left: "16px",
               top: "50%",
               transform: "translateY(-50%)",
             }}
@@ -979,15 +1067,26 @@ function UsersView({
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: "100%",
-              padding: "12px 12px 12px 44px",
-              border: "2px solid #e5e7eb",
-              borderRadius: "8px",
-              fontSize: "14px",
+              padding: "14px 14px 14px 48px",
+              border: "2px solid #f1f5f9",
+              borderRadius: "12px",
+              fontSize: "15px",
               outline: "none",
-              transition: "border-color 0.2s",
+              background: "#f8fafc",
+              color: "#0f172a",
+              transition: "all 0.3s",
+              fontWeight: "500",
             }}
-            onFocus={(e) => (e.target.style.borderColor = "#667eea")}
-            onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+            onFocus={(e) => {
+              e.target.style.borderColor = "#2563eb";
+              e.target.style.background = "white";
+              e.target.style.boxShadow = "0 4px 12px rgba(37, 99, 235, 0.1)";
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = "#f1f5f9";
+              e.target.style.background = "#f8fafc";
+              e.target.style.boxShadow = "none";
+            }}
           />
         </div>
 
@@ -1017,7 +1116,8 @@ function UsersView({
           background: "white",
           borderRadius: "16px",
           overflow: "hidden",
-          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+          border: "1px solid #f1f5f9",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.02)",
         }}
       >
         {users.length === 0 ? (
@@ -1027,11 +1127,11 @@ function UsersView({
               textAlign: "center",
             }}
           >
-            <Icon size={48} color="#d1d5db" />
+            <Icon size={48} color="#cbd5e1" />
             <p
               style={{
                 margin: "16px 0 0 0",
-                color: "#6b7280",
+                color: "#64748b",
                 fontSize: "16px",
               }}
             >
@@ -1049,8 +1149,8 @@ function UsersView({
               <thead>
                 <tr
                   style={{
-                    background: "#f9fafb",
-                    borderBottom: "2px solid #e5e7eb",
+                    background: "#f8fafc",
+                    borderBottom: "2px solid #f1f5f9",
                   }}
                 >
                   <th style={tableHeaderStyle}>ID</th>
@@ -1082,8 +1182,8 @@ function UsersView({
                   <tr
                     key={user.id}
                     style={{
-                      borderBottom: "1px solid #f3f4f6",
-                      background: index % 2 === 0 ? "white" : "#fafbfc",
+                      borderBottom: "1px solid #f1f5f9",
+                      background: index % 2 === 0 ? "white" : "#f8fafc",
                     }}
                   >
                     <td style={tableCellStyle}>#{user.id}</td>
@@ -1095,11 +1195,12 @@ function UsersView({
                       <td style={tableCellStyle}>
                         <code
                           style={{
-                            background: "#f3f4f6",
+                            background: "#f1f5f9",
                             padding: "4px 8px",
-                            borderRadius: "4px",
+                            borderRadius: "6px",
                             fontSize: "12px",
                             fontFamily: "monospace",
+                            color: "#475569",
                           }}
                         >
                           {user.hospital_code || user.patient_code}
@@ -1123,10 +1224,10 @@ function UsersView({
                                     : "#fee2e2",
                               color:
                                 user.subscription_status === "active"
-                                  ? "#065f46"
+                                  ? "#059669"
                                   : user.subscription_status === "trial"
-                                    ? "#92400e"
-                                    : "#991b1b",
+                                    ? "#d97706"
+                                    : "#dc2626",
                             }}
                           >
                             {user.subscription_plan}
@@ -1246,10 +1347,10 @@ function PlansView({ plans, loading, onEdit }) {
       <div style={{ textAlign: "center", padding: "60px" }}>
         <Activity
           size={48}
-          color="#667eea"
+          color="#2563eb"
           style={{ animation: "pulse 2s infinite" }}
         />
-        <p style={{ marginTop: "16px", color: "white", fontSize: "18px" }}>
+        <p style={{ marginTop: "16px", color: "#64748b", fontSize: "18px" }}>
           Loading plans...
         </p>
       </div>
@@ -1271,22 +1372,23 @@ function PlansView({ plans, loading, onEdit }) {
             style={{
               width: "48px",
               height: "48px",
-              background: "white",
+              background: "rgba(37, 99, 235, 0.08)",
               borderRadius: "12px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <CreditCard size={24} color="#667eea" />
+            <CreditCard size={24} color="#2563eb" />
           </div>
           <div>
             <h2
               style={{
                 margin: 0,
                 fontSize: "28px",
-                fontWeight: "bold",
-                color: "white",
+                fontWeight: "900",
+                color: "#0f172a",
+                letterSpacing: "-1px",
               }}
             >
               Subscription Plans
@@ -1294,8 +1396,9 @@ function PlansView({ plans, loading, onEdit }) {
             <p
               style={{
                 margin: "4px 0 0 0",
-                color: "rgba(255,255,255,0.8)",
+                color: "#64748b",
                 fontSize: "14px",
+                fontWeight: "500",
               }}
             >
               Manage pricing and limits
@@ -1923,13 +2026,16 @@ function AddUserModal({
     >
       <div
         style={{
-          background: "white",
-          borderRadius: "16px",
+          background: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderRadius: "24px",
+          border: "1px solid rgba(255,255,255,0.5)",
           maxWidth: "600px",
           width: "100%",
           maxHeight: "90vh",
           overflow: "auto",
-          boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)",
         }}
       >
         {/* Modal Header */}
@@ -2221,7 +2327,7 @@ function AddUserModal({
           {/* Submit Button */}
           <div
             style={{
-              marginTop: "24px",
+              marginTop: "32px",
               display: "flex",
               gap: "12px",
               justifyContent: "flex-end",
@@ -2232,13 +2338,16 @@ function AddUserModal({
               onClick={onClose}
               style={{
                 padding: "12px 24px",
-                background: "#f3f4f6",
-                color: "#374151",
+                background: "#f1f5f9",
+                color: "#475569",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 fontWeight: "600",
                 cursor: "pointer",
+                transition: "all 0.2s",
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#e2e8f0")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "#f1f5f9")}
             >
               Cancel
             </button>
@@ -2246,18 +2355,30 @@ function AddUserModal({
               type="submit"
               disabled={loading}
               style={{
-                padding: "12px 24px",
-                background: loading
-                  ? "#9ca3af"
-                  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                padding: "12px 28px",
+                background: loading ? "#94a3b8" : "#2563eb",
                 color: "white",
                 border: "none",
-                borderRadius: "8px",
-                fontWeight: "600",
+                borderRadius: "12px",
+                fontWeight: "700",
                 cursor: loading ? "not-allowed" : "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
+                boxShadow: loading ? "none" : "0 8px 16px rgba(37, 99, 235, 0.2)",
+                transition: "all 0.3s",
+              }}
+              onMouseEnter={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.background = "#1d4ed8";
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.background = "#2563eb";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }
               }}
             >
               {loading ? "Creating..." : "Create User"}
@@ -2327,12 +2448,16 @@ function EditUserModal({
     >
       <div
         style={{
-          background: "white",
-          borderRadius: "16px",
+          background: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderRadius: "24px",
+          border: "1px solid rgba(255,255,255,0.5)",
           maxWidth: "600px",
           width: "100%",
           maxHeight: "90vh",
           overflow: "auto",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)",
         }}
       >
         <div
@@ -2357,22 +2482,48 @@ function EditUserModal({
 
         <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
           {user.userType === "hospital" && (
-            <FormSelect
-              label="Subscription Plan"
-              value={formData.subscription_plan || ""}
-              onChange={(e) =>
-                setFormData({ ...formData, subscription_plan: e.target.value })
-              }
-              placeholder={
-                subscriptionPlans.length === 0
-                  ? "Loading plans..."
-                  : "Select a subscription plan"
-              }
-              options={subscriptionPlans.map((plan) => ({
-                value: plan.name,
-                label: `${plan.display_name} - $${plan.price_monthly}/month`,
-              }))}
-            />
+            <>
+              <FormSelect
+                label="Subscription Plan"
+                value={formData.subscription_plan || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, subscription_plan: e.target.value })
+                }
+                placeholder={
+                  subscriptionPlans.length === 0
+                    ? "Loading plans..."
+                    : "Select a subscription plan"
+                }
+                options={subscriptionPlans.map((plan) => ({
+                  value: plan.name,
+                  label: `${plan.display_name} - $${plan.price_monthly}/month`,
+                }))}
+              />
+              {/* Plan change confirmation warning */}
+              {formData.subscription_plan && user.subscription_plan &&
+                formData.subscription_plan !== user.subscription_plan && (
+                <div style={{
+                  marginTop: "12px",
+                  padding: "14px 16px",
+                  background: "#fef3c7",
+                  border: "1px solid #fbbf24",
+                  borderRadius: "10px",
+                }}>
+                  <div style={{ display: "flex", alignItems: "start", gap: "10px" }}>
+                    <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: "2px" }} />
+                    <div>
+                      <p style={{ margin: 0, fontSize: "13px", fontWeight: "700", color: "#92400e" }}>
+                        Plan Change
+                      </p>
+                      <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#78350f" }}>
+                        Changing from <strong>{user.subscription_plan}</strong> → <strong>{formData.subscription_plan}</strong>.
+                        This will immediately update the hospital's scan limits and feature access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <FormField
@@ -2386,7 +2537,7 @@ function EditUserModal({
 
           <div
             style={{
-              marginTop: "24px",
+              marginTop: "32px",
               display: "flex",
               gap: "12px",
               justifyContent: "flex-end",
@@ -2397,13 +2548,16 @@ function EditUserModal({
               onClick={onClose}
               style={{
                 padding: "12px 24px",
-                background: "#f3f4f6",
-                color: "#374151",
+                background: "#f1f5f9",
+                color: "#475569",
                 border: "none",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 fontWeight: "600",
                 cursor: "pointer",
+                transition: "all 0.2s",
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#e2e8f0")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "#f1f5f9")}
             >
               Cancel
             </button>
@@ -2411,15 +2565,27 @@ function EditUserModal({
               type="submit"
               disabled={loading}
               style={{
-                padding: "12px 24px",
-                background: loading
-                  ? "#9ca3af"
-                  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                padding: "12px 28px",
+                background: loading ? "#94a3b8" : "#2563eb",
                 color: "white",
                 border: "none",
-                borderRadius: "8px",
-                fontWeight: "600",
+                borderRadius: "12px",
+                fontWeight: "700",
                 cursor: loading ? "not-allowed" : "pointer",
+                boxShadow: loading ? "none" : "0 8px 16px rgba(37, 99, 235, 0.2)",
+                transition: "all 0.3s",
+              }}
+              onMouseEnter={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.background = "#1d4ed8";
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.background = "#2563eb";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }
               }}
             >
               {loading ? "Updating..." : "Update User"}
@@ -2475,11 +2641,15 @@ function DeleteUserModal({ user, onClose, onSuccess, onError }) {
     >
       <div
         style={{
-          background: "white",
-          borderRadius: "16px",
+          background: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderRadius: "24px",
+          border: "1px solid rgba(255,255,255,0.5)",
           maxWidth: "500px",
           width: "100%",
-          padding: "24px",
+          padding: "32px",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.15)",
         }}
       >
         <div
@@ -2550,19 +2720,22 @@ function DeleteUserModal({ user, onClose, onSuccess, onError }) {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "12px" }}>
+        <div style={{ display: "flex", gap: "12px", marginTop: "32px" }}>
           <button
             onClick={onClose}
             style={{
               flex: 1,
-              padding: "12px",
-              background: "#f3f4f6",
-              color: "#374151",
+              padding: "14px",
+              background: "#f1f5f9",
+              color: "#475569",
               border: "none",
-              borderRadius: "8px",
+              borderRadius: "12px",
               fontWeight: "600",
               cursor: "pointer",
+              transition: "all 0.2s",
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "#e2e8f0")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "#f1f5f9")}
           >
             Cancel
           </button>
@@ -2571,13 +2744,27 @@ function DeleteUserModal({ user, onClose, onSuccess, onError }) {
             disabled={loading}
             style={{
               flex: 1,
-              padding: "12px",
-              background: loading ? "#9ca3af" : "#ef4444",
+              padding: "14px",
+              background: loading ? "#fca5a5" : "#ef4444",
               color: "white",
               border: "none",
-              borderRadius: "8px",
-              fontWeight: "600",
+              borderRadius: "12px",
+              fontWeight: "700",
               cursor: loading ? "not-allowed" : "pointer",
+              boxShadow: "0 8px 16px rgba(239, 68, 68, 0.2)",
+              transition: "all 0.3s",
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.currentTarget.style.background = "#dc2626";
+                e.currentTarget.style.transform = "translateY(-2px)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!loading) {
+                e.currentTarget.style.background = "#ef4444";
+                e.currentTarget.style.transform = "translateY(0)";
+              }
             }}
           >
             {loading ? "Deleting..." : "Delete User"}
@@ -2618,15 +2805,23 @@ function FormField({
         placeholder={placeholder}
         style={{
           width: "100%",
-          padding: "10px 12px",
-          border: "2px solid #e5e7eb",
-          borderRadius: "8px",
-          fontSize: "14px",
+          padding: "14px 16px",
+          border: "2px solid #e2e8f0",
+          borderRadius: "12px",
+          fontSize: "15px",
+          color: "#0f172a",
           outline: "none",
-          transition: "border-color 0.2s",
+          background: "white",
+          transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
         }}
-        onFocus={(e) => (e.target.style.borderColor = "#667eea")}
-        onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+        onFocus={(e) => {
+          e.target.style.borderColor = "#2563eb";
+          e.target.style.boxShadow = "0 0 0 3px rgba(37, 99, 235, 0.1)";
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = "#e2e8f0";
+          e.target.style.boxShadow = "none";
+        }}
       />
     </div>
   );
@@ -2649,6 +2844,7 @@ function FormSelect({
         onChange={onChange}
         options={options}
         darkMode={false}
+        fullWidth={true}
       />
     </div>
   );

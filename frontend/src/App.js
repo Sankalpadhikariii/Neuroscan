@@ -22,6 +22,11 @@ export default function App() {
   }, []);
 
   async function checkAuth() {
+    // Check URL for Stripe redirect params FIRST
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasSessionId = urlParams.get('session_id');
+    const isCancelled = window.location.pathname === '/subscription-cancelled';
+
     try {
       // Test connection with timeout
       const controller = new AbortController();
@@ -37,7 +42,14 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
-        setCurrentView('main');
+        // Don't override to 'main' if we need to show Stripe result pages
+        if (hasSessionId) {
+          setCurrentView('success');
+        } else if (isCancelled) {
+          setCurrentView('cancelled');
+        } else {
+          setCurrentView('main');
+        }
       }
     } catch (err) {
       console.error('Auth check failed:', err);
@@ -46,7 +58,13 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
-          setCurrentView('main');
+          if (hasSessionId) {
+            setCurrentView('success');
+          } else if (isCancelled) {
+            setCurrentView('cancelled');
+          } else {
+            setCurrentView('main');
+          }
         }
       } catch (retryErr) {
         console.error('Auth check retry failed:', retryErr);
@@ -64,6 +82,8 @@ export default function App() {
       });
       setUser(null);
       setCurrentView('landing');
+      // Clean URL params
+      window.history.replaceState({}, '', '/');
     } catch (err) {
       console.error('Logout failed:', err);
     }
@@ -79,22 +99,14 @@ export default function App() {
   }
 
   function handleNavigateToMain() {
+    // Clean up session_id from URL when navigating home
+    window.history.replaceState({}, '', '/');
     setCurrentView('main');
   }
 
   function handleLoginClick() {
     setCurrentView('login');
   }
-
-  // Check URL for success/cancelled params
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('session_id')) {
-      setCurrentView('success');
-    } else if (window.location.pathname === '/subscription-cancelled') {
-      setCurrentView('cancelled');
-    }
-  }, []);
 
   if (loading) {
     return (

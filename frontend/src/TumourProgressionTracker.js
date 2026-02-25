@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, AlertTriangle, Info, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Info, Calendar, CheckCircle } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer

@@ -22,11 +22,22 @@ export default function SubscriptionSuccess() {
 
   async function verifySession(sessionId) {
     try {
-      // You can add a backend endpoint to verify the session
-      // For now, we'll just mark as success
-      setSessionData({ sessionId });
+      const res = await fetch(`${API_BASE}/api/stripe/verify-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSessionData({ sessionId, planName: data.plan_name, message: data.message });
+      } else {
+        console.error("Session verification failed:", data.error);
+        setSessionData({ sessionId, error: data.error });
+      }
     } catch (error) {
       console.error('Failed to verify session:', error);
+      setSessionData({ sessionId, error: "Could not verify payment. Your subscription may still be processing." });
     } finally {
       setLoading(false);
     }

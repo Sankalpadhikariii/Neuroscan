@@ -542,7 +542,7 @@ const LandingPage = ({ onLogin, onNavigateToPricing }) => {
               background: "#1e293b"
             }}>
               <img 
-                src="/software_preview.png" 
+                src="/landingpageimage.png" 
                 alt="NeuroScan Software Preview"
                 className="software-preview-img"
                 style={{
@@ -708,16 +708,17 @@ const LandingPage = ({ onLogin, onNavigateToPricing }) => {
             <h3 style={{ fontSize: isMobile ? "36px" : "52px", fontWeight: "900", color: "#0f172a", marginBottom: "24px", letterSpacing: "-2px" }}>Scalable Clinical Solutions</h3>
           </div>
 
-          <div className="responsive-grid-pricing" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "40px" }}>
+          <div className="responsive-grid-pricing" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "32px", alignItems: "stretch" }}>
             {[
-              { name: "Free", price: "0", scans: "10", features: ["10 MRI Scans", "AI Analysis", "Basic Reports"], popular: false },
-              { name: "Basic", price: "500", scans: "100", features: ["100 MRI Scans", "AI Analysis", "PDF Reports", "Chat System"], popular: true },
-              { name: "Premium", price: "1000", scans: "1000", features: ["1000 MRI Scans", "Unlimited Features", "Priority Support", "API Access"], popular: false }
+              { name: "Free Trial", price: "0", scans: "10", features: ["10 MRI Scans / month", "AI Analysis", "Basic PDF Reports"], popular: false },
+              { name: "Basic", price: "99", scans: "100", features: ["100 MRI Scans / month", "PDF Reports", "Patient Portal", "Chat & Email Support"], popular: false },
+              { name: "Professional", price: "299", scans: "500", features: ["500 MRI Scans / month", "Advanced Analytics", "GradCAM Visualization", "Priority Support"], popular: true },
+              { name: "Enterprise", price: "799", scans: "∞", features: ["Unlimited Scans", "Custom Integration", "Dedicated Support", "SLA Guarantee"], popular: false }
             ].map((plan, i) => (
               <div key={i} style={{ 
                 background: "white", 
-                padding: "60px 40px", 
-                borderRadius: "40px", 
+                padding: "48px 32px", 
+                borderRadius: "32px", 
                 border: plan.popular ? "2px solid #2563eb" : "1px solid #f1f5f9",
                 boxShadow: plan.popular ? "0 30px 60px rgba(37, 99, 235, 0.15)" : "0 20px 40px rgba(0,0,0,0.03)",
                 position: "relative",
@@ -726,23 +727,23 @@ const LandingPage = ({ onLogin, onNavigateToPricing }) => {
                 transition: "all 0.4s",
                 opacity: isVisible.pricing ? 1 : 0,
                 transform: isVisible.pricing ? "translateY(0)" : "translateY(60px)",
-                transitionDelay: `${i * 0.2}s`
+                transitionDelay: `${i * 0.15}s`
               }}>
                 {plan.popular && (
-                  <div style={{ position: "absolute", top: "24px", right: "40px", background: "#2563eb", color: "white", padding: "6px 16px", borderRadius: "20px", fontSize: "12px", fontWeight: "800" }}>MOST POPULAR</div>
+                  <div style={{ position: "absolute", top: "20px", right: "24px", background: "#2563eb", color: "white", padding: "6px 14px", borderRadius: "20px", fontSize: "11px", fontWeight: "800" }}>MOST POPULAR</div>
                 )}
-                <h4 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "12px" }}>{plan.name}</h4>
-                <div style={{ marginBottom: "40px" }}>
-                  <span style={{ fontSize: "56px", fontWeight: "900", letterSpacing: "-3px" }}>Nrs {plan.price}</span>
-                  <span style={{ color: "#64748b", fontWeight: "600" }}>/month</span>
+                <h4 style={{ fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>{plan.name}</h4>
+                <div style={{ marginBottom: "32px" }}>
+                  <span style={{ fontSize: "48px", fontWeight: "900", letterSpacing: "-2px" }}>${plan.price}</span>
+                  <span style={{ color: "#64748b", fontWeight: "600" }}>/mo</span>
                 </div>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "20px", marginBottom: "48px" }}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px", marginBottom: "40px" }}>
                   {plan.features.map((f, fi) => (
-                    <div key={fi} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <div style={{ background: "rgba(37, 99, 235, 0.1)", width: "24px", height: "24px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb" }}>
-                        <Check size={14} strokeWidth={3} />
+                    <div key={fi} style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                      <div style={{ background: "rgba(37, 99, 235, 0.1)", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb", flexShrink: 0, marginTop: "2px" }}>
+                        <Check size={12} strokeWidth={3} />
                       </div>
-                      <span style={{ fontWeight: "600", color: "#475569" }}>{f}</span>
+                      <span style={{ fontWeight: "600", color: "#475569", fontSize: "14px", lineHeight: "1.4" }}>{f}</span>
                     </div>
                   ))}
                 </div>
@@ -751,18 +752,19 @@ const LandingPage = ({ onLogin, onNavigateToPricing }) => {
                     setShowLoginPrompt(true);
                   }}
                   style={{
-                    padding: "18px",
+                    padding: "16px",
                     borderRadius: "50px",
                     border: plan.popular ? "none" : "2px solid #f1f5f9",
                     background: plan.popular ? "#2563eb" : "white",
                     color: plan.popular ? "white" : "#0f172a",
                     fontWeight: "800",
                     cursor: "pointer",
-                    fontSize: "16px",
-                    transition: "all 0.3s"
+                    fontSize: "15px",
+                    transition: "all 0.3s",
+                    marginTop: "auto"
                   }}
                   onMouseEnter={e => {
-                    e.target.style.background = plan.popular ? "#1d4ed8" : "#f1f5f9";
+                    e.target.style.background = plan.popular ? "#1d4ed8" : "#f8fafc";
                     e.target.style.transform = "translateY(-4px)";
                   }}
                   onMouseLeave={e => {

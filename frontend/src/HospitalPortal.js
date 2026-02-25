@@ -109,6 +109,8 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [billingCycle, setBillingCycle] = useState("monthly");
   const [processingPlan, setProcessingPlan] = useState(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState("");
 
   // New states for enhanced features
   const [showChat, setShowChat] = useState(false);
@@ -464,6 +466,13 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        // Handle scan limit reached (403)
+        if (res.status === 403 && errorData.upgrade_required) {
+          setUpgradeMessage(errorData.message || `You've reached your monthly scan limit. Upgrade your plan to continue scanning.`);
+          setShowUpgradeModal(true);
+          setLoading(false);
+          return;
+        }
         throw new Error(errorData.message || errorData.error || `Server error`);
       }
 
@@ -502,6 +511,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
       }
 
       await loadUsageStatus();
+      await loadDashboardStats();
     } catch (err) {
       console.error("Analysis failed:", err);
       setError(err.message || "Failed to perform analysis.");
@@ -701,6 +711,13 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        // Handle scan limit reached (403)
+        if (res.status === 403 && errorData.upgrade_required) {
+          setUpgradeMessage(errorData.message || `You've reached your monthly scan limit. Upgrade your plan to continue scanning.`);
+          setShowUpgradeModal(true);
+          setLoading(false);
+          return;
+        }
         throw new Error(errorData.message || errorData.error);
       }
 
@@ -720,6 +737,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
       }
 
       await loadUsageStatus();
+      await loadDashboardStats();
     } catch (err) {
       console.error("Analysis failed:", err);
       setError(err.message || "Failed to perform analysis.");
@@ -897,12 +915,6 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               active={view === "chat"}
               onClick={() => setView("chat")}
               badge={unreadCount > 0 ? unreadCount : null}
-            />
-            <NavItem
-              icon={<Settings size={20} />}
-              label="Settings"
-              active={view === "settings"}
-              onClick={() => setView("settings")}
             />
           </nav>
 
@@ -1123,6 +1135,90 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                   bgGradient="linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)"
                 />
               </div>
+
+              {/* Scan Usage Bar */}
+              {usage && usage.scan_limit !== -1 && (
+                <div style={{
+                  background: darkMode ? "#1e293b" : "white",
+                  padding: "20px 24px",
+                  borderRadius: "16px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.04)"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Zap size={16} color={usage.usage_percent >= 80 ? "#ef4444" : "#3b82f6"} />
+                      <span style={{ fontSize: "14px", fontWeight: "600", color: textPrimary }}>Monthly Scan Usage</span>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        background: usage.is_free_tier ? "rgba(148,163,184,0.15)" : "rgba(59,130,246,0.1)",
+                        color: usage.is_free_tier ? "#64748b" : "#3b82f6"
+                      }}>{usage.plan_name || usage.plan_type}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: "600", color: usage.usage_percent >= 80 ? "#ef4444" : textSecondary }}>
+                        {usage.scans_used}/{usage.scan_limit} scans
+                      </span>
+                      {usage.usage_percent >= 80 && (
+                        <button
+                          onClick={() => { setView("subscription"); loadSubscriptionPlans(); }}
+                          style={{
+                            padding: "4px 12px",
+                            background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px"
+                          }}
+                        >
+                          <Zap size={12} /> Upgrade
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: "100%",
+                    height: "8px",
+                    background: darkMode ? "#0f172a" : "#f1f5f9",
+                    borderRadius: "4px",
+                    overflow: "hidden"
+                  }}>
+                    <div style={{
+                      width: `${Math.min(usage.usage_percent || 0, 100)}%`,
+                      height: "100%",
+                      borderRadius: "4px",
+                      background: usage.usage_percent >= 90 ? "linear-gradient(90deg, #ef4444, #dc2626)"
+                        : usage.usage_percent >= 80 ? "linear-gradient(90deg, #f59e0b, #d97706)"
+                        : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                      transition: "width 0.5s ease"
+                    }} />
+                  </div>
+                  {usage.is_blocked && (
+                    <div style={{
+                      marginTop: "10px",
+                      padding: "8px 12px",
+                      background: "rgba(239,68,68,0.08)",
+                      borderRadius: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px"
+                    }}>
+                      <AlertTriangle size={14} color="#ef4444" />
+                      <span style={{ fontSize: "13px", color: "#ef4444", fontWeight: "600" }}>
+                        {usage.block_message || "Scan limit reached. Upgrade to continue."}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Charts & Calendar Area */}
               <div style={{ 
@@ -2880,6 +2976,169 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                 />
               )}
             </>
+          )}
+          {/* Scan Limit Upgrade Modal */}
+          {showUpgradeModal && (
+            <div style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 9999,
+              padding: "20px"
+            }}>
+              <div style={{
+                background: darkMode ? "#1e293b" : "white",
+                borderRadius: "24px",
+                maxWidth: "480px",
+                width: "100%",
+                padding: "40px",
+                textAlign: "center",
+                boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+                border: darkMode ? "1px solid #334155" : "1px solid #e2e8f0",
+                position: "relative",
+                animation: "fadeIn 0.3s ease"
+              }}>
+                {/* Close button */}
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  style={{
+                    position: "absolute",
+                    top: "16px",
+                    right: "16px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: textSecondary,
+                    padding: "4px"
+                  }}
+                >
+                  <X size={20} />
+                </button>
+
+                {/* Icon */}
+                <div style={{
+                  width: "72px",
+                  height: "72px",
+                  background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                  borderRadius: "18px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 20px",
+                  boxShadow: "0 10px 25px rgba(245, 158, 11, 0.35)"
+                }}>
+                  <AlertTriangle size={36} color="white" />
+                </div>
+
+                {/* Title */}
+                <h3 style={{
+                  fontSize: "22px",
+                  fontWeight: "800",
+                  color: textPrimary,
+                  marginBottom: "10px"
+                }}>
+                  Scan Limit Reached
+                </h3>
+
+                {/* Message */}
+                <p style={{
+                  fontSize: "15px",
+                  color: textSecondary,
+                  marginBottom: "8px",
+                  lineHeight: "1.6"
+                }}>
+                  {upgradeMessage}
+                </p>
+
+                {/* Usage info */}
+                {usage && (
+                  <div style={{
+                    background: darkMode ? "#0f172a" : "#f8fafc",
+                    borderRadius: "12px",
+                    padding: "16px",
+                    marginBottom: "24px",
+                    border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "13px", color: textSecondary }}>Used</span>
+                      <span style={{ fontSize: "13px", fontWeight: "700", color: "#ef4444" }}>
+                        {usage.scans_used}/{usage.scan_limit} scans
+                      </span>
+                    </div>
+                    <div style={{
+                      width: "100%",
+                      height: "6px",
+                      background: darkMode ? "#1e293b" : "#e2e8f0",
+                      borderRadius: "3px",
+                      overflow: "hidden"
+                    }}>
+                      <div style={{
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "3px",
+                        background: "linear-gradient(90deg, #ef4444, #dc2626)"
+                      }} />
+                    </div>
+                    {usage.days_until_reset > 0 && (
+                      <p style={{ fontSize: "12px", color: textSecondary, marginTop: "8px", marginBottom: 0 }}>
+                        Resets in {usage.days_until_reset} days
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* CTA Buttons */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <button
+                    onClick={() => {
+                      setShowUpgradeModal(false);
+                      setView("subscription");
+                      loadSubscriptionPlans();
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "12px",
+                      fontWeight: "700",
+                      fontSize: "15px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      boxShadow: "0 6px 20px rgba(245, 158, 11, 0.35)",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                    <Zap size={18} />
+                    Upgrade Plan
+                  </button>
+                  <button
+                    onClick={() => setShowUpgradeModal(false)}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      background: "transparent",
+                      color: textSecondary,
+                      border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                      borderRadius: "12px",
+                      fontWeight: "600",
+                      fontSize: "14px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </main>
       </div>
