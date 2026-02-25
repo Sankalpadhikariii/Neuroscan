@@ -20,10 +20,38 @@ export default function EnhancedChatPanel({
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [lastMessageTimes, setLastMessageTimes] = useState({});
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
+
+  // Load unread counts for all conversations
+  useEffect(() => {
+    async function loadUnreadCounts() {
+      try {
+        const res = await fetch(`${API_BASE}/api/chat/conversations`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          const counts = {};
+          const times = {};
+          (data.conversations || []).forEach(c => {
+            if (c.unread_count > 0) counts[c.patient_id] = c.unread_count;
+            if (c.last_message_time) times[c.patient_id] = c.last_message_time;
+          });
+          setUnreadCounts(counts);
+          setLastMessageTimes(times);
+        }
+      } catch (err) {
+        console.error('Failed to load unread counts:', err);
+      }
+    }
+    loadUnreadCounts();
+    // Refresh every 30s
+    const interval = setInterval(loadUnreadCounts, 30000);
+    return () => clearInterval(interval);
+  }, [user.id]);
 
   useEffect(() => {
     if (selectedPatient) {
@@ -80,8 +108,9 @@ export default function EnhancedChatPanel({
         const data = await res.json();
         setMessages(data.messages || []);
         
-        // Mark as read
+        // Mark as read and clear unread count for this patient
         await markAsRead(patientId);
+        setUnreadCounts(prev => { const next = {...prev}; delete next[patientId]; return next; });
       }
     } catch (err) {
       console.error('Failed to load messages:', err);
@@ -213,23 +242,34 @@ export default function EnhancedChatPanel({
       });
 
       if (res.ok) {
-        alert('Appointment scheduled successfully');
         setShowAppointmentModal(false);
         setAppointmentDate('');
         setAppointmentTime('');
         
-        // Optionally send a system message to chat
-        const systemMsg = `📅 Appointment scheduled for ${appointmentDate} at ${appointmentTime}`;
-        socket.emit('send_message', {
-            patient_id: selectedPatient.id,
-            hospital_user_id: user.id,
-            message: systemMsg
-        });
-        setMessages(prev => [...prev, { 
-            sender_id: user.id, 
-            message: systemMsg,
-            created_at: new Date().toISOString()
-        }]);
+        // Send appointment message via API for proper persistence
+        const apptMsg = `[APPOINTMENT] 📅 Appointment Scheduled|${appointmentDate}|${appointmentTime}`;
+        try {
+          const msgRes = await fetch(`${API_BASE}/api/chat/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              patient_id: selectedPatient.id,
+              hospital_user_id: user.id,
+              message: apptMsg
+            })
+          });
+          if (msgRes.ok) {
+            const msgData = await msgRes.json();
+            setMessages(prev => {
+              if (prev.some(m => m.id === msgData.message.id)) return prev;
+              return [...prev, msgData.message];
+            });
+            scrollToBottom();
+          }
+        } catch (msgErr) {
+          console.error('Failed to send appointment message:', msgErr);
+        }
 
       } else {
         const data = await res.json();
@@ -269,7 +309,19 @@ export default function EnhancedChatPanel({
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  ).sort((a, b) => {
+    // Patients with unread messages first, then by latest message time
+    const aUnread = unreadCounts[a.id] || 0;
+    const bUnread = unreadCounts[b.id] || 0;
+    if (aUnread > 0 && bUnread === 0) return -1;
+    if (bUnread > 0 && aUnread === 0) return 1;
+    const aTime = lastMessageTimes[a.id] || '';
+    const bTime = lastMessageTimes[b.id] || '';
+    if (aTime && bTime) return bTime.localeCompare(aTime);
+    if (aTime) return -1;
+    if (bTime) return 1;
+    return 0;
+  });
 
   const bgColor = darkMode ? '#0f172a' : '#ffffff';
   const bgSecondary = darkMode ? '#1e293b' : '#f8fafc';
@@ -379,6 +431,17 @@ export default function EnhancedChatPanel({
                     {patient.email || 'No email'}
                   </p>
                 </div>
+                {unreadCounts[patient.id] > 0 && selectedPatient?.id !== patient.id && (
+                  <div style={{
+                    minWidth: '22px', height: '22px', borderRadius: '11px',
+                    background: '#ef4444', color: 'white',
+                    fontSize: '11px', fontWeight: '700',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '0 6px', flexShrink: 0
+                  }}>
+                    {unreadCounts[patient.id] > 99 ? '99+' : unreadCounts[patient.id]}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -558,9 +621,35 @@ export default function EnhancedChatPanel({
                             </div>
                           )}
                           
-                          <p style={{ margin: '0 0 6px 0', wordBreak: 'break-word' }}>
-                            {msg.message}
-                          </p>
+                          {msg.message && msg.message.startsWith('[APPOINTMENT]') ? (() => {
+                            const parts = msg.message.replace('[APPOINTMENT] ', '').split('|');
+                            const title = parts[0] || '📅 Appointment Scheduled';
+                            const date = parts[1] || '';
+                            const time = parts[2] || '';
+                            const formattedDate = date ? new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                            const formattedTime = time ? new Date('2000-01-01T' + time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                            return (
+                              <div style={{
+                                padding: '14px',
+                                background: isOwn ? 'rgba(255,255,255,0.15)' : (darkMode ? 'rgba(79, 70, 229, 0.1)' : '#eef2ff'),
+                                borderRadius: '10px',
+                                border: isOwn ? '1px solid rgba(255,255,255,0.2)' : '1px solid #c7d2fe',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isOwn ? 'rgba(255,255,255,0.2)' : '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '16px' }}>📅</div>
+                                  <span style={{ fontWeight: '700', fontSize: '14px' }}>{title.replace('📅 ', '')}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '16px', fontSize: '13px', fontWeight: '500' }}>
+                                  {formattedDate && <span>🗓 {formattedDate}</span>}
+                                  {formattedTime && <span>🕐 {formattedTime}</span>}
+                                </div>
+                              </div>
+                            );
+                          })() : (
+                            <p style={{ margin: '0 0 6px 0', wordBreak: 'break-word' }}>
+                              {msg.message}
+                            </p>
+                          )}
                           
                           <div style={{
                             display: 'flex',

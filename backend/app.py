@@ -674,15 +674,15 @@ def get_notifications_api():
 
 
 @app.route('/notifications/<int:notification_id>/mark-read', methods=['POST'])
+@app.route('/api/notifications/read/<int:notification_id>', methods=['POST'])
 def mark_notification_read(notification_id):
     """Mark a notification as read"""
-    if 'user_id' not in session:
+    user_id = session.get('patient_id') or session.get('user_id')
+    if not user_id:
         return jsonify({'error': 'Not logged in'}), 401
 
-    user_id = session['user_id']
-
     try:
-        conn = get_db_connection()
+        conn = get_db()
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -697,7 +697,7 @@ def mark_notification_read(notification_id):
         return jsonify({'success': True})
 
     except Exception as e:
-        logging.error(f"Error marking notification as read: {e}")
+        logger.error(f"Error marking notification as read: {e}")
         return jsonify({'error': 'Failed to update notification'}), 500
 
 
@@ -4713,6 +4713,74 @@ def stripe_webhook():
 # ==============================================
 # CHAT ENDPOINTS - ADD THESE TO app.py
 # ==============================================
+
+@app.route('/api/chat/doctor-info', methods=['GET'])
+@login_required
+def get_doctor_info_for_patient():
+    """Get hospital user info for a patient so they can initiate chat"""
+    try:
+        patient_id = session.get('patient_id')
+        if not patient_id:
+            return jsonify({'error': 'Patient login required'}), 403
+
+        conn = get_db()
+        c = conn.cursor()
+
+        # Get the patient's hospital_id
+        c.execute("SELECT hospital_id FROM patients WHERE id = ?", (patient_id,))
+        patient_row = c.fetchone()
+        if not patient_row:
+            conn.close()
+            return jsonify({'error': 'Patient not found'}), 404
+
+        hospital_id = patient_row['hospital_id']
+
+        # Try to find a hospital_user for this hospital
+        c.execute("""
+            SELECT id, full_name, email, username
+            FROM hospital_users
+            WHERE hospital_id = ?
+            ORDER BY id ASC
+            LIMIT 1
+        """, (hospital_id,))
+        hu = c.fetchone()
+
+        if hu:
+            doctor_info = {
+                'hospital_user_id': hu['id'],
+                'doctor_name': hu['full_name'] or hu['username'],
+                'doctor_email': hu['email']
+            }
+        else:
+            # Fallback: use the hospital itself as the "doctor"
+            c.execute("SELECT id, hospital_name, email FROM hospitals WHERE id = ?", (hospital_id,))
+            h = c.fetchone()
+            doctor_info = {
+                'hospital_user_id': h['id'],
+                'doctor_name': h['hospital_name'],
+                'doctor_email': h['email']
+            } if h else None
+
+        # Also get unread count
+        if doctor_info:
+            c.execute("""
+                SELECT COUNT(*) as cnt FROM messages
+                WHERE patient_id = ? AND hospital_user_id = ?
+                AND sender_type = 'hospital' AND is_read = 0
+            """, (patient_id, doctor_info['hospital_user_id']))
+            row = c.fetchone()
+            doctor_info['unread_count'] = row['cnt'] if row else 0
+
+        conn.close()
+
+        if not doctor_info:
+            return jsonify({'error': 'No doctor found for this patient'}), 404
+
+        return jsonify(doctor_info)
+
+    except Exception as e:
+        logger.error(f"Error getting doctor info: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/chat/send', methods=['POST'])
 @login_required

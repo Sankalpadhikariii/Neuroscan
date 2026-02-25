@@ -94,6 +94,11 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
   const [newPatientEmergencyContact, setNewPatientEmergencyContact] = useState("");
   const [newPatientEmergencyPhone, setNewPatientEmergencyPhone] = useState("");
 
+  // Scan mode toggle: "existing" or "new"
+  const [scanMode, setScanMode] = useState("existing");
+  const [existingPatientSearch, setExistingPatientSearch] = useState("");
+  const [showExistingDropdown, setShowExistingDropdown] = useState(false);
+
   // Patients tab states
   const [expandedPatientId, setExpandedPatientId] = useState(null);
   const [patientSearch, setPatientSearch] = useState("");
@@ -120,6 +125,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
   // const [callType, setCallType] = useState("video");
 
   const fileInputRef = useRef(null);
+  const resultsRef = useRef(null);
 
   useEffect(() => {
     loadPatients();
@@ -141,6 +147,15 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
       loadPatientScans(selectedPatient.id);
     }
   }, [selectedPatient]);
+
+  // Auto-scroll to results when prediction is set
+  useEffect(() => {
+    if (prediction && resultsRef.current) {
+      setTimeout(() => {
+        resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [prediction]);
 
   function setupSocketListeners() {
     socket.on("notification", (notification) => {
@@ -970,7 +985,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
         {/* Main Content */}
         <main style={{ 
           flex: 1, 
-          padding: "40px 40px 0 40px", 
+          padding: "40px", 
           overflowY: "auto",
           overflowX: "hidden",
           background: "#f8fafc",
@@ -1280,7 +1295,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                           <p style={{ margin: 0, fontSize: "12px", color: textSecondary }}>{p.email}</p>
                         </div>
                         <button 
-                          onClick={() => { setSelectedPatient(p); setView("scan"); }}
+                          onClick={() => { setSelectedPatient(p); setScanMode("existing"); setView("scan"); }}
                           style={{ padding: "6px 12px", background: "#2563eb", color: "white", border: "none", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
                         >
                           Analyze
@@ -1355,7 +1370,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                 Brain Tumor Analysis
               </h2>
 
-              {/* Inline Patient Details Form */}
+              {/* Patient Selection Section */}
               <div style={{
                 marginBottom: "28px",
                 padding: "28px",
@@ -1364,222 +1379,396 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                 borderRadius: "20px",
                 border: `1px solid ${darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}`,
                 boxShadow: darkMode ? "0 8px 32px rgba(0,0,0,0.3)" : "0 8px 32px rgba(0,0,0,0.05)",
+                overflow: "visible",
+                position: "relative",
+                zIndex: 10,
               }}>
                 <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", fontWeight: "700", color: textPrimary, display: "flex", alignItems: "center", gap: "8px" }}>
                   <User size={20} color="#2563eb" />
                   Patient Details
                 </h3>
-                <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: textSecondary }}>
-                  Enter patient information below, then upload the MRI scan and click Analyze
+                <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: textSecondary }}>
+                  Select an existing patient or add a new one, then upload the MRI scan
                 </p>
 
-                {/* Row 1: Name, Email, Phone */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Full Name <span style={{ color: "#ef4444" }}>*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={newPatientName}
-                      onChange={(e) => setNewPatientName(e.target.value)}
-                      placeholder="e.g., John Doe"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Email Address <span style={{ color: "#ef4444" }}>*</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={newPatientEmail}
-                      onChange={(e) => setNewPatientEmail(e.target.value)}
-                      placeholder="patient@example.com"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      value={newPatientPhone}
-                      onChange={(e) => setNewPatientPhone(e.target.value)}
-                      placeholder="+1234567890"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
-                  </div>
+                {/* Mode Toggle: Existing / New Patient */}
+                <div style={{ display: "flex", gap: "0", marginBottom: "20px", background: darkMode ? "#0f172a" : "#f1f5f9", borderRadius: "12px", padding: "4px" }}>
+                  <button
+                    onClick={() => { setScanMode("existing"); setError(null); }}
+                    style={{
+                      flex: 1, padding: "10px 16px",
+                      background: scanMode === "existing" ? (darkMode ? "#334155" : "white") : "transparent",
+                      border: "none", borderRadius: "10px", cursor: "pointer",
+                      fontSize: "14px", fontWeight: "600",
+                      color: scanMode === "existing" ? "#2563eb" : textSecondary,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                      boxShadow: scanMode === "existing" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                    <Users size={16} />
+                    Existing Patient
+                  </button>
+                  <button
+                    onClick={() => { setScanMode("new"); setSelectedPatient(null); setError(null); }}
+                    style={{
+                      flex: 1, padding: "10px 16px",
+                      background: scanMode === "new" ? (darkMode ? "#334155" : "white") : "transparent",
+                      border: "none", borderRadius: "10px", cursor: "pointer",
+                      fontSize: "14px", fontWeight: "600",
+                      color: scanMode === "new" ? "#2563eb" : textSecondary,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                      boxShadow: scanMode === "new" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                    <Plus size={16} />
+                    New Patient
+                  </button>
                 </div>
 
-                {/* Row 2: Address, DOB, Gender */}
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                {/* ── Existing Patient Mode ── */}
+                {scanMode === "existing" && (
                   <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Address
-                    </label>
-                    <input
-                      type="text"
-                      value={newPatientAddress}
-                      onChange={(e) => setNewPatientAddress(e.target.value)}
-                      placeholder="123 Main St, City"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
+                    {/* Selected patient chip */}
+                    {selectedPatient ? (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: "12px",
+                        padding: "14px 18px",
+                        background: darkMode ? "rgba(37, 99, 235, 0.15)" : "rgba(37, 99, 235, 0.08)",
+                        border: "1px solid rgba(37, 99, 235, 0.3)",
+                        borderRadius: "14px",
+                      }}>
+                        <div style={{
+                          width: "40px", height: "40px", borderRadius: "10px",
+                          background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: "#2563eb", fontWeight: "700", fontSize: "16px"
+                        }}>
+                          {(selectedPatient.full_name || "?").charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontWeight: "700", color: textPrimary, fontSize: "15px" }}>
+                            {selectedPatient.full_name}
+                          </p>
+                          <p style={{ margin: "2px 0 0 0", fontSize: "13px", color: textSecondary }}>
+                            {selectedPatient.email || "No email"}{selectedPatient.phone ? ` • ${selectedPatient.phone}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => { setSelectedPatient(null); setExistingPatientSearch(""); setPatientScans([]); }}
+                          style={{
+                            padding: "6px 12px", background: "rgba(239, 68, 68, 0.15)",
+                            border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px",
+                            cursor: "pointer", color: "#ef4444", fontSize: "13px", fontWeight: "600",
+                            display: "flex", alignItems: "center", gap: "4px"
+                          }}
+                        >
+                          <X size={14} /> Change
+                        </button>
+                      </div>
+                    ) : (
+                      /* Patient search input + dropdown */
+                      <div style={{ position: "relative" }}>
+                        <Search size={18} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: textSecondary, zIndex: 2 }} />
+                        <input
+                          type="text"
+                          placeholder="Search patients by name or email..."
+                          value={existingPatientSearch}
+                          onChange={(e) => { setExistingPatientSearch(e.target.value); setShowExistingDropdown(true); }}
+                          onFocus={() => setShowExistingDropdown(true)}
+                          onBlur={() => setTimeout(() => setShowExistingDropdown(false), 200)}
+                          style={{
+                            width: "100%", padding: "12px 14px 12px 42px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary, outline: "none",
+                            transition: "all 0.2s ease",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                        />
+                        {/* Dropdown results */}
+                        {showExistingDropdown && (
+                          <div style={{
+                            position: "absolute", top: "100%", left: 0, right: 0,
+                            marginTop: "4px",
+                            background: darkMode ? "#1e293b" : "white",
+                            border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                            borderRadius: "12px",
+                            boxShadow: "0 12px 32px rgba(0,0,0,0.15)",
+                            maxHeight: "240px", overflowY: "auto",
+                            zIndex: 50,
+                          }}>
+                            {patients
+                              .filter(p => {
+                                if (!existingPatientSearch.trim()) return true;
+                                const q = existingPatientSearch.toLowerCase();
+                                return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q);
+                              })
+                              .slice(0, 8)
+                              .map((p) => (
+                                <div
+                                  key={p.id}
+                                  onClick={() => {
+                                    setSelectedPatient(p);
+                                    setExistingPatientSearch("");
+                                    setShowExistingDropdown(false);
+                                    loadPatientScans(p.id);
+                                  }}
+                                  style={{
+                                    padding: "12px 16px",
+                                    display: "flex", alignItems: "center", gap: "10px",
+                                    cursor: "pointer",
+                                    borderBottom: `1px solid ${darkMode ? "#334155" : "#f1f5f9"}`,
+                                    transition: "background 0.15s"
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? "#334155" : "#f0f9ff"}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                >
+                                  <div style={{
+                                    width: "32px", height: "32px", borderRadius: "8px",
+                                    background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    color: "#2563eb", fontWeight: "700", fontSize: "13px"
+                                  }}>
+                                    {(p.full_name || "?").charAt(0).toUpperCase()}
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <p style={{ margin: 0, fontWeight: "600", color: textPrimary, fontSize: "14px" }}>{p.full_name}</p>
+                                    <p style={{ margin: 0, fontSize: "12px", color: textSecondary }}>{p.email || "No email"}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            {patients.filter(p => {
+                              if (!existingPatientSearch.trim()) return true;
+                              const q = existingPatientSearch.toLowerCase();
+                              return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q);
+                            }).length === 0 && (
+                              <div style={{ padding: "20px", textAlign: "center", color: textSecondary, fontSize: "14px" }}>
+                                No patients found. Try a different search or add a new patient.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Date of Birth
-                    </label>
-                    <input
-                      type="date"
-                      value={newPatientDob}
-                      onChange={(e) => setNewPatientDob(e.target.value)}
-                      max={new Date().toISOString().split("T")[0]}
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Gender
-                    </label>
-                    <select
-                      value={newPatientGender}
-                      onChange={(e) => setNewPatientGender(e.target.value)}
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: newPatientGender ? textPrimary : textSecondary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
-                        cursor: "pointer",
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    >
-                      <option value="">Select</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                </div>
+                )}
 
-                {/* Row 3: Emergency Contact */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                {/* ── New Patient Mode ── */}
+                {scanMode === "new" && (
                   <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Emergency Contact Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newPatientEmergencyContact}
-                      onChange={(e) => setNewPatientEmergencyContact(e.target.value)}
-                      placeholder="e.g., Jane Doe"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
+                    {/* Row 1: Name, Email, Phone */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Full Name <span style={{ color: "#ef4444" }}>*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={newPatientName}
+                          onChange={(e) => setNewPatientName(e.target.value)}
+                          placeholder="e.g., John Doe"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Email Address <span style={{ color: "#ef4444" }}>*</span>
+                        </label>
+                        <input
+                          type="email"
+                          value={newPatientEmail}
+                          onChange={(e) => setNewPatientEmail(e.target.value)}
+                          placeholder="patient@example.com"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Phone Number
+                        </label>
+                        <input
+                          type="tel"
+                          value={newPatientPhone}
+                          onChange={(e) => setNewPatientPhone(e.target.value)}
+                          placeholder="+1234567890"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 2: Address, DOB, Gender */}
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Address
+                        </label>
+                        <input
+                          type="text"
+                          value={newPatientAddress}
+                          onChange={(e) => setNewPatientAddress(e.target.value)}
+                          placeholder="123 Main St, City"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Date of Birth
+                        </label>
+                        <input
+                          type="date"
+                          value={newPatientDob}
+                          onChange={(e) => setNewPatientDob(e.target.value)}
+                          max={new Date().toISOString().split("T")[0]}
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Gender
+                        </label>
+                        <select
+                          value={newPatientGender}
+                          onChange={(e) => setNewPatientGender(e.target.value)}
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: newPatientGender ? textPrimary : textSecondary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
+                            cursor: "pointer",
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        >
+                          <option value="">Select</option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Row 3: Emergency Contact */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Emergency Contact Name
+                        </label>
+                        <input
+                          type="text"
+                          value={newPatientEmergencyContact}
+                          onChange={(e) => setNewPatientEmergencyContact(e.target.value)}
+                          placeholder="e.g., Jane Doe"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                          Emergency Contact Phone
+                        </label>
+                        <input
+                          type="tel"
+                          value={newPatientEmergencyPhone}
+                          onChange={(e) => setNewPatientEmergencyPhone(e.target.value)}
+                          placeholder="+1234567890"
+                          style={{
+                            width: "100%", padding: "12px 14px",
+                            border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                            borderRadius: "12px", fontSize: "14px",
+                            boxSizing: "border-box",
+                            background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                            color: textPrimary,
+                            transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                            outline: "none",
+                            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                          onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
-                      Emergency Contact Phone
-                    </label>
-                    <input
-                      type="tel"
-                      value={newPatientEmergencyPhone}
-                      onChange={(e) => setNewPatientEmergencyPhone(e.target.value)}
-                      placeholder="+1234567890"
-                      style={{
-                        width: "100%", padding: "12px 14px",
-                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
-                        borderRadius: "12px", fontSize: "14px",
-                        boxSizing: "border-box",
-                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
-                        color: textPrimary,
-                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                        outline: "none",
-                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
-                      }}
-                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
-                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
-                    />
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Validation Warning */}
@@ -1929,8 +2118,8 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               )}
 
               <button
-                onClick={handleAnalyzeClick}
-                disabled={!selectedFile || loading}
+                onClick={scanMode === "existing" ? performAnalysis : handleAnalyzeClick}
+                disabled={!selectedFile || loading || (scanMode === "existing" && !selectedPatient)}
                 onMouseEnter={(e) => {
                   if (!selectedFile || loading) return;
                   e.currentTarget.style.transform = "translateY(-2px)";
@@ -1943,19 +2132,19 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                 style={{
                   width: "100%",
                   padding: "18px",
-                  background: (loading || !selectedFile) ? (darkMode ? "#334155" : "#cbd5e1") : "linear-gradient(135deg, #2563eb, #4f46e5)",
-                  color: (loading || !selectedFile) ? (darkMode ? "#94a3b8" : "#64748b") : "white",
+                  background: (loading || !selectedFile || (scanMode === "existing" && !selectedPatient)) ? (darkMode ? "#334155" : "#cbd5e1") : "linear-gradient(135deg, #2563eb, #4f46e5)",
+                  color: (loading || !selectedFile || (scanMode === "existing" && !selectedPatient)) ? (darkMode ? "#94a3b8" : "#64748b") : "white",
                   border: "none",
                   borderRadius: "16px",
                   fontSize: "16px",
                   fontWeight: "700",
-                  cursor: (loading || !selectedFile) ? "not-allowed" : "pointer",
+                  cursor: (loading || !selectedFile || (scanMode === "existing" && !selectedPatient)) ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "12px",
                   transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                  boxShadow: (loading || !selectedFile) ? "none" : "0 4px 12px rgba(37, 99, 235, 0.2)",
+                  boxShadow: (loading || !selectedFile || (scanMode === "existing" && !selectedPatient)) ? "none" : "0 4px 12px rgba(37, 99, 235, 0.2)",
                 }}
               >
                 {loading ? (
@@ -1972,7 +2161,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               </button>
 
               {prediction && (
-                <div style={{ marginTop: "24px" }}>
+                <div ref={resultsRef} style={{ marginTop: "24px" }}>
                   <FixedAnalysisResults
                     prediction={prediction}
                     darkMode={darkMode}
@@ -2127,7 +2316,20 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                               <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textPrimary }}>{patient.gender}</p>
                             </div>
                           )}
-                          <div style={{ marginLeft: "auto" }}>
+                          <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSelectedPatient(patient); setScanMode("existing"); setView("scan"); }}
+                              style={{
+                                padding: "8px 16px", background: "#10b981", color: "white",
+                                border: "none", borderRadius: "8px", cursor: "pointer",
+                                fontSize: "13px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px",
+                                transition: "background 0.2s"
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = "#059669"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "#10b981"}
+                            >
+                              <Upload size={14} /> Upload New Scan
+                            </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setSelectedPatient(patient); setShowChat(true); setView("chat"); }}
                               style={{

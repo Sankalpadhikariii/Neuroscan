@@ -64,13 +64,30 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
   // Load doctor info
   async function loadDoctorInfo() {
     try {
-      const res = await fetch(`${API_BASE}/api/chat/conversations`, {
+      // Primary: get doctor info directly (works even without prior messages)
+      const res = await fetch(`${API_BASE}/api/chat/doctor-info`, {
         credentials: 'include'
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.conversations && data.conversations.length > 0) {
-          const conv = data.conversations[0];
+        if (data.hospital_user_id) {
+          setDoctorInfo({
+            id: data.hospital_user_id,
+            name: data.doctor_name,
+            email: data.doctor_email
+          });
+          setUnreadMessages(data.unread_count || 0);
+          return;
+        }
+      }
+      // Fallback: try conversations endpoint
+      const res2 = await fetch(`${API_BASE}/api/chat/conversations`, {
+        credentials: 'include'
+      });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2.conversations && data2.conversations.length > 0) {
+          const conv = data2.conversations[0];
           setDoctorInfo({
             id: conv.hospital_user_id,
             name: conv.doctor_name,

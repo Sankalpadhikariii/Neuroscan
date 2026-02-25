@@ -553,7 +553,31 @@ export default function EnhancedChat({
                           )}
                           
                           {/* Message Text */}
-                          {msg.message && (
+                          {msg.message && msg.message.startsWith('[APPOINTMENT]') ? (() => {
+                            const parts = msg.message.replace('[APPOINTMENT] ', '').split('|');
+                            const title = parts[0] || '📅 Appointment Scheduled';
+                            const date = parts[1] || '';
+                            const time = parts[2] || '';
+                            const formattedDate = date ? new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                            const formattedTime = time ? new Date('2000-01-01T' + time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                            return (
+                              <div style={{
+                                padding: '14px',
+                                background: isOwn ? 'rgba(255,255,255,0.15)' : (darkMode ? 'rgba(79, 70, 229, 0.1)' : '#eef2ff'),
+                                borderRadius: '10px',
+                                border: isOwn ? '1px solid rgba(255,255,255,0.2)' : '1px solid #c7d2fe',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isOwn ? 'rgba(255,255,255,0.2)' : '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '16px' }}>📅</div>
+                                  <span style={{ fontWeight: '700', fontSize: '14px' }}>{title.replace('📅 ', '')}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '16px', fontSize: '13px', fontWeight: '500' }}>
+                                  {formattedDate && <span>🗓 {formattedDate}</span>}
+                                  {formattedTime && <span>🕐 {formattedTime}</span>}
+                                </div>
+                              </div>
+                            );
+                          })() : msg.message ? (
                             <p style={{ 
                               margin: 0,
                               fontSize: '14px',
@@ -561,7 +585,7 @@ export default function EnhancedChat({
                             }}>
                               {msg.message}
                             </p>
-                          )}
+                          ) : null}
                         </div>
                         
                         <div style={{
