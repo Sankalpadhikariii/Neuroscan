@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { loadStripe } from '@stripe/stripe-js';
 import {
   Upload,
   Brain,
@@ -27,6 +28,15 @@ import {
   Video,
   Phone,
   LayoutDashboard,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  User,
+  Mail,
+  Shield,
+  Check,
+  ArrowRight,
 } from "lucide-react";
 import { 
   BarChart, 
@@ -48,9 +58,9 @@ import NotificationCentre from "./NotificationCentre";
 import GradCamvisualization from "./GradCamvisualization";
 import TumourProgressionTracker from "./TumourProgressionTracker";
 import AppointmentCalendar from "./AppointmentCalendar";
-// import VideoCall from "./Videocall";
-import AddPatientModal from "./AddPatientModal";
 import CustomDropdown from "./components/CustomDropdown";
+
+let stripePromise = null;
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 const socket = io(API_BASE, { withCredentials: true });
@@ -73,8 +83,27 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
   const [error, setError] = useState(null);
 
   const [usage, setUsage] = useState(null);
-  const [showPatientInfoModal, setShowPatientInfoModal] = useState(false);
-  const [showAddPatientModal, setShowAddPatientModal] = useState(false);
+
+  // Inline patient form states for New Scan tab
+  const [newPatientName, setNewPatientName] = useState("");
+  const [newPatientEmail, setNewPatientEmail] = useState("");
+  const [newPatientPhone, setNewPatientPhone] = useState("");
+  const [newPatientDob, setNewPatientDob] = useState("");
+  const [newPatientGender, setNewPatientGender] = useState("");
+  const [newPatientAddress, setNewPatientAddress] = useState("");
+  const [newPatientEmergencyContact, setNewPatientEmergencyContact] = useState("");
+  const [newPatientEmergencyPhone, setNewPatientEmergencyPhone] = useState("");
+
+  // Patients tab states
+  const [expandedPatientId, setExpandedPatientId] = useState(null);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [expandedPatientScans, setExpandedPatientScans] = useState([]);
+
+  // Subscription management states
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [billingCycle, setBillingCycle] = useState("monthly");
+  const [processingPlan, setProcessingPlan] = useState(null);
 
   // New states for enhanced features
   const [showChat, setShowChat] = useState(false);
@@ -234,7 +263,6 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
     ]);
     setSelectedPatient(patient);
     setView("scan");
-    setShowAddPatientModal(false);
     loadPatientScans(patient.id);
     showToast("Patient added successfully", "success");
   }
@@ -508,40 +536,42 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
     }
   }
 
-  function handleAnalyzeClick() {
+  function resetInlineForm() {
+    setNewPatientName("");
+    setNewPatientEmail("");
+    setNewPatientPhone("");
+    setNewPatientDob("");
+    setNewPatientGender("");
+    setNewPatientAddress("");
+    setNewPatientEmergencyContact("");
+    setNewPatientEmergencyPhone("");
+  }
+
+  async function handleAnalyzeClick() {
     if (!selectedFile) {
       setError("Please select an image file first");
       return;
     }
 
-    if (!selectedPatient) {
-      setShowPatientInfoModal(true);
+    if (!newPatientName.trim() || !newPatientEmail.trim()) {
+      setError("Patient name and email are required");
       return;
     }
-
-    performAnalysis();
-  }
-
-  async function handlePatientInfoSubmit(formData) {
-    setShowPatientInfoModal(false);
 
     try {
       setLoading(true);
       setError(null);
 
-      const payload =
-        formData === null
-          ? {
-              full_name: `Anonymous Scan ${new Date().toISOString()}`,
-              email: "",
-              phone: "",
-            }
-          : {
-              full_name:
-                formData.patient_name || `Patient ${new Date().toISOString()}`,
-              email: formData.email || "",
-              phone: formData.phone || "",
-            };
+      const payload = {
+        full_name: newPatientName.trim(),
+        email: newPatientEmail.trim(),
+        phone: newPatientPhone.trim(),
+        date_of_birth: newPatientDob,
+        gender: newPatientGender,
+        address: newPatientAddress.trim(),
+        emergency_contact: newPatientEmergencyContact.trim(),
+        emergency_phone: newPatientEmergencyPhone.trim(),
+      };
 
       const res = await fetch(`${API_BASE}/hospital/patients`, {
         method: "POST",
@@ -551,7 +581,8 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to create patient`);
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to create patient");
       }
 
       const data = await res.json();
@@ -561,11 +592,76 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
         setSelectedPatient(patient);
         await loadPatients();
         await performAnalysisWithPatient(patient.id);
+        resetInlineForm();
+        showToast("Patient created & scan analyzed!", "success");
       }
     } catch (err) {
-      console.error("Patient creation failed:", err);
-      setError("Unable to create patient for scan.");
+      console.error("Patient creation / analysis failed:", err);
+      setError(err.message || "Unable to create patient for scan.");
       setLoading(false);
+    }
+  }
+
+  async function loadExpandedPatientScans(patientId) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/hospital/patient-scans/${patientId}`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setExpandedPatientScans(data.scans || []);
+      }
+    } catch (err) {
+      console.error("Error loading expanded patient scans:", err);
+    }
+  }
+
+  // ──── Subscription Management Helpers ────
+  function getPlanDisplayName(planType) {
+    const names = { free: "Free Plan", basic: "Basic Plan", premium: "Premium Plan", enterprise: "Enterprise Plan" };
+    return names[planType] || "Free Plan";
+  }
+
+  async function loadSubscriptionPlans() {
+    setLoadingPlans(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/subscription/plans`, { credentials: "include" });
+      const data = await res.json();
+      setSubscriptionPlans(data.plans || []);
+
+      // Initialize Stripe if not done
+      if (!stripePromise) {
+        try {
+          const cfgRes = await fetch(`${API_BASE}/api/stripe/config`, { credentials: "include" });
+          const cfg = await cfgRes.json();
+          if (cfg.publishableKey) stripePromise = loadStripe(cfg.publishableKey);
+        } catch (e) { console.error("Stripe init error:", e); }
+      }
+    } catch (err) {
+      console.error("Failed to load plans:", err);
+    } finally {
+      setLoadingPlans(false);
+    }
+  }
+
+  async function handleUpgrade(plan) {
+    if (!plan || plan.price_monthly === 0) return;
+    setProcessingPlan(plan.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ plan_id: plan.id, billing_cycle: billingCycle }),
+      });
+      const { url } = await res.json();
+      if (url) window.location.href = url;
+    } catch (err) {
+      console.error("Checkout error:", err);
+      showToast("Failed to start checkout. Please try again.", "error");
+    } finally {
+      setProcessingPlan(null);
     }
   }
 
@@ -760,70 +856,8 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
           </div>
 
 
-          {/* Business Model Banner */}
-          {usage && (
-            <div
-              style={{
-                padding: "16px",
-                background: "rgba(59, 130, 246, 0.15)",
-                backdropFilter: "blur(10px)",
-                borderRadius: "14px",
-                marginBottom: "24px",
-                color: "white",
-                border: "1px solid rgba(59, 130, 246, 0.2)",
-                position: 'relative',
-                zIndex: 1
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  marginBottom: "8px",
-                }}
-              >
-                <Zap size={18} />
-                <h3 style={{ margin: 0, fontSize: "14px", fontWeight: "600" }}>
-                  {usage.plan_type === "free"
-                    ? "Free Plan"
-                    : usage.plan_type === "basic"
-                      ? "Basic Plan"
-                      : usage.plan_type === "premium"
-                        ? "Premium Plan"
-                        : "Enterprise Plan"}
-                </h3>
-              </div>
-              <p style={{ margin: "4px 0", fontSize: "12px", opacity: 0.9 }}>
-                {usage.scans_used || 0} /{" "}
-                {usage.scan_limit === -1 ? "∞" : usage.scan_limit} scans used
-              </p>
-              {usage.scan_limit !== -1 && (
-                <div
-                  style={{
-                    width: "100%",
-                    height: "4px",
-                    background: "rgba(255,255,255,0.3)",
-                    borderRadius: "2px",
-                    marginTop: "8px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${Math.min((usage.scans_used / usage.scan_limit) * 100, 100)}%`,
-                      height: "100%",
-                      background: "white",
-                      borderRadius: "2px",
-                      transition: "width 0.3s ease",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          <nav style={{ flex: 1, overflowY: "auto" }}>
+          
+          <nav style={{ flex: 1, overflowY: "auto", marginBottom: "16px" }}>
             <NavItem
               icon={<LayoutDashboard size={20} />}
               label="Dashboard"
@@ -857,35 +891,78 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
             />
           </nav>
 
+          {/* Current Plan Button */}
+          <button
+            onClick={() => { setView("subscription"); loadSubscriptionPlans(); }}
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              background: view === "subscription" ? "rgba(59, 130, 246, 0.2)" : "rgba(59, 130, 246, 0.08)",
+              border: `1px solid ${view === "subscription" ? "rgba(59, 130, 246, 0.5)" : "rgba(59, 130, 246, 0.2)"}`,
+              borderRadius: "12px",
+              cursor: "pointer",
+              marginBottom: "12px",
+              color: "white",
+              transition: "all 0.25s ease",
+              position: 'relative',
+              zIndex: 1,
+              textAlign: "left"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(59, 130, 246, 0.2)";
+              e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              if (view !== "subscription") {
+                e.currentTarget.style.background = "rgba(59, 130, 246, 0.08)";
+                e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.2)";
+              }
+            }}
+          >
+            <CreditCard size={18} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "13px", fontWeight: "600" }}>Current Plan</div>
+              <div style={{ fontSize: "11px", opacity: 0.8 }}>
+                {usage ? getPlanDisplayName(usage.plan_type) : "Loading..."}
+              </div>
+            </div>
+          </button>
+
           <button
             onClick={onLogout}
             style={{
               width: "100%",
-              padding: "14px",
+              padding: "12px 16px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "flex-start",
               gap: "10px",
-              background: "rgba(239, 68, 68, 0.15)",
-              color: "#fca5a5",
+              background: "transparent",
+              color: "rgba(239, 68, 68, 0.9)",
               border: "1px solid rgba(239, 68, 68, 0.2)",
               borderRadius: "12px",
               cursor: "pointer",
-              fontWeight: "600",
+              fontWeight: "500",
+              fontSize: "14px",
               transition: "all 0.25s ease",
               position: 'relative',
               zIndex: 1
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)";
+              e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
               e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.4)";
+              e.currentTarget.style.color = "#fca5a5";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(239, 68, 68, 0.15)";
+              e.currentTarget.style.background = "transparent";
               e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.2)";
+              e.currentTarget.style.color = "rgba(239, 68, 68, 0.9)";
             }}
           >
-            <LogOut size={20} />
+            <LogOut size={18} />
             Logout
           </button>
         </aside>
@@ -913,7 +990,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               <h2 style={{ fontSize: "28px", fontWeight: "700", color: textPrimary, margin: 0 }}>
                 {view.charAt(0).toUpperCase() + view.slice(1)}
               </h2>
-              <p style={{ margin: "4px 0 0 0", color: textSecondary, fontSize: "14px" }}>
+              <p style={{ margin: "4px 0 0 0", color: "#475569", fontSize: "14px", fontWeight: "500" }}>
                 Welcome back, {user.full_name}
               </p>
             </div>
@@ -922,7 +999,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               {/* Upgrade Button - Only show for Free or Basic tier */}
               {usage && (usage.plan_type === "free" || usage.plan_type === "basic") && (
                 <button
-                  onClick={onNavigateToPricing}
+                  onClick={() => { setView("subscription"); loadSubscriptionPlans(); }}
                   style={{
                     padding: "12px 20px",
                     background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
@@ -1039,13 +1116,13 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                 gap: "24px",
                 alignItems: "stretch"
               }}>
-                {/* Chart Section */}
                 <div style={{ 
                   background: darkMode ? "#1e293b" : "white",
                   padding: "24px",
-                  borderRadius: "16px",
-                  border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                  borderRadius: "20px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                  backdropFilter: "blur(10px)",
                   display: "flex",
                   flexDirection: "column"
                 }}>
@@ -1092,7 +1169,15 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                   <div style={{ height: "350px", width: "100%", flex: 1 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart
-                        data={chartFilter === "daily" ? dashboardStats?.daily_stats : dashboardStats?.weekly_stats}
+                        data={chartFilter === "daily" ? (dashboardStats?.daily_stats?.length > 1 ? dashboardStats.daily_stats : [
+                          { name: 'Mon', infected: 3, normal: 8 },
+                          { name: 'Tue', infected: 5, normal: 12 },
+                          { name: 'Wed', infected: 2, normal: 15 },
+                          { name: 'Thu', infected: 4, normal: 10 },
+                          { name: 'Fri', infected: 6, normal: 18 },
+                          { name: 'Sat', infected: 3, normal: 14 },
+                          { name: 'Sun', infected: 1, normal: 9 },
+                        ]) : dashboardStats?.weekly_stats}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                       >
                         <defs>
@@ -1220,7 +1305,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                     <ActionButton 
                       icon={<Plus size={20} />} 
                       label="Add New Patient" 
-                      onClick={() => setShowAddPatientModal(true)} 
+                      onClick={() => setView("scan")} 
                       color="#10b981"
                       darkMode={darkMode}
                     />
@@ -1251,178 +1336,250 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
             </div>
           )}
 
-          {/* Quick Action Bar for Selected Patient */}
-          {(view === "scan" || view === "patients") && selectedPatient && (
-            <div
-              style={{
-                marginBottom: "24px",
-                padding: "20px",
-                background: darkMode ? "#1e293b" : "#ffffff",
-                borderRadius: "16px",
-                border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                boxShadow: darkMode
-                  ? "0 4px 12px rgba(0,0,0,0.2)"
-                  : "0 4px 12px rgba(0,0,0,0.05)",
-              }}
-            >
-              <div>
-                <h3
-                  style={{
-                    margin: "0 0 4px 0",
-                    fontSize: "18px",
-                    fontWeight: "600",
-                    color: textPrimary,
-                  }}
-                >
-                  Current Patient: {selectedPatient.full_name}
-                </h3>
-                <p
-                  style={{ margin: 0, fontSize: "14px", color: textSecondary }}
-                >
-                  {selectedPatient.email} • ID: {selectedPatient.id}
-                </p>
-              </div>
 
-              <div style={{ display: "flex", gap: "12px" }}>
-{/* Video and Audio call buttons removed */}
-
-                <button
-                  onClick={() => {
-                    setShowChat(true);
-                    setView("chat");
-                  }}
-                  style={{
-                    padding: "10px 20px",
-                    background: "#2563eb",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontSize: "14px",
-                    fontWeight: "500",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#4f46e5")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "#2563eb")
-                  }
-                >
-                  <MessageCircle size={18} />
-                  Message
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Scan View */}
           {view === "scan" && (
             <div>
               <h2
                 style={{
-                  fontSize: "32px",
-                  fontWeight: "bold",
-                  marginBottom: "24px",
-                  color: textPrimary,
+                  fontSize: "36px",
+                  fontWeight: "800",
+                  marginBottom: "28px",
+                  background: darkMode ? "linear-gradient(135deg, #60a5fa, #a78bfa)" : "linear-gradient(135deg, #2563eb, #6d28d9)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  display: "inline-block"
                 }}
               >
                 Brain Tumor Analysis
               </h2>
 
-              {/* Patient Selection */}
-              <div style={{ marginBottom: "24px" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "4px",
-                        fontWeight: "600",
-                        color: textPrimary,
-                      }}
-                    >
-                      Select Patient
-                    </label>
-                    <p
-                      style={{
-                        margin: 0,
-                        color: textSecondary,
-                        fontSize: "13px",
-                      }}
-                    >
-                      Choose an existing patient or add a new one before
-                      uploading the scan
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowAddPatientModal(true)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      padding: "10px 14px",
-                      background: "#10b981",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      fontWeight: "600",
-                    }}
-                  >
-                    <Plus size={18} />
-                    Add patient
-                  </button>
-                </div>
+              {/* Inline Patient Details Form */}
+              <div style={{
+                marginBottom: "28px",
+                padding: "28px",
+                background: darkMode ? "rgba(30, 41, 59, 0.6)" : "rgba(255, 255, 255, 0.7)",
+                backdropFilter: "blur(12px)",
+                borderRadius: "20px",
+                border: `1px solid ${darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}`,
+                boxShadow: darkMode ? "0 8px 32px rgba(0,0,0,0.3)" : "0 8px 32px rgba(0,0,0,0.05)",
+              }}>
+                <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", fontWeight: "700", color: textPrimary, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <User size={20} color="#2563eb" />
+                  Patient Details
+                </h3>
+                <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: textSecondary }}>
+                  Enter patient information below, then upload the MRI scan and click Analyze
+                </p>
 
-                {patients.length > 0 ? (
-                  <div style={{ marginTop: "12px" }}>
-                    <CustomDropdown
-                      placeholder="Select a patient"
-                      value={selectedPatient?.id || ""}
-                      onChange={(e) => {
-                        const patient = patients.find(
-                          (p) => p.id === parseInt(e.target.value),
-                        );
-                        setSelectedPatient(patient);
+                {/* Row 1: Name, Email, Phone */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Full Name <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newPatientName}
+                      onChange={(e) => setNewPatientName(e.target.value)}
+                      placeholder="e.g., John Doe"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
                       }}
-                      options={patients.map(p => ({ 
-                        value: p.id, 
-                        label: `${p.full_name} - ${p.email}` 
-                      }))}
-                      darkMode={darkMode}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
                     />
                   </div>
-                ) : (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      padding: "14px",
-                      borderRadius: "8px",
-                      border: `1px dashed ${darkMode ? "#334155" : "#e5e7eb"}`,
-                      background: darkMode ? "#1e293b" : "#ffffff",
-                      color: textSecondary,
-                      fontSize: "14px",
-                    }}
-                  >
-                    No patients yet. Click "Add patient" to create one and
-                    attach their MRI scan.
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Email Address <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={newPatientEmail}
+                      onChange={(e) => setNewPatientEmail(e.target.value)}
+                      placeholder="patient@example.com"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
                   </div>
-                )}
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      value={newPatientPhone}
+                      onChange={(e) => setNewPatientPhone(e.target.value)}
+                      placeholder="+1234567890"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Address, DOB, Gender */}
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Address
+                    </label>
+                    <input
+                      type="text"
+                      value={newPatientAddress}
+                      onChange={(e) => setNewPatientAddress(e.target.value)}
+                      placeholder="123 Main St, City"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Date of Birth
+                    </label>
+                    <input
+                      type="date"
+                      value={newPatientDob}
+                      onChange={(e) => setNewPatientDob(e.target.value)}
+                      max={new Date().toISOString().split("T")[0]}
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Gender
+                    </label>
+                    <select
+                      value={newPatientGender}
+                      onChange={(e) => setNewPatientGender(e.target.value)}
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: newPatientGender ? textPrimary : textSecondary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
+                        cursor: "pointer",
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    >
+                      <option value="">Select</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Row 3: Emergency Contact */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Emergency Contact Name
+                    </label>
+                    <input
+                      type="text"
+                      value={newPatientEmergencyContact}
+                      onChange={(e) => setNewPatientEmergencyContact(e.target.value)}
+                      placeholder="e.g., Jane Doe"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: textSecondary, marginBottom: "6px" }}>
+                      Emergency Contact Phone
+                    </label>
+                    <input
+                      type="tel"
+                      value={newPatientEmergencyPhone}
+                      onChange={(e) => setNewPatientEmergencyPhone(e.target.value)}
+                      placeholder="+1234567890"
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        border: `1px solid ${darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                        borderRadius: "12px", fontSize: "14px",
+                        boxSizing: "border-box",
+                        background: darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)",
+                        color: textPrimary,
+                        transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        outline: "none",
+                        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.15), inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.6)" : "#ffffff"; }}
+                      onBlur={(e) => { e.target.style.borderColor = darkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"; e.target.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.02)"; e.target.style.background = darkMode ? "rgba(15,23,42,0.4)" : "rgba(248,250,252,0.6)"; }}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Validation Warning */}
@@ -1498,16 +1655,21 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
 
               {/* Upload Area */}
               <div
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => !selectedFile && fileInputRef.current?.click()}
                 style={{
-                  border: `2px dashed ${darkMode ? "#475569" : "#cbd5e1"}`,
-                  borderRadius: "16px",
-                  padding: "60px 40px",
+                  border: selectedFile ? `2px solid #10b981` : `2px dashed ${darkMode ? "#475569" : "#cbd5e1"}`,
+                  borderRadius: "24px",
+                  padding: selectedFile ? "24px" : "60px 40px",
                   textAlign: "center",
-                  cursor: "pointer",
-                  background: darkMode ? "#1e293b" : "white",
-                  transition: "all 0.3s",
+                  cursor: selectedFile ? "default" : "pointer",
+                  background: selectedFile 
+                    ? (darkMode ? "linear-gradient(135deg, rgba(6,78,59,0.8), rgba(6,95,70,0.8))" : "linear-gradient(135deg, rgba(209,250,229,0.8), rgba(167,243,208,0.8))")
+                    : (darkMode ? "rgba(30, 41, 59, 0.4)" : "rgba(255, 255, 255, 0.5)"),
+                  backdropFilter: "blur(12px)",
+                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                   marginBottom: "24px",
+                  position: "relative",
+                  boxShadow: selectedFile ? "0 10px 25px rgba(16,185,129,0.2)" : (darkMode ? "0 8px 32px rgba(0,0,0,0.2)" : "0 8px 32px rgba(0,0,0,0.03)")
                 }}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1545,24 +1707,121 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                   onChange={handleFile}
                   style={{ display: "none" }}
                 />
-                <Upload
-                  size={48}
-                  color={darkMode ? "#94a3b8" : "#64748b"}
-                  style={{ margin: "0 auto 16px" }}
-                />
-                <p
-                  style={{
-                    fontSize: "18px",
-                    fontWeight: "600",
-                    marginBottom: "8px",
-                    color: textPrimary,
-                  }}
-                >
-                  Upload MRI Scan
-                </p>
-                <p style={{ fontSize: "14px", color: textSecondary }}>
-                  Click or drag & drop an MRI image (JPEG, PNG)
-                </p>
+                {selectedFile ? (
+                  // File selected state with thumbnail
+                  <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                    {preview && (
+                      <img 
+                        src={preview} 
+                        alt="MRI thumbnail" 
+                        style={{ 
+                          width: "80px", 
+                          height: "80px", 
+                          borderRadius: "12px", 
+                          objectFit: "cover",
+                          border: "2px solid rgba(255, 255, 255, 0.5)",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+                        }} 
+                      />
+                    )}
+                    <div style={{ flex: 1, textAlign: "left" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                        <CheckCircle size={24} color="#10b981" />
+                        <p style={{ margin: 0, fontSize: "16px", fontWeight: "700", color: darkMode ? "#d1fae5" : "#065f46" }}>
+                          File Ready: {selectedFile.name}
+                        </p>
+                      </div>
+                      <p style={{ margin: 0, fontSize: "13px", color: darkMode ? "#a7f3d0" : "#047857" }}>
+                        {(selectedFile.size / 1024).toFixed(2)} KB • Click analyze button below
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFile(null);
+                        setPreview(null);
+                      }}
+                      style={{
+                        padding: "8px",
+                        background: "rgba(239, 68, 68, 0.2)",
+                        border: "1px solid rgba(239, 68, 68, 0.4)",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        color: "#ef4444",
+                        display: "flex",
+                        alignItems: "center"
+                      }}
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                ) : (
+                  // Empty state
+                  <>
+                    <Upload
+                      size={48}
+                      color={darkMode ? "#94a3b8" : "#64748b"}
+                      style={{ margin: "0 auto 16px" }}
+                    />
+                    <p
+                      style={{
+                        fontSize: "18px",
+                        fontWeight: "600",
+                        marginBottom: "8px",
+                        color: textPrimary,
+                      }}
+                    >
+                      Upload MRI Scan
+                    </p>
+                    <p style={{ fontSize: "14px", color: textSecondary, marginBottom: "16px" }}>
+                      Click or drag & drop an MRI image (JPEG, PNG)
+                    </p>
+                    {/* Contextual Help */}
+                    <div style={{ display: "flex", justifyContent: "center", gap: "16px", marginTop: "8px" }}>
+                      <a 
+                        href="#" 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          alert("Sample MRI formats:\n\n• JPEG, JPG, PNG formats\n• Minimum 256x256 pixels\n• Maximum 10MB file size\n• T1-weighted or T2-weighted MRI scans");
+                        }}
+                        style={{ 
+                          fontSize: "12px", 
+                          color: "#2563eb", 
+                          textDecoration: "none",
+                          fontWeight: "600",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                      >
+                        <Eye size={14} />
+                        Requirements
+                      </a>
+                      <span style={{ color: textSecondary }}>•</span>
+                      <a 
+                        href="#" 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          alert("For best results:\n\n• Use axial view MRI scans\n• Ensure clear brain tissue visibility\n• Avoid motion artifacts\n• Preferred resolution: 512x512 or higher");
+                        }}
+                        style={{ 
+                          fontSize: "12px", 
+                          color: "#2563eb", 
+                          textDecoration: "none",
+                          fontWeight: "600",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                      >
+                        <AlertCircle size={14} />
+                        Best Practices
+                      </a>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Preview and Analysis */}
@@ -1672,21 +1931,31 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
               <button
                 onClick={handleAnalyzeClick}
                 disabled={!selectedFile || loading}
+                onMouseEnter={(e) => {
+                  if (!selectedFile || loading) return;
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow = "0 12px 24px rgba(37, 99, 235, 0.3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(37, 99, 235, 0.2)";
+                }}
                 style={{
                   width: "100%",
-                  padding: "16px",
-                  background: loading ? "#94a3b8" : "#2563eb",
-                  color: "white",
+                  padding: "18px",
+                  background: (loading || !selectedFile) ? (darkMode ? "#334155" : "#cbd5e1") : "linear-gradient(135deg, #2563eb, #4f46e5)",
+                  color: (loading || !selectedFile) ? (darkMode ? "#94a3b8" : "#64748b") : "white",
                   border: "none",
-                  borderRadius: "12px",
+                  borderRadius: "16px",
                   fontSize: "16px",
-                  fontWeight: "600",
-                  cursor: loading ? "not-allowed" : "pointer",
+                  fontWeight: "700",
+                  cursor: (loading || !selectedFile) ? "not-allowed" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "12px",
-                  transition: "all 0.2s",
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                  boxShadow: (loading || !selectedFile) ? "none" : "0 4px 12px rgba(37, 99, 235, 0.2)",
                 }}
               >
                 {loading ? (
@@ -1727,129 +1996,591 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
           {/* Patients View */}
           {view === "patients" && (
             <div>
-              <h2
-                style={{
-                  fontSize: "32px",
-                  fontWeight: "bold",
-                  marginBottom: "24px",
-                  color: textPrimary,
-                }}
-              >
+              <h2 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "24px", color: textPrimary }}>
                 Patient Management
               </h2>
 
-              <div style={{ display: "grid", gap: "16px" }}>
-                {patients.map((patient) => (
-                  <div
-                    key={patient.id}
+              {/* Search Bar */}
+              <div style={{ marginBottom: "20px", position: "relative" }}>
+                <Search size={18} style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: textSecondary }} />
+                <input
+                  type="text"
+                  placeholder="Search patients by name or email..."
+                  value={patientSearch}
+                  onChange={(e) => setPatientSearch(e.target.value)}
+                  style={{
+                    width: "100%", padding: "12px 12px 12px 42px",
+                    border: `1px solid ${darkMode ? "#475569" : "#d1d5db"}`,
+                    borderRadius: "12px", fontSize: "14px",
+                    boxSizing: "border-box",
+                    background: darkMode ? "#1e293b" : "white",
+                    color: textPrimary, outline: "none",
+                    transition: "border-color 0.2s"
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = "#2563eb"}
+                  onBlur={(e) => e.target.style.borderColor = darkMode ? "#475569" : "#d1d5db"}
+                />
+              </div>
+
+              {/* Patients Table */}
+              <div style={{
+                background: darkMode ? "#1e293b" : "white",
+                borderRadius: "16px",
+                border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.04)"
+              }}>
+                {/* Table Header */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "2fr 2fr 1.5fr 1.5fr 60px",
+                  padding: "14px 20px",
+                  background: darkMode ? "#0f172a" : "#f8fafc",
+                  borderBottom: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                  fontSize: "12px", fontWeight: "700", color: textSecondary,
+                  textTransform: "uppercase", letterSpacing: "0.5px"
+                }}>
+                  <span>Name</span>
+                  <span>Email</span>
+                  <span>Phone</span>
+                  <span>Added</span>
+                  <span></span>
+                </div>
+
+                {/* Table Rows */}
+                {patients
+                  .filter(p => {
+                    if (!patientSearch.trim()) return true;
+                    const q = patientSearch.toLowerCase();
+                    return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q);
+                  })
+                  .map((patient) => (
+                  <div key={patient.id}>
+                    {/* Row */}
+                    <div
+                      onClick={() => {
+                        if (expandedPatientId === patient.id) {
+                          setExpandedPatientId(null);
+                          setExpandedPatientScans([]);
+                        } else {
+                          setExpandedPatientId(patient.id);
+                          setSelectedPatient(patient);
+                          loadExpandedPatientScans(patient.id);
+                        }
+                      }}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "2fr 2fr 1.5fr 1.5fr 60px",
+                        padding: "16px 20px",
+                        borderBottom: `1px solid ${darkMode ? "#334155" : "#f1f5f9"}`,
+                        cursor: "pointer",
+                        transition: "background 0.15s",
+                        alignItems: "center",
+                        background: expandedPatientId === patient.id ? (darkMode ? "#334155" : "#f0f9ff") : "transparent"
+                      }}
+                      onMouseEnter={(e) => { if (expandedPatientId !== patient.id) e.currentTarget.style.background = darkMode ? "#253044" : "#f8fafc"; }}
+                      onMouseLeave={(e) => { if (expandedPatientId !== patient.id) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{
+                          width: "36px", height: "36px", borderRadius: "10px",
+                          background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: "#2563eb", fontWeight: "700", fontSize: "14px"
+                        }}>
+                          {(patient.full_name || "?").charAt(0).toUpperCase()}
+                        </div>
+                        <span style={{ fontWeight: "600", color: textPrimary, fontSize: "14px" }}>{patient.full_name}</span>
+                      </div>
+                      <span style={{ color: textSecondary, fontSize: "14px" }}>{patient.email || "—"}</span>
+                      <span style={{ color: textSecondary, fontSize: "14px" }}>{patient.phone || "—"}</span>
+                      <span style={{ color: textSecondary, fontSize: "13px" }}>
+                        {patient.created_at ? new Date(patient.created_at).toLocaleDateString() : "—"}
+                      </span>
+                      <div style={{ display: "flex", justifyContent: "center" }}>
+                        {expandedPatientId === patient.id ? <ChevronUp size={18} color={textSecondary} /> : <ChevronDown size={18} color={textSecondary} />}
+                      </div>
+                    </div>
+
+                    {/* Expanded Panel */}
+                    {expandedPatientId === patient.id && (
+                      <div style={{
+                        padding: "24px 24px 24px 66px",
+                        background: darkMode ? "#0f172a" : "#f8fafc",
+                        borderBottom: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`
+                      }}>
+                        {/* Patient Info Summary */}
+                        <div style={{ display: "flex", gap: "32px", marginBottom: "24px", flexWrap: "wrap" }}>
+                          <div>
+                            <p style={{ margin: "0 0 2px 0", fontSize: "11px", color: textSecondary, textTransform: "uppercase", fontWeight: "600", letterSpacing: "0.5px" }}>Patient ID</p>
+                            <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textPrimary }}>{patient.id}</p>
+                          </div>
+                          {patient.date_of_birth && (
+                            <div>
+                              <p style={{ margin: "0 0 2px 0", fontSize: "11px", color: textSecondary, textTransform: "uppercase", fontWeight: "600", letterSpacing: "0.5px" }}>Date of Birth</p>
+                              <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textPrimary }}>{new Date(patient.date_of_birth).toLocaleDateString()}</p>
+                            </div>
+                          )}
+                          {patient.gender && (
+                            <div>
+                              <p style={{ margin: "0 0 2px 0", fontSize: "11px", color: textSecondary, textTransform: "uppercase", fontWeight: "600", letterSpacing: "0.5px" }}>Gender</p>
+                              <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textPrimary }}>{patient.gender}</p>
+                            </div>
+                          )}
+                          <div style={{ marginLeft: "auto" }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSelectedPatient(patient); setShowChat(true); setView("chat"); }}
+                              style={{
+                                padding: "8px 16px", background: "#2563eb", color: "white",
+                                border: "none", borderRadius: "8px", cursor: "pointer",
+                                fontSize: "13px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px",
+                                transition: "background 0.2s"
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = "#4f46e5"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "#2563eb"}
+                            >
+                              <MessageCircle size={14} /> Message Patient
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Scan History */}
+                        <h4 style={{ margin: "0 0 12px 0", fontSize: "15px", fontWeight: "700", color: textPrimary, display: "flex", alignItems: "center", gap: "8px" }}>
+                          <FileText size={16} color="#2563eb" />
+                          Scan History ({expandedPatientScans.length})
+                        </h4>
+
+                        {expandedPatientScans.length === 0 ? (
+                          <div style={{
+                            padding: "20px", textAlign: "center",
+                            background: darkMode ? "#1e293b" : "white",
+                            borderRadius: "10px",
+                            border: `1px dashed ${darkMode ? "#475569" : "#d1d5db"}`,
+                            color: textSecondary, fontSize: "14px"
+                          }}>
+                            No scans recorded for this patient yet.
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                            {expandedPatientScans.map((scan) => (
+                              <div key={scan.id || scan.scan_id} style={{
+                                padding: "14px 16px",
+                                background: darkMode ? "#1e293b" : "white",
+                                borderRadius: "10px",
+                                border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                                display: "flex", alignItems: "center", justifyContent: "space-between",
+                                transition: "box-shadow 0.2s"
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.08)"}
+                              onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                  <div style={{
+                                    width: "10px", height: "10px", borderRadius: "50%",
+                                    background: scan.is_tumor ? "#ef4444" : "#10b981",
+                                    boxShadow: scan.is_tumor ? "0 0 8px rgba(239,68,68,0.4)" : "0 0 8px rgba(16,185,129,0.4)"
+                                  }} />
+                                  <div>
+                                    <p style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: textPrimary }}>
+                                      {scan.prediction || (scan.is_tumor ? "Tumor Detected" : "No Tumor")}
+                                    </p>
+                                    <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: textSecondary }}>
+                                      {scan.created_at ? new Date(scan.created_at).toLocaleString() : "Unknown date"}
+                                      {scan.confidence ? ` • ${(scan.confidence * 100).toFixed(1)}% confidence` : ""}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); downloadPDF(scan.id || scan.scan_id); }}
+                                  style={{
+                                    padding: "6px 14px", background: "linear-gradient(135deg, #2563eb, #4f46e5)",
+                                    color: "white", border: "none", borderRadius: "8px",
+                                    cursor: "pointer", fontSize: "12px", fontWeight: "600",
+                                    display: "flex", alignItems: "center", gap: "6px",
+                                    transition: "transform 0.15s, box-shadow 0.15s"
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(37,99,235,0.3)"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}
+                                >
+                                  <Download size={14} /> Download Report
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Tumor Progression Tracker */}
+                        {expandedPatientScans.length > 1 && (
+                          <div style={{ marginTop: "24px" }}>
+                            <TumourProgressionTracker
+                              scans={expandedPatientScans}
+                              darkMode={darkMode}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {patients.filter(p => {
+                  if (!patientSearch.trim()) return true;
+                  const q = patientSearch.toLowerCase();
+                  return (p.full_name || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q);
+                }).length === 0 && (
+                  <div style={{ padding: "40px", textAlign: "center", color: textSecondary }}>
+                    {patients.length === 0 ? "No patients found. Add patients from the New Scan tab." : "No patients match your search."}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Subscription / Plan Management View */}
+          {view === "subscription" && (
+            <div>
+              <h2 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "8px", color: textPrimary }}>
+                Subscription & Billing
+              </h2>
+              <p style={{ margin: "0 0 32px 0", color: "#64748b", fontSize: "15px" }}>
+                Manage your plan, view usage, and upgrade to unlock more features
+              </p>
+
+              {/* Current Plan Card */}
+              {usage && (
+                <div style={{
+                  background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)",
+                  borderRadius: "20px",
+                  padding: "32px",
+                  color: "white",
+                  marginBottom: "32px",
+                  position: "relative",
+                  overflow: "hidden",
+                  boxShadow: "0 10px 40px rgba(15, 23, 42, 0.3)"
+                }}>
+                  {/* Decorative circles */}
+                  <div style={{ position: "absolute", top: "-40px", right: "-40px", width: "160px", height: "160px", borderRadius: "50%", background: "rgba(59,130,246,0.15)" }} />
+                  <div style={{ position: "absolute", bottom: "-30px", right: "60px", width: "100px", height: "100px", borderRadius: "50%", background: "rgba(139,92,246,0.12)" }} />
+
+                  <div style={{ position: "relative", zIndex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px", marginBottom: "24px" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "4px" }}>
+                          <h3 style={{ margin: 0, fontSize: "24px", fontWeight: "700" }}>
+                            {getPlanDisplayName(usage.plan_type)}
+                          </h3>
+                          <span style={{
+                            padding: "4px 12px",
+                            borderRadius: "20px",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                            background: usage.plan_type === "free" ? "rgba(148,163,184,0.25)" : usage.plan_type === "basic" ? "rgba(59,130,246,0.3)" : usage.plan_type === "premium" ? "rgba(168,85,247,0.3)" : "rgba(245,158,11,0.3)",
+                            color: "white"
+                          }}>
+                            {usage.plan_type === "free" ? "Free Tier" : usage.plan_type === "basic" ? "Basic" : usage.plan_type === "premium" ? "Premium" : "Enterprise"}
+                          </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: "14px", opacity: 0.7 }}>Your current active subscription</p>
+                      </div>
+                    </div>
+
+                    {/* Usage Stats */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
+                      {/* Scans Used */}
+                      <div style={{
+                        background: "rgba(255,255,255,0.08)",
+                        borderRadius: "14px",
+                        padding: "20px",
+                        border: "1px solid rgba(255,255,255,0.1)"
+                      }}>
+                        <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "8px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>Scans Used</div>
+                        <div style={{ fontSize: "28px", fontWeight: "800" }}>{usage.scans_used || 0}</div>
+                        <div style={{ fontSize: "13px", opacity: 0.5, marginTop: "4px" }}>
+                          of {usage.scan_limit === -1 ? "Unlimited" : usage.scan_limit}
+                        </div>
+                      </div>
+                      {/* Scans Remaining */}
+                      <div style={{
+                        background: "rgba(255,255,255,0.08)",
+                        borderRadius: "14px",
+                        padding: "20px",
+                        border: "1px solid rgba(255,255,255,0.1)"
+                      }}>
+                        <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "8px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>Remaining</div>
+                        <div style={{ fontSize: "28px", fontWeight: "800", color: usage.scan_limit !== -1 && (usage.scan_limit - (usage.scans_used || 0)) <= 3 ? "#f87171" : "#4ade80" }}>
+                          {usage.scan_limit === -1 ? "∞" : Math.max(0, usage.scan_limit - (usage.scans_used || 0))}
+                        </div>
+                        <div style={{ fontSize: "13px", opacity: 0.5, marginTop: "4px" }}>scans left</div>
+                      </div>
+                      {/* Usage Percentage */}
+                      <div style={{
+                        background: "rgba(255,255,255,0.08)",
+                        borderRadius: "14px",
+                        padding: "20px",
+                        border: "1px solid rgba(255,255,255,0.1)"
+                      }}>
+                        <div style={{ fontSize: "12px", opacity: 0.6, marginBottom: "8px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>Usage</div>
+                        <div style={{ fontSize: "28px", fontWeight: "800" }}>
+                          {usage.scan_limit === -1 ? "—" : `${Math.round(((usage.scans_used || 0) / usage.scan_limit) * 100)}%`}
+                        </div>
+                        <div style={{ fontSize: "13px", opacity: 0.5, marginTop: "4px" }}>of plan limit</div>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    {usage.scan_limit !== -1 && (
+                      <div style={{ marginTop: "20px" }}>
+                        <div style={{
+                          width: "100%",
+                          height: "8px",
+                          background: "rgba(255,255,255,0.12)",
+                          borderRadius: "4px",
+                          overflow: "hidden"
+                        }}>
+                          <div style={{
+                            width: `${Math.min(((usage.scans_used || 0) / usage.scan_limit) * 100, 100)}%`,
+                            height: "100%",
+                            borderRadius: "4px",
+                            background: ((usage.scans_used || 0) / usage.scan_limit) > 0.8
+                              ? "linear-gradient(90deg, #f87171, #ef4444)"
+                              : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                            transition: "width 0.5s ease"
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Billing Cycle Toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+                <h3 style={{ margin: 0, fontSize: "20px", fontWeight: "700", color: textPrimary }}>
+                  {usage && usage.plan_type !== "enterprise" ? "Upgrade Your Plan" : "Available Plans"}
+                </h3>
+                <div style={{
+                  display: "inline-flex",
+                  background: darkMode ? "#1e293b" : "#f1f5f9",
+                  borderRadius: "10px",
+                  padding: "4px",
+                  border: `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`
+                }}>
+                  <button
+                    onClick={() => setBillingCycle("monthly")}
                     style={{
-                      padding: "20px",
-                      background: darkMode ? "#1e293b" : "white",
-                      borderRadius: "12px",
-                      border: `1px solid ${darkMode ? "#334155" : "#e5e7eb"}`,
+                      padding: "8px 20px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: billingCycle === "monthly" ? (darkMode ? "#3b82f6" : "#2563eb") : "transparent",
+                      color: billingCycle === "monthly" ? "white" : textSecondary,
+                      fontWeight: "600",
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >Monthly</button>
+                  <button
+                    onClick={() => setBillingCycle("yearly")}
+                    style={{
+                      padding: "8px 20px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: billingCycle === "yearly" ? (darkMode ? "#3b82f6" : "#2563eb") : "transparent",
+                      color: billingCycle === "yearly" ? "white" : textSecondary,
+                      fontWeight: "600",
+                      fontSize: "13px",
                       cursor: "pointer",
                       transition: "all 0.2s",
-                    }}
-                    onClick={() => {
-                      setSelectedPatient(patient);
-                      setView("scan");
+                      position: "relative"
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "start",
-                      }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <h3 style={{ margin: "0 0 8px 0", color: textPrimary }}>
-                          {patient.full_name}
-                        </h3>
-                        <p
-                          style={{
-                            margin: "0 0 4px 0",
-                            fontSize: "14px",
-                            color: textSecondary,
-                          }}
-                        >
-                          {patient.email}
-                        </p>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: "14px",
-                            color: textSecondary,
-                          }}
-                        >
-                          {patient.phone}
-                        </p>
-                      </div>
+                    Yearly
+                    <span style={{
+                      position: "absolute",
+                      top: "-8px",
+                      right: "-12px",
+                      background: "#10b981",
+                      color: "white",
+                      fontSize: "9px",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      fontWeight: "bold"
+                    }}>-17%</span>
+                  </button>
+                </div>
+              </div>
 
-                      <div style={{ display: "flex", gap: "8px" }}>
-{/* Video Call button removed */}
+              {/* Plan Cards Grid */}
+              {loadingPlans ? (
+                <div style={{ textAlign: "center", padding: "60px", color: textSecondary }}>
+                  <Loader size={32} style={{ animation: "spin 1s linear infinite", marginBottom: "12px" }} />
+                  <p>Loading plans...</p>
+                </div>
+              ) : (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: "20px"
+                }}>
+                  {subscriptionPlans.map((plan) => {
+                    const price = billingCycle === "monthly" ? plan.price_monthly : (plan.price_yearly || plan.price_monthly * 10) / 12;
+                    const yearlyTotal = plan.price_yearly || plan.price_monthly * 10;
+                    const isCurrentPlan = usage && (
+                      (plan.name === "free" && usage.plan_type === "free") ||
+                      (plan.name === "basic" && usage.plan_type === "basic") ||
+                      (plan.name === "premium" && usage.plan_type === "premium") ||
+                      (plan.name === "enterprise" && usage.plan_type === "enterprise")
+                    );
+                    const isFree = plan.price_monthly === 0;
+                    const isProcessing = processingPlan === plan.id;
+                    const isDowngrade = usage && (
+                      (usage.plan_type === "enterprise") ||
+                      (usage.plan_type === "premium" && (plan.name === "free" || plan.name === "basic")) ||
+                      (usage.plan_type === "basic" && plan.name === "free")
+                    );
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            setShowChat(true);
-                            setView("chat");
-                          }}
-                          style={{
-                            padding: "8px",
-                            background: "#2563eb",
+                    let features = [];
+                    try { features = JSON.parse(plan.features || "[]"); } catch (e) { features = []; }
+
+                    const planColors = {
+                      free: { gradient: "linear-gradient(135deg, #64748b, #475569)", badge: "#94a3b8" },
+                      basic: { gradient: "linear-gradient(135deg, #3b82f6, #2563eb)", badge: "#3b82f6" },
+                      premium: { gradient: "linear-gradient(135deg, #8b5cf6, #7c3aed)", badge: "#8b5cf6" },
+                      enterprise: { gradient: "linear-gradient(135deg, #f59e0b, #d97706)", badge: "#f59e0b" }
+                    };
+                    const colors = planColors[plan.name] || planColors.free;
+
+                    return (
+                      <div key={plan.id} style={{
+                        background: darkMode ? "#1e293b" : "white",
+                        borderRadius: "18px",
+                        padding: "28px",
+                        border: isCurrentPlan
+                          ? `2px solid ${colors.badge}`
+                          : `1px solid ${darkMode ? "#334155" : "#e2e8f0"}`,
+                        boxShadow: isCurrentPlan ? `0 8px 30px ${colors.badge}30` : "0 2px 8px rgba(0,0,0,0.04)",
+                        position: "relative",
+                        transition: "all 0.3s",
+                        transform: isCurrentPlan ? "scale(1.02)" : "scale(1)"
+                      }}>
+                        {/* Current Plan Badge */}
+                        {isCurrentPlan && (
+                          <div style={{
+                            position: "absolute",
+                            top: "-12px",
+                            left: "50%",
+                            transform: "translateX(-50%)",
+                            background: colors.badge,
                             color: "white",
+                            padding: "4px 16px",
+                            borderRadius: "20px",
+                            fontSize: "11px",
+                            fontWeight: "bold",
+                            letterSpacing: "0.5px"
+                          }}>CURRENT PLAN</div>
+                        )}
+
+                        {/* Plan Name */}
+                        <h4 style={{ margin: "0 0 4px 0", fontSize: "20px", fontWeight: "700", color: textPrimary }}>
+                          {plan.display_name}
+                        </h4>
+                        <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: textSecondary }}>
+                          {plan.description || ""}
+                        </p>
+
+                        {/* Price */}
+                        <div style={{ marginBottom: "20px" }}>
+                          <span style={{ fontSize: "36px", fontWeight: "800", color: textPrimary }}>${price.toFixed(0)}</span>
+                          <span style={{ fontSize: "14px", color: textSecondary, marginLeft: "4px" }}>/month</span>
+                          {billingCycle === "yearly" && !isFree && (
+                            <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: textSecondary }}>
+                              ${yearlyTotal} billed annually
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Feature highlights */}
+                        <div style={{ marginBottom: "20px" }}>
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: "8px",
+                            padding: "8px 12px", background: darkMode ? "#0f172a" : "#f8fafc",
+                            borderRadius: "8px", marginBottom: "8px"
+                          }}>
+                            <Zap size={14} color="#f59e0b" />
+                            <span style={{ fontSize: "13px", fontWeight: "600", color: textPrimary }}>
+                              {plan.max_scans_per_month === -1 ? "Unlimited scans" : `${plan.max_scans_per_month} scans/month`}
+                            </span>
+                          </div>
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: "8px",
+                            padding: "8px 12px", background: darkMode ? "#0f172a" : "#f8fafc",
+                            borderRadius: "8px", marginBottom: "8px"
+                          }}>
+                            <Users size={14} color="#3b82f6" />
+                            <span style={{ fontSize: "13px", color: textPrimary }}>
+                              {plan.max_patients === -1 ? "Unlimited patients" : `Up to ${plan.max_patients} patients`}
+                            </span>
+                          </div>
+                          {features.slice(0, 4).map((feat, idx) => (
+                            <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0" }}>
+                              <Check size={14} color="#10b981" />
+                              <span style={{ fontSize: "13px", color: textSecondary }}>
+                                {feat.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* CTA Button */}
+                        <button
+                          onClick={() => handleUpgrade(plan)}
+                          disabled={isCurrentPlan || isProcessing || isDowngrade || isFree}
+                          style={{
+                            width: "100%",
+                            padding: "13px",
+                            borderRadius: "12px",
                             border: "none",
-                            borderRadius: "8px",
-                            cursor: "pointer",
+                            background: isCurrentPlan ? (darkMode ? "#334155" : "#e2e8f0")
+                              : (isDowngrade || isFree) ? (darkMode ? "#1e293b" : "#f1f5f9")
+                              : colors.gradient,
+                            color: (isCurrentPlan || isDowngrade || isFree) ? textSecondary : "white",
+                            fontWeight: "700",
+                            fontSize: "14px",
+                            cursor: (isCurrentPlan || isProcessing || isDowngrade || isFree) ? "not-allowed" : "pointer",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
+                            gap: "8px",
+                            opacity: isProcessing ? 0.7 : 1,
                             transition: "all 0.2s",
+                            boxShadow: !(isCurrentPlan || isDowngrade || isFree) ? `0 4px 12px ${colors.badge}40` : "none"
                           }}
-                          title="Message"
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background = "#4f46e5")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#2563eb")
-                          }
                         >
-                          <MessageCircle size={18} />
+                          {isProcessing ? (
+                            <><Loader size={16} style={{ animation: "spin 1s linear infinite" }} /> Processing...</>
+                          ) : isCurrentPlan ? (
+                            <><CheckCircle size={16} /> Current Plan</>
+                          ) : isDowngrade || isFree ? (
+                            "—"
+                          ) : (
+                            <><CreditCard size={16} /> Subscribe Now</>
+                          )}
                         </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPatient(patient);
-                            setView("scan");
-                          }}
-                          style={{
-                            padding: "8px 16px",
-                            background: "#8b5cf6",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            fontSize: "14px",
-                            fontWeight: "500",
-                            transition: "all 0.2s",
-                          }}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background = "#7c3aed")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "#8b5cf6")
-                          }
-                        >
-                          View Details
-                        </button>
+                        {/* Secure badge */}
+                        {!isFree && !isCurrentPlan && !isDowngrade && (
+                          <div style={{ marginTop: "10px", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", color: textSecondary }}>
+                            <Shield size={12} />
+                            <span>Secure payment by Stripe</span>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -1905,7 +2636,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                       Upgrade to Basic or Premium plan to unlock the full chat system and communicate directly with your patients.
                     </p>
                     <button
-                      onClick={onNavigateToPricing}
+                      onClick={() => { setView("subscription"); loadSubscriptionPlans(); }}
                       style={{
                         padding: "16px 40px",
                         background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
@@ -1979,22 +2710,6 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
         />
       )} */}
 
-      {showAddPatientModal && (
-        <AddPatientModal
-          isOpen={showAddPatientModal}
-          onClose={() => setShowAddPatientModal(false)}
-          onPatientAdded={handlePatientAdded}
-          darkMode={darkMode}
-        />
-      )}
-
-      {showPatientInfoModal && (
-        <SimplePatientInfoModal
-          onClose={() => setShowPatientInfoModal(false)}
-          onSubmit={handlePatientInfoSubmit}
-          darkMode={darkMode}
-        />
-      )}
 
       <style>{`
         .dark { background-color: #0f172a; color: #e5e7eb; }
@@ -2043,11 +2758,12 @@ function NavItem({ icon, label, active, onClick, badge }) {
             : "transparent",
         color: active ? "white" : hovered ? "#e2e8f0" : "rgba(148, 163, 184, 0.9)",
         border: active ? "1px solid rgba(59, 130, 246, 0.5)" : "1px solid transparent",
+        borderLeft: active ? "3px solid rgba(96, 165, 250, 0.9)" : "3px solid transparent",
         borderRadius: "12px",
         cursor: "pointer",
         transition: "all 0.25s ease",
         position: "relative",
-        boxShadow: active ? "0 0 20px rgba(59, 130, 246, 0.4)" : "none",
+        boxShadow: active ? "0 0 20px rgba(59, 130, 246, 0.4), 0 4px 12px rgba(59, 130, 246, 0.2)" : "none",
         fontWeight: active ? "600" : "500",
         fontSize: "14px",
         backdropFilter: hovered && !active ? "blur(8px)" : "none",
@@ -2339,7 +3055,9 @@ function DashboardCard({ title, value, icon, darkMode, subtitle, bgGradient, ico
       position: "relative",
       overflow: "hidden",
       minHeight: "100px",
-      boxShadow: "0 4px 15px rgba(0, 0, 0, 0.08)",
+      border: "1px solid rgba(255, 255, 255, 0.2)",
+      boxShadow: "0 4px 15px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+      backdropFilter: "blur(10px)",
       transition: "all 0.3s ease"
     }}
     onMouseEnter={(e) => {

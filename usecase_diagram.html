@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan Use Case Diagram</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 2rem;
+            font-size: 1.5rem;
+            text-align: center;
+        }
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow: auto;
+        }
+    </style>
+    <!-- Include Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    secondaryColor: '#ffffff',
+                    fontFamily: 'arial'
+                },
+                flowchart: {
+                    htmlLabels: true,
+                    curve: 'basis',
+                    rankSpacing: 40,
+                    nodeSpacing: 40,
+                    padding: 20
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <h1>Neuroscan Use Case Diagram</h1>
+    
+    <div class="mermaid">
+        flowchart LR
+            %% Styling for Actors and Use Cases
+            classDef actor fill:#fff,stroke:#000,stroke-width:2px,color:#000
+            classDef usecase fill:#fff,stroke:#000,stroke-width:1.5px,color:#000,rx:50,ry:50,text-align:center
+            classDef systembox fill:none,stroke:#000,stroke-width:1.5px
+            classDef relText fill:#fff,stroke:none,color:#000,font-size:11px
+            
+            %% Actors
+            Admin[fa:fa-user User Admin]:::actor
+            Patient[fa:fa-user Patient]:::actor
+            AIModel[fa:fa-robot AI Model]:::actor
+            
+            %% System Boundary
+            subgraph System [NeuroScan: Brain Tumor Detection using CNN VGG19]
+                direction TB
+                
+                %% Admin Use Cases
+                UC_ManageHospitals([Manage Hospital Accounts]):::usecase
+                UC_ManagePersonnel([Manage Medical Personnel Accounts]):::usecase
+                UC_EnableDisable([Disable / Enable Accounts]):::usecase
+                
+                %% Patient Use Cases
+                UC_LoginPatient([Secure Login / Auth]):::usecase
+                UC_ViewReport([View Report Result]):::usecase
+                UC_ChatMedical([Chat with Medical Personnel]):::usecase
+                
+                %% Medical Personnel Use Cases
+                UC_ManagePatients([Manage Patient Records]):::usecase
+                UC_UploadMRI([Upload MRI Image]):::usecase
+                UC_ChatPatient([Chat with Patient]):::usecase
+                UC_ReceiveResult([Receive Prediction Result]):::usecase
+                UC_ReceiveNotif([Receive Notifications]):::usecase
+                UC_ManageSub([Manage Subscription]):::usecase
+
+                %% AI Model Use Cases
+                UC_ProcessMRI([Process MRI Images]):::usecase
+                UC_GenerateResult([Generate Result & Heatmaps]):::usecase
+            end
+            class System systembox
+            
+            MedStaff[fa:fa-user Medical Personnel]:::actor
+
+            %% Actor to Use Case Connections
+            %% Admin
+            Admin --- UC_ManageHospitals
+            Admin --- UC_ManagePersonnel
+            Admin --- UC_EnableDisable
+
+            %% Patient
+            Patient --- UC_LoginPatient
+            Patient --- UC_ViewReport
+            Patient --- UC_ChatMedical
+
+            %% AI Model
+            AIModel --- UC_ProcessMRI
+            AIModel --- UC_GenerateResult
+
+            %% Medical Personnel (Right Side alignment based on typical UML conventions)
+            UC_ManagePatients --- MedStaff
+            UC_UploadMRI --- MedStaff
+            UC_ChatPatient --- MedStaff
+            UC_ReceiveResult --- MedStaff
+            UC_ReceiveNotif --- MedStaff
+            UC_ManageSub --- MedStaff
+
+            %% Includes and Extends Relationships
+            UC_ViewReport -.->|&lt;&lt;include&gt;&gt;| UC_LoginPatient
+            UC_UploadMRI -.->|&lt;&lt;include&gt;&gt;| UC_ProcessMRI
+            UC_ProcessMRI -.->|&lt;&lt;include&gt;&gt;| UC_GenerateResult
+            
+            %% Extensions
+            UC_ChatMedical -.->|&lt;&lt;extend&gt;&gt;| UC_ViewReport
+            UC_ChatPatient -.->|&lt;&lt;extend&gt;&gt;| UC_ReceiveResult
+
+            %% Layout positioning links (invisible) to force structure
+            Admin ~~~ Patient
+            Patient ~~~ AIModel
+            
+            %% Force MedStaff Actor to stay on the right
+            System ~~~ MedStaff
+            
+    </div>
+
+</body>
+</html>

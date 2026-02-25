@@ -1,0 +1,105 @@
+
+                                    Pokhara University, School of Engineering
+                                        Project Work Feedback Form
+
+  Project Title: NeuroScan - Brain Tumor Detection Using CNN (VGG19)
+
+  Team Members:
+    - Kamala Thapa (21185159)
+    - Sankalpa Adhikari (21185177)
+    - Sushil Adhikari (21185185)
+
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+| Visit |      | Member Name       |                                                          |                                            |          |
+| No.   | Date | (Only Present)    |              Work Accomplished                           |          Supervisor Feedback               | Signature|
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   1   |      |                   | Reviewed mid defense feedback and listed out all the     | Good that you have listed out the          |          |
+|       |      |                   | remaining tasks. Identified bugs in the existing         | remaining work clearly. Focus on           |          |
+|       |      |                   | features like login issues, scan upload errors, and      | fixing the critical bugs first before      |          |
+|       |      |                   | broken navigation in the hospital portal. Made a         | moving to new features. Prioritize         |          |
+|       |      |                   | plan to fix everything before adding new things.         | the work properly.                         |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   2   |      |                   | Fixed major bugs in the hospital portal. The scan        | Good progress on bug fixes. Make sure      |          |
+|       |      |                   | upload was failing for certain image formats, so we      | you test all the fixed features again      |          |
+|       |      |                   | added proper file validation. Also fixed the patient     | properly. Don't just fix and move on,      |          |
+|       |      |                   | history page which was not loading old records            | verify that the fix actually works in      |          |
+|       |      |                   | correctly. Fixed session timeout issues on the           | all cases.                                 |          |
+|       |      |                   | login page.                                              |                                            |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   3   |      |                   | Reworked the Stripe payment and subscription system.     | Payment system needs to be very            |          |
+|       |      |                   | The checkout flow had issues where users were getting    | reliable. Test with different card          |          |
+|       |      |                   | stuck after payment. Fixed the webhook handling so       | scenarios like failed payments and          |          |
+|       |      |                   | that plan upgrades reflect immediately. Added scan       | expired cards. Also make sure the          |          |
+|       |      |                   | usage tracking so hospitals can see how many scans       | scan limits reset properly each            |          |
+|       |      |                   | they have left in their plan.                            | billing cycle.                             |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   4   |      |                   | Built the in-portal subscription management page.        | This is a nice addition. The pricing       |          |
+|       |      |                   | Users can now view their current plan, see usage         | page looks clean. Just make sure the       |          |
+|       |      |                   | stats, and upgrade their plan without leaving the        | upgrade flow does not break existing       |          |
+|       |      |                   | portal. Also created a proper pricing page with          | subscriptions. Test the downgrade          |          |
+|       |      |                   | all the plan details and features listed clearly.        | scenario as well.                          |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   5   |      |                   | Cleaned up the UI across all portals. Removed clutter    | The UI looks much better now. The          |          |
+|       |      |                   | from the hospital and admin dashboards. Made the         | glassmorphism effects are nice but         |          |
+|       |      |                   | sidebar navigation fixed so it doesn't scroll with       | don't overdo it. Keep it simple and        |          |
+|       |      |                   | the page. Applied consistent blue color theme            | professional since this is a medical       |          |
+|       |      |                   | across all portals. Added glassmorphism effects          | application. Good improvement              |          |
+|       |      |                   | and better hover animations.                             | overall.                                   |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   6   |      |                   | Continued UI improvements. Replaced all default          | Landing page looks professional now.       |          |
+|       |      |                   | dropdown menus with custom styled ones to match the      | The scroll-spy navbar is a good            |          |
+|       |      |                   | overall theme. Fixed the landing page layout for         | touch. Make sure everything works on       |          |
+|       |      |                   | mobile screens. Added scroll-spy effect on the           | mobile devices too. Check smaller          |          |
+|       |      |                   | navbar so the active section highlights as you           | screen sizes and fix any layout            |          |
+|       |      |                   | scroll through the page.                                 | issues.                                    |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   7   |      |                   | Fixed more bugs found during UI cleanup. The admin       | These are important fixes. Keep a log      |          |
+|       |      |                   | dashboard charts were not showing correct data in        | of all bugs you find and fix. This         |          |
+|       |      |                   | some cases. The PDF report was missing some patient      | will help during the final defense.        |          |
+|       |      |                   | details when fields were left empty. Fixed the           | Start writing test cases for the           |          |
+|       |      |                   | chatbot sometimes not responding when the server         | critical features now.                     |          |
+|       |      |                   | was under load. Also fixed dark mode styling issues.     |                                            |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   8   |      |                   | Started testing phase. Wrote unit tests for the          | Testing is very important. Cover as        |          |
+|       |      |                   | backend API endpoints - login, register, predict,        | many edge cases as you can. The            |          |
+|       |      |                   | and report generation. Did integration testing to        | integration tests should also cover        |          |
+|       |      |                   | check the full flow from image upload to getting         | error scenarios like invalid inputs        |          |
+|       |      |                   | results. Tested the complete billing flow end to         | and unauthorized access. Document          |          |
+|       |      |                   | end. Fixed small issues found during testing.            | all test results properly.                 |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|   9   |      |                   | Did a final round of bug fixes and testing. Fixed        | Good that you are doing a final round      |          |
+|       |      |                   | remaining issues in the patient portal where scan        | of checks. Make sure no feature is         |          |
+|       |      |                   | results were sometimes not displaying properly.          | left untested. Try to break the app        |          |
+|       |      |                   | Ran end-to-end tests on the full user flow from          | yourself and see where it fails.           |          |
+|       |      |                   | registration to scan analysis to report download.        | Fix anything that comes up before          |          |
+|       |      |                   | Fixed minor CSS issues across different browsers.        | final submission.                          |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+|       |      |                   |                                                          |                                            |          |
+|  10   |      |                   | Completed all project documentation. Wrote the           | Documentation looks complete. Make         |          |
+|       |      |                   | final README with setup instructions, API docs,          | sure all the diagrams are up to date       |          |
+|       |      |                   | and project structure. Created all UML diagrams -        | with the final version of the system.      |          |
+|       |      |                   | ER diagram, sequence diagram, activity diagram,          | Overall the team has done good work.       |          |
+|       |      |                   | use case diagram and system architecture diagram.        | Prepare well for the final defense         |          |
+|       |      |                   | Prepared the final project report for submission.        | and be ready to demonstrate all            |          |
+|       |      |                   |                                                          | features live.                             |          |
+|       |      |                   |                                                          |                                            |          |
++-------+------+-------------------+----------------------------------------------------------+--------------------------------------------+----------+
+

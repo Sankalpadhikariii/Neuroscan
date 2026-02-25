@@ -52,6 +52,15 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
   const borderColor = darkMode ? '#334155' : '#e2e8f0';
   const cardBg = darkMode ? '#1e293b' : '#ffffff';
 
+  const upcomingAppointments = useMemo(() => {
+    if (!appointments) return [];
+    const now = new Date();
+    return appointments
+      .filter(app => new Date(app.appointment_date) >= now)
+      .sort((a, b) => new Date(a.appointment_date) - new Date(b.appointment_date))
+      .slice(0, 3);
+  }, [appointments]);
+
   return (
     <div style={{
       background: cardBg,
@@ -59,11 +68,64 @@ const AppointmentCalendar = ({ appointments, darkMode }) => {
       padding: '24px',
       border: `1px solid ${borderColor}`,
       boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)',
+      backdropFilter: 'blur(10px)',
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
       gap: '20px'
     }}>
+      {/* Upcoming Appointments Section */}
+      {upcomingAppointments.length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+          borderRadius: '16px',
+          padding: '16px',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
+          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.5)'
+        }}>
+          <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '700', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Coming Up Next
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {upcomingAppointments.map((app, idx) => (
+              <div key={idx} style={{
+                padding: '10px 12px',
+                background: 'rgba(255, 255, 255, 0.7)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                border: '1px solid rgba(255, 255, 255, 0.8)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }}>
+                <div style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '8px',
+                  background: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '11px',
+                  fontWeight: '700'
+                }}>
+                  {new Date(app.appointment_date).getDate()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: '#1e293b' }}>
+                    {app.patient_name || app.doctor_name || "Patient"}
+                  </p>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Clock size={10} /> {app.appointment_time}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: textColor, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <CalendarIcon size={20} color="#2563eb" />

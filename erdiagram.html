@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan ER Diagram</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 2rem;
+        }
+        .mermaid {
+            background-color: #ffffff;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow-x: auto;
+        }
+    </style>
+    <!-- Include Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    secondaryColor: '#ffffff',
+                    tertiaryColor: '#ffffff',
+                    fontFamily: 'arial'
+                },
+                flowchart: {
+                    htmlLabels: true,
+                    curve: 'linear',
+                    rankSpacing: 60,
+                    nodeSpacing: 40
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <h1>Neuroscan Entity-Relationship Diagram</h1>
+    
+    <div class="mermaid">
+        flowchart TD
+            %% Styling for different shapes
+            classDef entity fill:#fff,stroke:#000,stroke-width:1.5px,color:#000
+            classDef attribute fill:#fff,stroke:#000,stroke-width:1px,color:#000,rx:50,ry:50
+            classDef relation fill:#fff,stroke:#000,stroke-width:1.5px,color:#000
+            classDef dashed_attr fill:#fff,stroke:#000,stroke-width:1px,stroke-dasharray: 4 4,color:#000,rx:50,ry:50
+
+            %% Entities (Mapped to SQLite Tables)
+            Patient[patients]:::entity
+            MedP[hospital_users]:::entity
+            Scan[scans]:::entity
+
+            %% Relationships
+            Has{Has / Conducts}:::relation
+            Analyzes{Uploads / Analyzes}:::relation
+
+            %% Layout connections between entities and relationships
+            Patient ---|1| Has
+            Has ---|M| Scan
+
+            MedP ---|1| Analyzes
+            Analyzes ---|M| Scan
+
+            %% Patient Attributes
+            P_id(["<u>id</u>"]):::attribute
+            P_h_id([hospital_id]):::dashed_attr
+            P_code([patient_code]):::attribute
+            P_name([full_name]):::attribute
+            P_dob([date_of_birth]):::attribute
+            P_email([email]):::attribute
+
+            P_id --- Patient
+            Patient --- P_h_id
+            Patient --- P_code
+            Patient --- P_name
+            Patient --- P_dob
+            Patient --- P_email
+
+            %% Medical Personnel Attributes
+            M_id(["<u>id</u>"]):::attribute
+            M_h_id([hospital_id]):::dashed_attr
+            M_name([full_name]):::attribute
+            M_email([email]):::attribute
+            M_role([role]):::attribute
+
+            M_id --- MedP
+            M_h_id --- MedP
+            M_name --- MedP
+            MedP --- M_email
+            MedP --- M_role
+
+            %% MRI Scan Attributes (In this project, Report is combined into the Scan table)
+            S_id(["<u>id</u>"]):::attribute
+            S_p_id([patient_id]):::dashed_attr
+            S_m_id([uploaded_by]):::dashed_attr
+            S_date([scan_date]):::attribute
+            S_path([image_path]):::attribute
+            S_conf([confidence]):::attribute
+            S_res([prediction]):::attribute
+            S_tumor([is_tumor]):::attribute
+            S_gcam([gradcam_path]):::attribute
+
+            S_id --- Scan
+            S_p_id --- Scan
+            S_m_id --- Scan
+            Scan --- S_date
+            Scan --- S_path
+            Scan --- S_conf
+            Scan --- S_res
+            Scan --- S_tumor
+            Scan --- S_gcam
+    </div>
+
+</body>
+</html>

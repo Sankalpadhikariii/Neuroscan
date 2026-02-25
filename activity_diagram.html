@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan Activity Diagram</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.25rem;
+            text-align: center;
+        }
+        
+        .a4-container {
+            width: 210mm;
+            max-width: 100%;
+            height: auto;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 5mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow: visible; 
+            margin-top: -10px; 
+        }
+        
+        @media print {
+            .a4-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+            }
+            body { background: white; }
+        }
+    </style>
+    <!-- Include Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    fontFamily: 'Times New Roman'
+                },
+                flowchart: {
+                    htmlLabels: false, /* Disabled to prevent strict syntax parsing errors */
+                    curve: 'basis', 
+                    rankSpacing: 25, /* Ultra tight vertical spacing */
+                    nodeSpacing: 25  /* Ultra tight horizontal spacing */
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <div class="a4-container">
+        <h1>Fig 6: Activity Diagram for MRI Upload and Prediction System</h1>
+        
+        <div class="mermaid">
+            flowchart TD
+                %% Clean Styling without inline HTML to prevent syntax errors
+                classDef process fill:#fff,stroke:#000,stroke-width:1px,color:#000,font-size:13px,font-weight:normal
+                classDef decision fill:#fff,stroke:#000,stroke-width:1px,color:#000,font-size:13px,font-weight:normal
+                classDef startnode fill:#000,stroke:#000,stroke-width:2px,color:#000
+                classDef endnode fill:#000,stroke:#000,stroke-width:2px,color:#000
+                
+                %% Nodes using standard text and line breaks
+                Start((" ")):::startnode
+                Nav[Navigate to Upload Page]:::process
+                Select[Select and Upload MRI Image]:::process
+                Validate[Validate Image Size and Format]:::process
+                IsValid{Valid?}:::decision
+                Preprocess[Preprocess Image]:::process
+                Model[Pass through VGG19 Model]:::process
+                Prob[Generate Class Probabilities]:::process
+                Predict[Determine Predicted Class & Confidence]:::process
+                Save[Save Result to DB & Notify]:::process
+                Disp[Display Diagnosis & Recommendations]:::process
+                End(((" "))):::endnode
+                
+                %% Connections
+                Start --> Nav
+                Nav --> Select
+                Select --> Validate
+                Validate --> IsValid
+                
+                %% Branching
+                IsValid -->|No - Retry| Select
+                IsValid -->|Yes| Preprocess
+                
+                %% Linear Flow
+                Preprocess --> Model
+                Model --> Prob
+                Prob --> Predict
+                Predict --> Save
+                Save --> Disp
+                Disp --> End
+        </div>
+    </div>
+
+</body>
+</html>

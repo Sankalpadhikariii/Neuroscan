@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan System Flowchart</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.75rem;
+            text-align: center;
+        }
+        
+        .a4-container {
+            width: 210mm;
+            max-width: 100%;
+            height: auto;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 10mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow: visible; 
+            margin-top: 20px; 
+        }
+        
+        @media print {
+            .a4-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+            }
+            body { background: white; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    secondaryColor: '#f9f9f9',
+                    tertiaryColor: '#ffffff',
+                    fontFamily: 'arial'
+                },
+                flowchart: {
+                    htmlLabels: true,
+                    curve: 'basis',
+                    nodeSpacing: 60,
+                    rankSpacing: 60
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <div class="a4-container">
+        <h1>System Flowchart</h1>
+        
+        <div class="mermaid">
+            flowchart TD
+                classDef default fill:#fff,stroke:#333,stroke-width:2px,font-size:18px;
+                classDef startEnd fill:#fff,stroke:#333,stroke-width:3px,font-size:18px,font-weight:bold;
+                classDef decision fill:#fff,stroke:#333,stroke-width:2px,font-size:18px;
+                classDef subgraphStyle fill:none,stroke:#666,stroke-width:2px,stroke-dasharray: 5 5;
+                
+                Start(["Start"]):::startEnd --> Login["User Logs In"]
+                Login --> Auth{"Login Successful?"}:::decision
+                
+                Auth -- No --> Login
+                Auth -- Yes --> Input[/"Upload Image"/]
+                
+                Input --> Validate{"Image Validated?"}:::decision
+                Validate -- No --> Input
+                
+                Validate -- Yes --> Format["Validate Image Format"]
+                Format --> ToModel["Server Sends Image to ML Model"]
+                ToModel --> Process["ML Model Predicts Tumour Class"]
+                Process --> Receive["Server Receives Prediction"]
+                Receive --> View[/"User Views Output"/]
+                View --> End(["End"]):::startEnd
+
+                subgraph Admin_Actions ["Admin Actions"]
+                    direction TB
+                    AdminLogin["Admin Logs In"] --> Manage["Admin Manages Users & Hospitals"]
+                end
+                class Admin_Actions subgraphStyle;
+                
+                %% Connect for layout purposes to keep them side by side
+                Login ~~~ AdminLogin
+        </div>
+    </div>
+
+</body>
+</html>

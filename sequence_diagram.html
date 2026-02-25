@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan Sequence Diagram</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 0.5rem;
+            font-size: 1.25rem;
+            text-align: center;
+        }
+        
+        .a4-container {
+            width: 210mm;
+            max-width: 100%;
+            height: auto;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 5mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow: visible; 
+            margin-top: 10px; 
+        }
+        
+        @media print {
+            .a4-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+            }
+            body { background: white; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    fontFamily: 'arial',
+                    actorFontSize: '18px',
+                    messageFontSize: '16px',
+                    noteFontSize: '16px'
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <div class="a4-container">
+        <h1>Sequence Diagram for MRI Upload and Prediction System</h1>
+        
+        <div class="mermaid">
+            sequenceDiagram
+                autonumber
+                actor U as Medical Personnel
+                participant F as React Frontend
+                participant A as Flask API
+                participant M as CNN Model
+                participant DB as Database
+
+                U->>F: Submit MRI Image
+                F->>A: POST /predict
+                
+                alt Invalid Input
+                    A-->>F: 400 Error
+                    F-->>U: Display Error
+                else Valid Input
+                    Note over A: Preprocess Image
+                    A->>M: Predict
+                    M-->>A: Probabilities & Confidence
+                    
+                    alt Not Brain Scan
+                        A-->>F: 400 Warning
+                        F-->>U: Show Warning
+                    else Valid Brain Scan
+                        A->>DB: Save Scan Data
+                        A-->>F: 200 OK (Results)
+                        F-->>U: Render Diagnosis Card
+                    end
+                end
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1753,9 +1753,9 @@ def get_stripe_price_id(plan_id, billing_cycle):
     Map subscription plan IDs to Stripe price IDs.
     """
     price_mapping = {
-        1: {"monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY')},
-        2: {"monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY')},
-        3: {"monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
+        2: {"monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY')},
+        3: {"monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY')},
+        4: {"monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
             "yearly": os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY')},
     }
 

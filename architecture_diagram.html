@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuroscan System Architecture</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            text-align: center;
+        }
+        
+        /* A4 Page container simulation to ensure it prints/views compactly */
+        .a4-container {
+            width: 210mm;
+            max-width: 100%;
+            height: auto;
+            min-height: 297mm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 5mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow: visible; 
+            margin-top: -10px;
+        }
+        
+        @media print {
+            .a4-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+            }
+            body { background: white; }
+        }
+    </style>
+    <!-- Include Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({ 
+                startOnLoad: true,
+                securityLevel: 'loose',
+                theme: 'base',
+                themeVariables: {
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#000000',
+                    primaryBorderColor: '#000000',
+                    lineColor: '#000000',
+                    secondaryColor: '#f9f9f9',
+                    fontFamily: 'Times New Roman, Times, serif'
+                },
+                flowchart: {
+                    htmlLabels: true,
+                    curve: 'linear',
+                    rankSpacing: 35,
+                    nodeSpacing: 35,
+                    padding: 12
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+
+    <div class="a4-container">
+        <h1>Neuroscan System Architecture</h1>
+        
+        <div class="mermaid">
+            flowchart TD
+                %% Styling
+                classDef component fill:#fff,stroke:#000,stroke-width:1.5px,color:#000,text-align:left,font-size:14px
+                classDef group fill:#f9f9f9,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5,color:#333,font-size:14px
+                
+                %% Users - Three distinct actors
+                subgraph Users [Users]
+                    direction LR
+                    Admin["<b style='font-size:14px'>Super Admin</b>"]
+                    MedStaff["<b style='font-size:14px'>Medical Personnel<br/>(Hospital)</b>"]
+                    Patient["<b style='font-size:14px'>Patient</b>"]
+                end
+
+                %% Core Platform
+                subgraph Core_System [Core Platform]
+                    direction LR
+                    
+                    UI["<b style='font-size:14px'>React Frontend</b><br/><span style='font-size:12px'>• Login &amp; Auth</span><br/><span style='font-size:12px'>• Upload MRI Scans</span><br/><span style='font-size:12px'>• Hospital Dashboard</span><br/><span style='font-size:12px'>• Patient Portal</span><br/><span style='font-size:12px'>• Chat &amp; Notifications</span><br/><span style='font-size:12px'>• Subscriptions</span>"]
+                    
+                    API["<b style='font-size:14px'>Flask Context / API</b><br/><span style='font-size:12px'>• Auth Server JWT</span><br/><span style='font-size:12px'>• MRI Upload API</span><br/><span style='font-size:12px'>• Socket.IO Chat</span><br/><span style='font-size:12px'>• Notifications API</span><br/><span style='font-size:12px'>• PDF Generation (ReportLab)</span><br/><span style='font-size:12px'>• Stripe Webhooks</span>"]
+                    
+                    UI <-->|"HTTPS / WebSockets"| API
+                end
+
+                %% Services
+                subgraph Services ["Data, AI &amp; External"]
+                    direction LR
+                    
+                    DB["<b style='font-size:14px'>SQLite Database</b><br/><span style='font-size:12px'>• Users &amp; Admins</span><br/><span style='font-size:12px'>• Patients &amp; Access</span><br/><span style='font-size:12px'>• Scans &amp; Predictions</span><br/><span style='font-size:12px'>• Chat &amp; Notifications</span><br/><span style='font-size:12px'>• Subscriptions</span>"]
+                    
+                    AI["<b style='font-size:14px'>PyTorch AI Model (Wrapper)</b><br/><span style='font-size:12px'>• Preprocessing</span><br/><span style='font-size:12px'>• VGG19 Classifier</span><br/><span style='font-size:12px'>• Confidence Score</span>"]
+                    
+                    Stripe["<b style='font-size:14px'>Stripe Services</b><br/><span style='font-size:12px'>• Billing &amp; Payments</span>"]
+                end
+
+                %% Apply Styles
+                Admin:::component
+                MedStaff:::component
+                Patient:::component
+                UI:::component
+                API:::component
+                DB:::component
+                AI:::component
+                Stripe:::component
+                
+                class Users,Core_System,Services group
+
+                %% Main Layer Connections
+                Admin -->|"Manages"| UI
+                MedStaff -->|"Interacts"| UI
+                Patient -->|"Secure Login"| UI
+
+                API -->|"Internal Call"| AI
+                AI -->|"Prediction"| API
+
+                API <-->|"SQL Queries"| DB
+                API <-->|"Payment Intents"| Stripe
+                UI -.->|"Stripe Checkout / Elements"| Stripe
+                
+        </div>
+    </div>
+
+</body>
+</html>

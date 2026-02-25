@@ -1,0 +1,60 @@
+Project Name: NeuroScan
+
+Project Overview:
+NeuroScan is an AI-powered deep learning web application designed for the automated detection and classification of brain tumors from MRI images. The system utilizes a Convolutional Neural Network (CNN) based on the VGG19 architecture to assist medical professionals by acting as a fast and reliable screening tool. It provides a comprehensive, secure, and highly-scalable platform featuring role-based portals (Admin, Hospital, Patient) wrapped in a premium, modern User Interface.
+
+Major Features:
+
+1. Automated Brain Tumor Detection:
+   - Accurately classifies brain MRI scans into four categories: Glioma, Meningioma, Pituitary Tumor, and Normal (No Tumor).
+   - Powered by a PyTorch-based VGG19 wrapper using transfer learning (achieving over 91% test accuracy).
+
+2. Explainable AI (XAI) with Grad-CAM:
+   - Generates visual heatmaps highlighting the exact regions of the MRI scan where the model detected abnormalities. This provides visual proof and transparency for the AI's predictions.
+
+3. Automated PDF Report Generation:
+   - Automatically generates downloadable, professional medical reports.
+   - Reports include patient demographics, MRI analysis, model confidence scores, complete class probability distributions, and a dedicated section for doctor recommendations and signatures.
+
+4. AI-Powered Medical Chatbot:
+   - Integrates a local Large Language Model (LLaMA 3.2 via Ollama) to serve as an intelligent medical assistant, capable of answering context-specific queries directly within the app's enhanced chat interface.
+
+5. Role-Based Portals & Dashboards:
+   - Admin Portal: Features an advanced analytics dashboard with real-time statistics, interactive charts (line, pie, bar) tracking prediction trends and tumor distributions, alongside comprehensive user management.
+   - Hospital Portal: A secured workflow space for doctors and medical staff to upload scans, analyze them, and manage patient records.
+   - Patient Portal: Dedicated space for patients to securely view their scan results and history.
+
+6. Subscription & Billing Management System:
+   - Fully integrated Stripe payment checkout flow.
+   - Allows users to view their current plans, monitor their available scan limits/usage, and smoothly upgrade to premium subscription tiers directly from an in-portal Pricing Page.
+
+
+Minor / Side Features:
+
+1. Prediction & Scan History:
+   - Stores and tracks all previously uploaded scans, allowing users to revisit past diagnoses and reports.
+
+2. Premium UI/UX Design:
+   - Implements an aesthetic, modern web design utilizing glassmorphism (semi-transparent cards), smooth micro-animations, glowing hover states, and curated color palettes.
+   - Custom-built components (e.g., custom dropdown menus replacing native ones) and Dark/Light mode theme toggles.
+   - Interactive scroll-spy navigation bar with active state highlights.
+
+3. Advanced Patient & Appointment Management:
+   - Modal-based interfaces (PatientInfoModal, AddPatientModal) for swift entry and management of patient data.
+   - Built-in Appointment Calendar system for seamless scheduling.
+
+4. Secure User Authentication & Safety:
+   - Role-based login and registration flows.
+   - Employs SHA-256 password hashing, secure session management, CORS protection, rate-limiting, and SQL Injection prevention.
+
+5. Developer & DevOps Ready:
+   - Completely containerized using Docker and Docker Compose for one-click deployment.
+   - System flow and use cases comprehensively mapped via Mermaid.js diagrams (Architecture, ER, Sequence, Activity, Use Case diagrams).
+
+Technology Stack:
+- Frontend: React.js, CSS (Premium Aesthetics), Recharts.
+- Backend: Python (Flask), PyTorch, OpenCV, ReportLab.
+- AI/ML Models: VGG19 (Computer Vision), Ollama LLaMA 3.2 (NLP/Chatbot).
+- Database: SQLite.
+- External Integrations: Stripe API (Billing).
+- DevOps: Docker, Docker Compose.
