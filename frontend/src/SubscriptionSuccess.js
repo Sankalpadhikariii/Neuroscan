@@ -167,12 +167,12 @@ export default function SubscriptionSuccess() {
         position: 'relative',
         zIndex: 10
       }}>
-        {/* Success Icon */}
+        {/* Success / Error Icon */}
         <div style={{
           width: '80px',
           height: '80px',
-          background: 'rgba(16, 185, 129, 0.1)',
-          border: '2px solid rgba(16, 185, 129, 0.2)',
+          background: sessionData?.error ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+          border: `2px solid ${sessionData?.error ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'}`,
           borderRadius: '50%',
           display: 'flex',
           alignItems: 'center',
@@ -180,29 +180,36 @@ export default function SubscriptionSuccess() {
           margin: '0 auto 24px',
           animation: 'scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
-          <CheckCircle size={40} color="#10b981" />
+          {sessionData?.error ? (
+            <div style={{ color: '#ef4444', fontSize: '40px', fontWeight: 'bold' }}>!</div>
+          ) : (
+            <CheckCircle size={40} color="#10b981" />
+          )}
         </div>
 
-        {/* Success Message */}
+        {/* Success / Error Message */}
         <h1 style={{
           fontSize: '32px',
           fontWeight: 'bold',
           color: '#111827',
           marginBottom: '16px'
         }}>
-          🎉 Subscription Successful!
+          {sessionData?.error ? 'Subscription Issue' : '🎉 Subscription Successful!'}
         </h1>
 
         <p style={{
           fontSize: '18px',
-          color: '#6b7280',
+          color: sessionData?.error ? '#ef4444' : '#6b7280',
           marginBottom: '32px',
           lineHeight: '1.6'
         }}>
-          Thank you for subscribing to NeuroScan! Your subscription has been activated and you now have access to all premium features.
+          {sessionData?.error 
+            ? `Your payment may have succeeded, but we encountered an issue activating your subscription: ${sessionData.error}. Please contact support.`
+            : 'Thank you for subscribing to NeuroScan! Your subscription has been activated and you now have access to all premium features.'}
         </p>
 
         {/* What's Next Section */}
+        {!sessionData?.error && (
         <div style={{
           background: '#f9fafb',
           borderRadius: '12px',
@@ -249,6 +256,7 @@ export default function SubscriptionSuccess() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Action Buttons */}
         <div style={{

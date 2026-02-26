@@ -3440,6 +3440,10 @@ def verify_stripe_session():
         c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
                   (hospital_id,))
 
+        # Delete any existing usage row for the exact same start date
+        c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?",
+                  (hospital_id, start_date.date()))
+
         # Create new usage tracking with carried-over scan count
         c.execute("""
             INSERT INTO usage_tracking
@@ -3590,6 +3594,10 @@ def stripe_webhook():
 
                 c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
                           (hospital_id,))
+
+                # Delete any existing usage row for the exact same start date
+                c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?",
+                          (hospital_id, start_date.date()))
                 c.execute("""
                     INSERT INTO usage_tracking
                     (hospital_id, subscription_id, period_start, period_end,
@@ -4064,6 +4072,10 @@ def upgrade_subscription():
 
     # Create usage tracking
     c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?", (hospital_id,))
+    
+    # Delete any existing usage row for the exact same start date
+    c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?",
+              (hospital_id, start_date.date()))
     c.execute("""
         INSERT INTO usage_tracking
         (hospital_id, subscription_id, period_start, period_end,
