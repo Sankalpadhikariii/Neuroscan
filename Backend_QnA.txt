@@ -1,0 +1,62 @@
+# Neuroscan Backend & AI Model QnA Guide
+
+This document details the backend and AI processes of the Neuroscan project from start to finish. It is tailored to help you prepare for your final year project defense, focusing on the "how" and "why" behind your technical decisions.
+
+---
+
+## Part 1: Step-by-Step Breakdown of Backend & AI Processes
+
+### 1. User Authentication & Authorization (Flask & SQLite)
+*   **What was done:** Implemented role-based access control (Admin, Hospital, Patient) using secure session management and password hashing (SHA-256 via Werkzeug).
+*   **How it was done:** The Flask backend verifies user credentials against the SQLite database. Different wrappers (`@admin_required`, `@hospital_required`, `@patient_required`) protect the API endpoints.
+*   **Why it was done:** To ensure data privacy and security. Hospitals need to see all their patients, patients should only see their own scans, and admins oversee the whole platform.
+
+### 2. Brain Tumor AI Classification Model (PyTorch & VGG19)
+*   **What was done:** Developed a 4-class image classification model (Glioma, Meningioma, Pituitary, Normal) achieving ~91.6% test accuracy.
+*   **How it was done:** 
+    *   Used **Transfer Learning** with the VGG19 architecture.
+    *   **Frozen Feature Extractor:** The initial convolutional layers of VGG19 were frozen (pre-trained on ImageNet) to extract fundamental image features edges, textures.
+    *   **Custom Classifier:** Replaced the final classifier with a custom dense neural network (`nn.Sequential` with Dropout layers) to prevent overfitting and adapt it specifically to the 4 brain tumor classes.
+    *   Trained for 60 epochs using Adam optimizer and Negative Log Likelihood loss.
+*   **Why it was done:** VGG19 is highly effective for image feature extraction. Transfer learning dramatically reduces training time and requires less data while achieving high accuracy compared to building a CNN from scratch.
+
+### 3. Explainable AI (XAI) using Grad-CAM
+*   **What was done:** Added visual heatmaps to the MRI scans to show exactly which region the AI model focused on when making its prediction.
+*   **How it was done:** Implemented Gradient-weighted Class Activation Mapping (Grad-CAM). It extracts the gradients from the final convolutional layer of the VGG19 model and overlays a color map (heatmap) on the original grayscale MRI scan using OpenCV.
+*   **Why it was done:** "Black-box" AI models are hard to trust in healthcare. Grad-CAM provides transparency, allowing doctors to verify that the model is looking at the actual tumor and not some random noise/artifact.
+
+### 4. Automated Diagnostic PDF Reporting (ReportLab)
+*   **What was done:** The system generates downloadable PDF reports detailing the patient's information, scan results, Grad-CAM visualization, and confidence scores.
+*   **How it was done:** The Flask backend uses the `pdf_report.py` module powered by ReportLab to dynamically construct the PDF layout and insert the base64-encoded images.
+*   **Why it was done:** To provide a standard, printable medical record that doctors can hand to patients or keep in physical archives.
+
+### 5. AI Medical Chatbot (Ollama & LLaMA 3.2)
+*   **What was done:** Integrated a local Large Language Model to act as a medical assistant.
+*   **How it was done:** The backend communicates with a locally running Ollama server hosting the `llama3.2:3b` model.
+*   **Why it was done:** Using a local LLM via Ollama ensures that sensitive medical queries and chat data never leave the hospital's local network, maintaining strict data privacy unlike cloud-based APIs (e.g., OpenAI).
+
+### 6. Real-Time Chat & Notifications (Socket.IO)
+*   **What was done:** Built a real-time messaging system between patients and doctors, alongside instant notifications for scan results.
+*   **How it was done:** Used `Flask-SocketIO` to maintain persistent WebSocket connections. When a message is sent or a scan is finished, the server emits an event to the specific user's "room".
+*   **Why it was done:** To improve patient-doctor communication without requiring manual page refreshes.
+
+### 7. Subscription & Billing (Stripe API)
+*   **What was done:** Integrated payment gateways for hospitals to upgrade their limits.
+*   **How it was done:** The backend creates Stripe Checkout sessions and listens for Stripe Webhooks to securely update the hospital's subscription tier in the SQLite database.
+*   **Why it was done:** To monetize the SaaS platform reliably and securely without handling sensitive credit card information locally.
+
+---
+
+## Part 2: Possible Defense Questions & Answers (Tabular Form)
+
+| **Topic / Question** | **Expected Answer / Justification** |
+| :--- | :--- |
+| **Why did you use VGG19 instead of ResNet or a Custom CNN from scratch?** | We used VGG19 with Transfer Learning because it has a proven, deep architecture excellent for extracting detailed spatial features from images. Training from scratch on medical data (which is usually a small dataset) leads to overfitting. VGG19 pre-trained on ImageNet gave us a robust starting point. |
+| **How did you prevent the model from overfitting?** | We used several techniques: Data Augmentation (random flips, rotations, color jitter), Dropout layers (0.3 to 0.5) in the custom classifier, and an Early Stopping patience mechanism during training so it would halt if validation loss stopped improving. |
+| **What does the frozen feature extractor mean in your model?** | It means we locked the weights of the initial convolutional layers of VGG19. Because these layers already know how to detect edges and shapes from millions of images, we only needed to "train" the final fully connected layers to map those features to our specific brain tumor classes. |
+| **How does Grad-CAM work in your system?** | Grad-CAM calculates the gradient of the predicted class score with respect to the feature maps of the final convolutional layer. It highlights the pixels that had the strongest mathematical influence on the final prediction, creating a heatmap over the tumor. |
+| **Why did you choose SQLite for the database instead of MySQL or PostgreSQL?** | SQLite was chosen for its simplicity and zero-configuration setup, making it perfect for rapid development, containerization, and the scope of a final year project. For a production-scale deployment, migrating to PostgreSQL would be trivial using SQLAlchemy. |
+| **Why use Ollama instead of the OpenAI API for the Chatbot?** | Privacy and cost. Medical data is highly sensitive. By running LLaMA 3.2 locally via Ollama, no patient queries leave the internal network, ensuring compliance with medical privacy principles. It is also free to run locally. |
+| **How does the backend validate that an uploaded image is actually a Brain MRI?** | We built a custom validation pipeline using OpenCV. It checks image properties: verifying it is grayscale (not a color photo), checking aspect ratio, performing edge detection to reject screenshots/UI elements, and using Hough Circles to ensure a brain-like circular structure is present before passing it to the PyTorch model. |
+| **How do you handle real-time notifications?** | We use WebSockets via Flask-SocketIO. When a scan finishes processing or a doctor sends a message, the server pushes the event immediately to the connected client asynchronously, bypassing the standard HTTP request-response cycle. |
+| **What if a user tries to upload a malicious file?** | The backend enforces strict validation: we use `secure_filename()` to sanitize names, restrict allowed extensions, and limit file sizes. In our database interactions, we rigidly use parameterized queries (`?`) to completely neutralize SQL injection attempts. |

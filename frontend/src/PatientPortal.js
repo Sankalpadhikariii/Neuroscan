@@ -250,6 +250,13 @@ export default function PatientPortal({ patient, onLogout, onProfileUpdate }) {
       // Refresh notifications
       fetchNotifications();
       fetchUnreadCount();
+      
+      // If it's an appointment notification, refresh the calendar
+      const typeStr = (data.type || '').toLowerCase();
+      const msgStr = (data.message || '').toLowerCase();
+      if (typeStr.includes('appointment') || msgStr.includes('appointment')) {
+        loadAppointments();
+      }
     });
 
     return () => socket.disconnect();

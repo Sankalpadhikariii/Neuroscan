@@ -10,7 +10,8 @@ export default function EnhancedChatPanel({
   patients,
   onSelectPatient,
   darkMode,
-  socket 
+  socket,
+  onAppointmentScheduled
 }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -245,6 +246,10 @@ export default function EnhancedChatPanel({
         setShowAppointmentModal(false);
         setAppointmentDate('');
         setAppointmentTime('');
+        
+        if (onAppointmentScheduled) {
+          onAppointmentScheduled();
+        }
         
         // Send appointment message via API for proper persistence
         const apptMsg = `[APPOINTMENT] 📅 Appointment Scheduled|${appointmentDate}|${appointmentTime}`;

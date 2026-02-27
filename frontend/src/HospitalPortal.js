@@ -2973,6 +2973,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                   onSelectPatient={setSelectedPatient}
                   darkMode={darkMode}
                   socket={socket}
+                  onAppointmentScheduled={loadHospitalAppointments}
                 />
               )}
             </>

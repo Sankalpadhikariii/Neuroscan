@@ -1161,7 +1161,10 @@ function UsersView({
                     <th style={tableHeaderStyle}>Hospital Name</th>
                   )}
                   {userType === "patient" && (
-                    <th style={tableHeaderStyle}>Patient Name</th>
+                    <>
+                      <th style={tableHeaderStyle}>Patient Name</th>
+                      <th style={tableHeaderStyle}>Hospital Name</th>
+                    </>
                   )}
                   <th style={tableHeaderStyle}>Email</th>
                   {userType === "hospital" && (
@@ -1188,8 +1191,15 @@ function UsersView({
                   >
                     <td style={tableCellStyle}>#{user.id}</td>
                     <td style={tableCellStyle}>
-                      {user.username || user.hospital_name || user.full_name}
+                      {userType === "patient" 
+                        ? user.full_name 
+                        : (user.username || user.hospital_name || user.full_name)}
                     </td>
+                    {userType === "patient" && (
+                      <td style={tableCellStyle}>
+                        {user.hospital_name || "N/A"}
+                      </td>
+                    )}
                     <td style={tableCellStyle}>{user.email}</td>
                     {(userType === "hospital" || userType === "patient") && (
                       <td style={tableCellStyle}>

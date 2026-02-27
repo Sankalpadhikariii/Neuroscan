@@ -806,7 +806,7 @@ def get_messages(patient_id):
                 'recipient_id': m['hospital_user_id'] if m['sender_type'] == 'patient' else m['patient_id'],
                 'message': m['message'],
                 'attachment_url': None, # Add logic if needed
-                'created_at': m['created_at'],
+                'created_at': m['created_at'].replace(' ', 'T') + 'Z' if m.get('created_at') else None,
                 'read': bool(m['is_read'])
             })
 
@@ -885,7 +885,7 @@ def send_message():
             'recipient_id': row['hospital_user_id'] if row['sender_type'] == 'patient' else row['patient_id'],
             'message': row['message'],
             'attachment_url': attachment_url,
-            'created_at': row['created_at'],
+            'created_at': row['created_at'].replace(' ', 'T') + 'Z' if row.get('created_at') else None,
             'read': bool(row['is_read'])
         }
 
@@ -4998,6 +4998,9 @@ def send_chat_message():
         """, (message_id,))
         new_message = dict(c.fetchone())
         
+        if new_message.get('created_at') and isinstance(new_message['created_at'], str):
+            new_message['created_at'] = new_message['created_at'].replace(' ', 'T') + 'Z'
+        
         # Include temp_id for client-side deduplication
         temp_id = data.get('temp_id')
         if temp_id:
@@ -5199,6 +5202,10 @@ def get_chat_messages_consolidated():
         query += " ORDER BY created_at ASC"
         c.execute(query, params)
         messages = [dict(row) for row in c.fetchall()]
+        
+        for m in messages:
+            if m.get('created_at') and isinstance(m['created_at'], str):
+                m['created_at'] = m['created_at'].replace(' ', 'T') + 'Z'
 
         conn.close()
 
@@ -5294,8 +5301,11 @@ def upload_chat_file():
         
         c.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
         new_message = dict(c.fetchone())
-        if new_message.get('attachment'):
+        if new_message.get('attachment') and isinstance(new_message['attachment'], str):
             new_message['attachment'] = json.loads(new_message['attachment'])
+            
+        if new_message.get('created_at') and isinstance(new_message['created_at'], str):
+            new_message['created_at'] = new_message['created_at'].replace(' ', 'T') + 'Z'
             
         # Include temp_id for client-side deduplication
         temp_id = request.form.get('temp_id')
