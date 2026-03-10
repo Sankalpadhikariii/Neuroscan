@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { loadStripe } from '@stripe/stripe-js';
 import {
   Upload,
   Brain,
@@ -59,8 +58,6 @@ import GradCamvisualization from "./GradCamvisualization";
 import TumourProgressionTracker from "./TumourProgressionTracker";
 import AppointmentCalendar from "./AppointmentCalendar";
 import CustomDropdown from "./components/CustomDropdown";
-
-let stripePromise = null;
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
 const socket = io(API_BASE, { withCredentials: true });
@@ -654,15 +651,6 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
       const res = await fetch(`${API_BASE}/api/subscription/plans`, { credentials: "include" });
       const data = await res.json();
       setSubscriptionPlans(data.plans || []);
-
-      // Initialize Stripe if not done
-      if (!stripePromise) {
-        try {
-          const cfgRes = await fetch(`${API_BASE}/api/stripe/config`, { credentials: "include" });
-          const cfg = await cfgRes.json();
-          if (cfg.publishableKey) stripePromise = loadStripe(cfg.publishableKey);
-        } catch (e) { console.error("Stripe init error:", e); }
-      }
     } catch (err) {
       console.error("Failed to load plans:", err);
     } finally {
@@ -674,14 +662,18 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
     if (!plan || plan.price_monthly === 0) return;
     setProcessingPlan(plan.id);
     try {
-      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+      const res = await fetch(`${API_BASE}/api/khalti/initiate-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ plan_id: plan.id, billing_cycle: billingCycle }),
       });
-      const { url } = await res.json();
-      if (url) window.location.href = url;
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || "Failed to start checkout");
+      }
     } catch (err) {
       console.error("Checkout error:", err);
       showToast("Failed to start checkout. Please try again.", "error");
@@ -2871,7 +2863,7 @@ export default function HospitalPortalEnhanced({ user, onLogout, onNavigateToPri
                         {!isFree && !isCurrentPlan && !isDowngrade && (
                           <div style={{ marginTop: "10px", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", color: textSecondary }}>
                             <Shield size={12} />
-                            <span>Secure payment by Stripe</span>
+                            <span>Secure payment by Khalti</span>
                           </div>
                         )}
                       </div>

@@ -500,21 +500,21 @@ export function UpgradeRequiredModal({ usage, isOpen, onClose }) {
 function PlanCard({ plan }) {
   async function handleUpgrade() {
     try {
-      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
+      const res = await fetch(`${API_BASE}/api/khalti/initiate-payment`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          plan_id: plan.name,
+          plan_id: plan.id,
           billing_cycle: 'monthly'
         })
       });
       
       const data = await res.json();
-      if (data.url) {
+      if (res.ok && data.url) {
         window.location.href = data.url;
       } else {
-        alert('Failed to start checkout');
+        alert(data.error || 'Failed to start checkout');
       }
     } catch (err) {
       console.error('Checkout error:', err);
@@ -542,7 +542,7 @@ function PlanCard({ plan }) {
           fontSize: '28px',
           fontWeight: 'bold'
         }}>
-          ${plan.price_monthly}
+          Rs. {plan.price_monthly}
         </span>
         <span style={{
           fontSize: '13px',

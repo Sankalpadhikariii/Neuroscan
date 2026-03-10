@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
 import { Check, X, CreditCard, Shield, Zap } from 'lucide-react';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
-// Initialize Stripe
-let stripePromise = null;
+// Initialize Khalti (No longer required globally, handled via backend redirect)
 
 export default function PricingPage({ user, currentPlan, onBack }) {
   const [plans, setPlans] = useState([]);
@@ -16,18 +14,7 @@ export default function PricingPage({ user, currentPlan, onBack }) {
 
   useEffect(() => {
     loadPlans();
-    initializeStripe();
   }, []);
-
-  async function initializeStripe() {
-    try {
-      const res = await fetch(`${API_BASE}/api/stripe/config`, { credentials: 'include' });
-      const { publishableKey } = await res.json();
-      stripePromise = loadStripe(publishableKey);
-    } catch (error) {
-      console.error('Failed to initialize Stripe:', error);
-    }
-  }
 
   async function loadPlans() {
     try {
@@ -67,9 +54,8 @@ export default function PricingPage({ user, currentPlan, onBack }) {
     setProcessingPlan(plan.id);
     
     try {
-      // Create checkout session
-     const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
- 
+      // Initiate Khalti payment
+     const res = await fetch(`${API_BASE}/api/khalti/initiate-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -79,11 +65,13 @@ export default function PricingPage({ user, currentPlan, onBack }) {
         })
       });
 
-      const { sessionId, url } = await res.json();
+      const data = await res.json();
       
-      if (url) {
-        // Redirect to Stripe Checkout
-        window.location.href = url;
+      if (res.ok && data.url) {
+        // Redirect to Khalti Checkout
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || 'Failed to initiate payment');
       }
     } catch (error) {
       console.error('Checkout error:', error);
@@ -303,7 +291,7 @@ export default function PricingPage({ user, currentPlan, onBack }) {
                     fontWeight: 'bold',
                     color: '#111827'
                   }}>
-                    ${price.toFixed(0)}
+                    Rs. {price.toFixed(0)}
                   </span>
                   <span style={{
                     fontSize: '16px',
@@ -319,7 +307,7 @@ export default function PricingPage({ user, currentPlan, onBack }) {
                     fontSize: '14px',
                     color: '#6b7280'
                   }}>
-                    ${yearlyTotal} billed annually
+                    Rs. {yearlyTotal} billed annually
                   </p>
                 )}
               </div>
@@ -456,7 +444,7 @@ export default function PricingPage({ user, currentPlan, onBack }) {
                   color: '#6b7280'
                 }}>
                   <Shield size={14} />
-                  <span>Secure payment by Stripe</span>
+                  <span>Secure payment by Khalti</span>
                 </div>
               )}
             </div>

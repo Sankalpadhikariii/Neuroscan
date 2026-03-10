@@ -8,36 +8,40 @@ export default function SubscriptionSuccess() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get session_id from URL
+    // Get parameters from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const sessionId = urlParams.get('session_id');
+    const pidx = urlParams.get('pidx');
+    const planId = urlParams.get('plan_id');
+    const billingCycle = urlParams.get('billing_cycle');
+    const status = urlParams.get('status');
 
-    if (sessionId) {
-      // Optionally verify the session with your backend
-      verifySession(sessionId);
+    // Khalti returns status like 'Completed' or 'completed'
+    if (pidx && status && status.toLowerCase() === 'completed') {
+      verifyPayment(pidx, planId, billingCycle);
     } else {
+      setSessionData({ error: 'Payment was not completed or invalid URL parameters.' });
       setLoading(false);
     }
   }, []);
 
-  async function verifySession(sessionId) {
+  async function verifyPayment(pidx, planId, billingCycle) {
     try {
-      const res = await fetch(`${API_BASE}/api/stripe/verify-session`, {
+      const res = await fetch(`${API_BASE}/api/khalti/verify-payment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ session_id: sessionId }),
+        body: JSON.stringify({ pidx, plan_id: planId, billing_cycle: billingCycle }),
       });
       const data = await res.json();
       if (data.success) {
-        setSessionData({ sessionId, planName: data.plan_name, message: data.message });
+        setSessionData({ pidx, planName: data.plan_name, message: data.message });
       } else {
-        console.error("Session verification failed:", data.error);
-        setSessionData({ sessionId, error: data.error });
+        console.error("Payment verification failed:", data.error);
+        setSessionData({ pidx, error: data.error || data.details?.detail || "Verification failed" });
       }
     } catch (error) {
-      console.error('Failed to verify session:', error);
-      setSessionData({ sessionId, error: "Could not verify payment. Your subscription may still be processing." });
+      console.error('Failed to verify payment:', error);
+      setSessionData({ pidx, error: "Could not verify payment. Your subscription may still be processing." });
     } finally {
       setLoading(false);
     }

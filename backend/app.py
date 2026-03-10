@@ -13,7 +13,6 @@ import time
 from werkzeug.utils import secure_filename
 import mimetypes
 from datetime import datetime, timedelta
-import stripe
 import requests
 import torch
 import torch.nn as nn
@@ -71,11 +70,10 @@ else:
     load_dotenv() # Default
 SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_hex(16)
 # -----------------------------
-# Stripe Configuration
+# Khalti Configuration
 # -----------------------------
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+KHALTI_PUBLIC_KEY = os.getenv("KHALTI_PUBLIC_KEY")
+KHALTI_SECRET_KEY = os.getenv("KHALTI_SECRET_KEY")
 
 # -----------------------------
 # Flask App Setup
@@ -1611,51 +1609,6 @@ def get_hospital_subscription(hospital_id):
     return dict(sub) if sub else None
 
 
-def get_or_create_stripe_customer(hospital_id):
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT stripe_customer_id, email, hospital_name FROM hospitals WHERE id=?", (hospital_id,))
-    hospital = c.fetchone()
-
-    if hospital["stripe_customer_id"]:
-        conn.close()
-        return hospital["stripe_customer_id"]
-
-    customer = stripe.Customer.create(
-        email=hospital["email"],
-        name=hospital["hospital_name"],
-        metadata={"hospital_id": hospital_id}
-    )
-
-    c.execute("UPDATE hospitals SET stripe_customer_id=? WHERE id=?",
-              (customer.id, hospital_id))
-    conn.commit()
-    conn.close()
-
-    return customer.id
-
-
-# -----------------------------
-# STRIPE HELPERS
-# -----------------------------
-def get_stripe_price_id(plan_id, billing_cycle):
-    """
-    Map subscription plan IDs to Stripe price IDs.
-    """
-    price_mapping = {
-        2: {"monthly": os.getenv('STRIPE_PRICE_BASIC_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_BASIC_YEARLY')},
-        3: {"monthly": os.getenv('STRIPE_PRICE_PRO_MONTHLY'), "yearly": os.getenv('STRIPE_PRICE_PRO_YEARLY')},
-        4: {"monthly": os.getenv('STRIPE_PRICE_ENTERPRISE_MONTHLY'),
-            "yearly": os.getenv('STRIPE_PRICE_ENTERPRISE_YEARLY')},
-    }
-
-    plan_prices = price_mapping.get(plan_id)
-    if not plan_prices:
-        return None
-
-    return plan_prices.get(billing_cycle)
-
 
 def get_current_usage(hospital_id):
     """Get current period usage for a hospital"""
@@ -2672,9 +2625,7 @@ def delete_patient_record(patient_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route("/api/stripe/config", methods=["GET"])
-def stripe_config():
-    return jsonify({"publishableKey": STRIPE_PUBLISHABLE_KEY})
+
 
 
 def increment_usage(hospital_id, resource_type='scans', amount=1):
@@ -3256,141 +3207,124 @@ def admin_get_all_subscriptions():
     return jsonify({"subscriptions": subscriptions, "stats": stats})
 
 
-@app.route("/api/stripe/create-checkout-session", methods=["POST"])
+
+# ==============================================
+# KHALTI PAYMENT INTEGRATION
+# ==============================================
+
+@app.route("/api/khalti/initiate-payment", methods=["POST"])
 @hospital_required
-def create_checkout_session():
+def initiate_khalti_payment():
     data = request.json
-    plan_identifier = data.get("plan_id")  # Can be ID or name
+    plan_identifier = data.get("plan_id")
     billing_cycle = data.get("billing_cycle", "monthly")
+    hospital_id = session.get("hospital_id")
 
-    print(f"DEBUG: plan_identifier = {plan_identifier}, billing_cycle = {billing_cycle}")
-
-    hospital_id = session["hospital_id"]
+    if not plan_identifier:
+        return jsonify({"error": "plan_id is required"}), 400
 
     conn = get_db()
     c = conn.cursor()
 
-    # Try to find plan by ID (numeric) OR by name (string)
     if isinstance(plan_identifier, str) and not plan_identifier.isdigit():
-        # Plan name provided (e.g., "basic", "professional")
         c.execute("SELECT * FROM subscription_plans WHERE name=?", (plan_identifier,))
     else:
-        # Numeric ID provided
         c.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_identifier,))
 
     plan = c.fetchone()
-
     if not plan:
         conn.close()
-        print(f"ERROR: Plan not found for identifier: {plan_identifier}")
         return jsonify({"error": f"Plan '{plan_identifier}' not found"}), 404
 
     plan = dict(plan)
-    print(f"SUCCESS: Found plan - {plan['name']} (ID: {plan['id']})")
+    
+    c.execute("SELECT hospital_name, email FROM hospitals WHERE id=?", (hospital_id,))
+    hospital = c.fetchone()
+    conn.close()
 
-    # Get the Stripe price ID
-    price_id = get_stripe_price_id(plan["id"], billing_cycle)
-    if not price_id:
-        conn.close()
-        print(f"ERROR: No Stripe price configured for plan {plan['id']}, cycle {billing_cycle}")
-        return jsonify({"error": "Stripe price not configured for this plan"}), 400
+    amount_rs = plan['price_yearly'] if billing_cycle == 'yearly' else plan['price_monthly']
+    amount_paisa = int(amount_rs * 100)
 
-    print(f"DEBUG: Using Stripe price_id: {price_id}")
+    if amount_paisa == 0:
+        return jsonify({"error": "Cannot initiate payment for free plan"}), 400
 
-    # Get or create Stripe customer
-    customer_id = get_or_create_stripe_customer(hospital_id)
-    print(f"DEBUG: Stripe customer_id: {customer_id}")
+    khalti_url = "https://a.khalti.com/api/v2/epayment/initiate/"
+    purchase_order_id = f"SUB-{hospital_id}-{plan['id']}-{int(time.time())}"
+    return_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/subscription-success?plan_id={plan['id']}&billing_cycle={billing_cycle}&hospital_id={hospital_id}"
 
+    payload = {
+        "return_url": return_url,
+        "website_url": os.getenv('FRONTEND_URL', 'http://localhost:3000'),
+        "amount": amount_paisa,
+        "purchase_order_id": purchase_order_id,
+        "purchase_order_name": f"{plan['display_name']} ({billing_cycle})",
+        "customer_info": {
+            "name": hospital["hospital_name"] or "Hospital",
+            "email": hospital["email"] or "hospital@example.com",
+            "phone": "9800000000"
+        }
+    }
+    
+    headers = {
+        "Authorization": f"Key {os.getenv('KHALTI_SECRET_KEY')}",
+        "Content-Type": "application/json"
+    }
+    
     try:
-        # Create Stripe checkout session
-        checkout_session = stripe.checkout.Session.create(
-            customer=customer_id,
-            mode="subscription",
-            payment_method_types=["card"],
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/subscription-cancelled",
-            metadata={
-                "hospital_id": hospital_id,
-                "plan_id": plan["id"],
-                "billing_cycle": billing_cycle
-            }
-        )
-
-        conn.close()
-        print(f"SUCCESS: Checkout session created: {checkout_session.id}")
-        return jsonify({"url": checkout_session.url, "sessionId": checkout_session.id})
-
-    except stripe.error.StripeError as e:
-        conn.close()
-        print(f"STRIPE ERROR: {str(e)}")
-        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
-    except Exception as e:
-        conn.close()
-        print(f"UNEXPECTED ERROR: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-# ==============================================
-# STRIPE SESSION VERIFICATION (for after checkout redirect)
-# ==============================================
-
-@app.route("/api/stripe/verify-session", methods=["POST"])
-@hospital_required
-def verify_stripe_session():
-    """Verify a completed Stripe checkout session and update the subscription.
-    Called by the frontend after returning from Stripe checkout."""
-    data = request.json
-    session_id = data.get("session_id")
-
-    if not session_id:
-        return jsonify({"error": "session_id required"}), 400
-
-    hospital_id = session["hospital_id"]
-
-    try:
-        # Retrieve the checkout session from Stripe
-        checkout_session = stripe.checkout.Session.retrieve(session_id)
-
-        if checkout_session.payment_status != "paid":
+        response = requests.post(khalti_url, json=payload, headers=headers)
+        res_data = response.json()
+        
+        if response.status_code == 200:
             return jsonify({
-                "error": "Payment not completed",
-                "status": checkout_session.payment_status
-            }), 400
+                "url": res_data.get("payment_url"),
+                "pidx": res_data.get("pidx")
+            })
+        else:
+            logger.error(f"Khalti Initiate Error: {res_data}")
+            return jsonify({"error": "Payment gateway initialization failed"}), 400
+    except Exception as e:
+        logger.error(f"Khalti Exception: {e}")
+        return jsonify({"error": "Error connecting to payment gateway"}), 500
 
-        # Get metadata
-        metadata = checkout_session.metadata or {}
-        plan_id = metadata.get("plan_id")
-        billing_cycle = metadata.get("billing_cycle", "monthly")
-        meta_hospital_id = metadata.get("hospital_id")
 
-        # Verify hospital_id matches
-        if meta_hospital_id and int(meta_hospital_id) != hospital_id:
-            return jsonify({"error": "Session does not belong to this hospital"}), 403
+@app.route("/api/khalti/verify-payment", methods=["POST"])
+@hospital_required
+def verify_khalti_payment():
+    data = request.json
+    pidx = data.get("pidx")
+    plan_id = data.get("plan_id")
+    billing_cycle = data.get("billing_cycle", "monthly")
+    hospital_id = session.get("hospital_id")
 
-        if not plan_id:
-            return jsonify({"error": "No plan_id in session metadata"}), 400
+    if not pidx or not plan_id:
+        return jsonify({"error": "pidx and plan_id are required"}), 400
 
-        plan_id = int(plan_id)
+    khalti_lookup_url = "https://a.khalti.com/api/v2/epayment/lookup/"
+    headers = {
+        "Authorization": f"Key {os.getenv('KHALTI_SECRET_KEY')}",
+        "Content-Type": "application/json"
+    }
 
+    try:
+        response = requests.post(khalti_lookup_url, json={"pidx": pidx}, headers=headers)
+        res_data = response.json()
+
+        status_received = res_data.get("status", "").lower()
+        if response.status_code != 200 or status_received != "completed":
+            logger.error(f"Khalti Verification Failed. Response: {res_data}")
+            return jsonify({"error": "Payment verification failed or not completed", "details": res_data}), 400
+            
+        TransactionID = res_data.get("transaction_id", pidx)
+        
         conn = get_db()
         c = conn.cursor()
-
-        # Check if this session was already processed
-        c.execute("SELECT id FROM payment_transactions WHERE transaction_id = ?",
-                  (checkout_session.payment_intent or session_id,))
+        
+        c.execute("SELECT id FROM payment_transactions WHERE transaction_id = ?", (TransactionID,))
         if c.fetchone():
-            # Already processed - just return success
             conn.close()
-            logger.info(f"✅ Session {session_id} already processed for hospital {hospital_id}")
             usage_info = get_detailed_usage(hospital_id)
-            return jsonify({
-                "success": True,
-                "message": "Subscription already activated",
-                "usage": usage_info
-            })
+            return jsonify({"success": True, "message": "Subscription already activated", "usage": usage_info})
 
-        # Get new plan details
         c.execute("SELECT * FROM subscription_plans WHERE id = ?", (plan_id,))
         new_plan = c.fetchone()
         if not new_plan:
@@ -3398,23 +3332,14 @@ def verify_stripe_session():
             return jsonify({"error": "Plan not found"}), 404
         new_plan = dict(new_plan)
 
-        # Cancel existing active subscription
-        c.execute("""
-            SELECT id, plan_id FROM hospital_subscriptions
-            WHERE hospital_id = ? AND status = 'active'
-        """, (hospital_id,))
+        c.execute("SELECT id, plan_id FROM hospital_subscriptions WHERE hospital_id = ? AND status = 'active'", (hospital_id,))
         current_sub = c.fetchone()
         old_plan_id = None
 
         if current_sub:
             old_plan_id = current_sub[1]
-            c.execute("""
-                UPDATE hospital_subscriptions
-                SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (current_sub[0],))
+            c.execute("UPDATE hospital_subscriptions SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP WHERE id = ?", (current_sub[0],))
 
-        # Create new subscription
         start_date = datetime.now()
         if billing_cycle == 'yearly':
             end_date = start_date + timedelta(days=365)
@@ -3428,61 +3353,37 @@ def verify_stripe_session():
             (hospital_id, plan_id, status, billing_cycle,
              current_period_start, current_period_end, next_billing_date)
             VALUES (?, ?, 'active', ?, ?, ?, ?)
-        """, (hospital_id, plan_id, billing_cycle,
-              start_date.date(), end_date.date(), end_date.date()))
+        """, (hospital_id, plan_id, billing_cycle, start_date.date(), end_date.date(), end_date.date()))
         new_sub_id = c.lastrowid
 
-        # Update usage tracking - get old scans_used first, then mark old as not current
         c.execute("SELECT scans_used FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
         old_usage = c.fetchone()
         carry_over_scans = old_usage[0] if old_usage else 0
 
-        c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
-                  (hospital_id,))
-
-        # Delete any existing usage row for the exact same start date
-        c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?",
-                  (hospital_id, start_date.date()))
-
-        # Create new usage tracking with carried-over scan count
+        c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?", (hospital_id,))
+        c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?", (hospital_id, start_date.date()))
+        
         c.execute("""
             INSERT INTO usage_tracking
             (hospital_id, subscription_id, period_start, period_end,
              scans_used, scans_limit, users_limit, patients_limit, is_current)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-        """, (hospital_id, new_sub_id, start_date.date(), end_date.date(),
-              carry_over_scans,
-              new_plan['max_scans_per_month'], new_plan['max_users'],
-              new_plan['max_patients']))
-
-        # Log subscription history
-        action = 'upgrade' if (old_plan_id and plan_id > old_plan_id) else 'upgrade'
-        c.execute("""
-            INSERT INTO subscription_history
-            (hospital_id, subscription_id, action,
-             old_plan_id, new_plan_id, reason)
-            VALUES (?, ?, ?, ?, ?, 'Stripe payment completed')
-        """, (hospital_id, new_sub_id, action, old_plan_id, plan_id))
-
-        # Create payment record
+        """, (hospital_id, new_sub_id, start_date.date(), end_date.date(), carry_over_scans, new_plan['max_scans_per_month'], new_plan['max_users'], new_plan['max_patients']))
+        
         invoice_number = f"INV-{hospital_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         c.execute("""
             INSERT INTO payment_transactions
             (hospital_id, subscription_id, amount, status,
              transaction_id, invoice_number, description, payment_date)
             VALUES (?, ?, ?, 'completed', ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (hospital_id, new_sub_id, amount,
-              checkout_session.payment_intent or session_id,
-              invoice_number,
-              f"Upgrade to {new_plan['display_name']} - {billing_cycle}"))
+        """, (hospital_id, new_sub_id, amount, TransactionID, invoice_number, f"Upgrade to {new_plan['display_name']} - {billing_cycle}"))
 
         conn.commit()
         conn.close()
 
-        logger.info(f"✅ Verify-session: Hospital {hospital_id} upgraded to plan {plan_id} ({new_plan['display_name']})")
-
-        # Return updated usage info
+        logger.info(f"✅ Verified Khalti Session: Hospital {hospital_id} upgraded to {new_plan['display_name']}")
         usage_info = get_detailed_usage(hospital_id)
+        
         return jsonify({
             "success": True,
             "message": f"Successfully upgraded to {new_plan['display_name']}!",
@@ -3490,155 +3391,9 @@ def verify_stripe_session():
             "usage": usage_info
         })
 
-    except stripe.error.StripeError as e:
-        logger.error(f"❌ Stripe error in verify-session: {e}")
-        return jsonify({"error": f"Stripe error: {str(e)}"}), 500
     except Exception as e:
-        logger.error(f"❌ Verify-session error: {e}")
+        logger.error(f"❌ Khalti verification error: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-# ==============================================
-# STRIPE WEBHOOK
-# ==============================================
-
-@app.route("/api/stripe/webhook", methods=["POST"])
-def stripe_webhook():
-    """Handle Stripe webhook events after successful payment"""
-    payload = request.get_data(as_text=True)
-    sig_header = request.headers.get('Stripe-Signature')
-
-    # If webhook secret is configured, verify signature
-    if STRIPE_WEBHOOK_SECRET:
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
-        except ValueError:
-            logger.error("Invalid webhook payload")
-            return jsonify({"error": "Invalid payload"}), 400
-        except stripe.error.SignatureVerificationError:
-            logger.error("Invalid webhook signature")
-            return jsonify({"error": "Invalid signature"}), 400
-    else:
-        # Without webhook secret, parse event directly (dev mode)
-        try:
-            event = json.loads(payload)
-        except json.JSONDecodeError:
-            return jsonify({"error": "Invalid JSON"}), 400
-
-    # Handle checkout.session.completed
-    if event.get('type') == 'checkout.session.completed':
-        session_data = event['data']['object']
-        metadata = session_data.get('metadata', {})
-
-        hospital_id = metadata.get('hospital_id')
-        plan_id = metadata.get('plan_id')
-        billing_cycle = metadata.get('billing_cycle', 'monthly')
-
-        if hospital_id and plan_id:
-            try:
-                hospital_id = int(hospital_id)
-                plan_id = int(plan_id)
-
-                conn = get_db()
-                c = conn.cursor()
-
-                # Get new plan details
-                c.execute("SELECT * FROM subscription_plans WHERE id = ?", (plan_id,))
-                new_plan = c.fetchone()
-                if not new_plan:
-                    conn.close()
-                    logger.error(f"Webhook: Plan {plan_id} not found")
-                    return jsonify({"error": "Plan not found"}), 404
-                new_plan = dict(new_plan)
-
-                # Cancel existing active subscription
-                c.execute("""
-                    SELECT id, plan_id FROM hospital_subscriptions
-                    WHERE hospital_id = ? AND status = 'active'
-                """, (hospital_id,))
-                current_sub = c.fetchone()
-                old_plan_id = None
-
-                if current_sub:
-                    old_plan_id = current_sub[1]
-                    c.execute("""
-                        UPDATE hospital_subscriptions
-                        SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (current_sub[0],))
-
-                # Create new subscription
-                start_date = datetime.now()
-                if billing_cycle == 'yearly':
-                    end_date = start_date + timedelta(days=365)
-                    amount = new_plan['price_yearly']
-                else:
-                    end_date = start_date + timedelta(days=30)
-                    amount = new_plan['price_monthly']
-
-                c.execute("""
-                    INSERT INTO hospital_subscriptions
-                    (hospital_id, plan_id, status, billing_cycle,
-                     current_period_start, current_period_end, next_billing_date)
-                    VALUES (?, ?, 'active', ?, ?, ?, ?)
-                """, (hospital_id, plan_id, billing_cycle,
-                      start_date.date(), end_date.date(), end_date.date()))
-                new_sub_id = c.lastrowid
-
-                # Update usage tracking - get old scans_used first
-                c.execute("SELECT scans_used FROM usage_tracking WHERE hospital_id = ? AND is_current = 1", (hospital_id,))
-                old_usage = c.fetchone()
-                carry_over_scans = old_usage[0] if old_usage else 0
-
-                c.execute("UPDATE usage_tracking SET is_current = 0 WHERE hospital_id = ?",
-                          (hospital_id,))
-
-                # Delete any existing usage row for the exact same start date
-                c.execute("DELETE FROM usage_tracking WHERE hospital_id = ? AND period_start = ?",
-                          (hospital_id, start_date.date()))
-                c.execute("""
-                    INSERT INTO usage_tracking
-                    (hospital_id, subscription_id, period_start, period_end,
-                     scans_used, scans_limit, users_limit, patients_limit, is_current)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-                """, (hospital_id, new_sub_id, start_date.date(), end_date.date(),
-                      carry_over_scans,
-                      new_plan['max_scans_per_month'], new_plan['max_users'],
-                      new_plan['max_patients']))
-
-                # Log subscription history
-                action = 'upgrade' if (old_plan_id and plan_id > old_plan_id) else 'upgrade'
-                c.execute("""
-                    INSERT INTO subscription_history
-                    (hospital_id, subscription_id, action,
-                     old_plan_id, new_plan_id, reason)
-                    VALUES (?, ?, ?, ?, ?, 'Stripe payment completed')
-                """, (hospital_id, new_sub_id, action, old_plan_id, plan_id))
-
-                # Create payment record
-                invoice_number = f"INV-{hospital_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                c.execute("""
-                    INSERT INTO payment_transactions
-                    (hospital_id, subscription_id, amount, status,
-                     transaction_id, invoice_number, description, payment_date)
-                    VALUES (?, ?, ?, 'completed', ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (hospital_id, new_sub_id, amount,
-                      session_data.get('payment_intent'),
-                      invoice_number,
-                      f"Upgrade to {new_plan['display_name']} - {billing_cycle}"))
-
-                conn.commit()
-                conn.close()
-
-                logger.info(f"✅ Webhook: Hospital {hospital_id} upgraded to plan {plan_id}")
-
-            except Exception as e:
-                logger.error(f"❌ Webhook processing error: {e}")
-                return jsonify({"error": str(e)}), 500
-
-    return jsonify({"status": "success"}), 200
 
 
 @app.route("/admin/revenue", methods=["GET"])
