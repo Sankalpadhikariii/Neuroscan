@@ -3212,6 +3212,16 @@ def admin_get_all_subscriptions():
 # KHALTI PAYMENT INTEGRATION
 # ==============================================
 
+def get_khalti_headers():
+    secret_key = (KHALTI_SECRET_KEY or "").strip()
+    if not secret_key:
+        return None, "Khalti secret key is missing. Set KHALTI_SECRET_KEY in .env and restart the backend."
+
+    return {
+        "Authorization": f"Key {secret_key}",
+        "Content-Type": "application/json"
+    }, None
+
 @app.route("/api/khalti/initiate-payment", methods=["POST"])
 @hospital_required
 def initiate_khalti_payment():
@@ -3265,10 +3275,10 @@ def initiate_khalti_payment():
         }
     }
     
-    headers = {
-        "Authorization": f"Key {os.getenv('KHALTI_SECRET_KEY')}",
-        "Content-Type": "application/json"
-    }
+    headers, header_error = get_khalti_headers()
+    if header_error:
+        logger.error(header_error)
+        return jsonify({"error": header_error}), 500
     
     try:
         response = requests.post(khalti_url, json=payload, headers=headers)
@@ -3281,7 +3291,10 @@ def initiate_khalti_payment():
             })
         else:
             logger.error(f"Khalti Initiate Error: {res_data}")
-            return jsonify({"error": "Payment gateway initialization failed"}), 400
+            return jsonify({
+                "error": "Payment gateway initialization failed",
+                "details": res_data
+            }), 400
     except Exception as e:
         logger.error(f"Khalti Exception: {e}")
         return jsonify({"error": "Error connecting to payment gateway"}), 500
@@ -3300,10 +3313,10 @@ def verify_khalti_payment():
         return jsonify({"error": "pidx and plan_id are required"}), 400
 
     khalti_lookup_url = "https://a.khalti.com/api/v2/epayment/lookup/"
-    headers = {
-        "Authorization": f"Key {os.getenv('KHALTI_SECRET_KEY')}",
-        "Content-Type": "application/json"
-    }
+    headers, header_error = get_khalti_headers()
+    if header_error:
+        logger.error(header_error)
+        return jsonify({"error": header_error}), 500
 
     try:
         response = requests.post(khalti_lookup_url, json={"pidx": pidx}, headers=headers)

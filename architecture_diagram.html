@@ -105,7 +105,7 @@
                     
                     UI["<b style='font-size:14px'>React Frontend</b><br/><span style='font-size:12px'>• Login &amp; Auth</span><br/><span style='font-size:12px'>• Upload MRI Scans</span><br/><span style='font-size:12px'>• Hospital Dashboard</span><br/><span style='font-size:12px'>• Patient Portal</span><br/><span style='font-size:12px'>• Chat &amp; Notifications</span><br/><span style='font-size:12px'>• Subscriptions</span>"]
                     
-                    API["<b style='font-size:14px'>Flask Context / API</b><br/><span style='font-size:12px'>• Auth Server JWT</span><br/><span style='font-size:12px'>• MRI Upload API</span><br/><span style='font-size:12px'>• Socket.IO Chat</span><br/><span style='font-size:12px'>• Notifications API</span><br/><span style='font-size:12px'>• PDF Generation (ReportLab)</span><br/><span style='font-size:12px'>• Stripe Webhooks</span>"]
+                    API["<b style='font-size:14px'>Flask Context / API</b><br/><span style='font-size:12px'>• Auth Server JWT</span><br/><span style='font-size:12px'>• MRI Upload API</span><br/><span style='font-size:12px'>• Socket.IO Chat</span><br/><span style='font-size:12px'>• Notifications API</span><br/><span style='font-size:12px'>• PDF Generation (ReportLab)</span><br/><span style='font-size:12px'>• Khalti Webhooks</span>"]
                     
                     UI <-->|"HTTPS / WebSockets"| API
                 end
@@ -118,7 +118,7 @@
                     
                     AI["<b style='font-size:14px'>PyTorch AI Model (Wrapper)</b><br/><span style='font-size:12px'>• Preprocessing</span><br/><span style='font-size:12px'>• VGG19 Classifier</span><br/><span style='font-size:12px'>• Confidence Score</span>"]
                     
-                    Stripe["<b style='font-size:14px'>Stripe Services</b><br/><span style='font-size:12px'>• Billing &amp; Payments</span>"]
+                    Khalti["<b style='font-size:14px'>Khalti Services</b><br/><span style='font-size:12px'>• Billing &amp; Payments</span>"]
                 end
 
                 %% Apply Styles
@@ -129,7 +129,7 @@
                 API:::component
                 DB:::component
                 AI:::component
-                Stripe:::component
+                Khalti:::component
                 
                 class Users,Core_System,Services group
 
@@ -142,8 +142,8 @@
                 AI -->|"Prediction"| API
 
                 API <-->|"SQL Queries"| DB
-                API <-->|"Payment Intents"| Stripe
-                UI -.->|"Stripe Checkout / Elements"| Stripe
+                API <-->|"Payment Intents"| Khalti
+                UI -.->|"Khalti Checkout / Elements"| Khalti
                 
         </div>
     </div>
